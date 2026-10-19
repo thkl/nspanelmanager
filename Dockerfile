@@ -1,12 +1,11 @@
 FROM node:22-alpine AS build
-RUN corepack enable
 WORKDIR /workspace
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
-RUN pnpm install --frozen-lockfile
+RUN npm install
 COPY apps ./apps
-RUN pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api build
+RUN npm --filter @nspanel/web build && pnpm --filter @nspanel/api build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
