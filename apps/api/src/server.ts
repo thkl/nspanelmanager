@@ -36,7 +36,8 @@ async function startServer(): Promise<void> {
   const runtimeState = new RuntimeStateStore(dataDir, logger);
   await runtimeState.load();
   const backupService = new BackupArchiveService(dataDir, () => runtimeState.flush());
-  const userStore = new UserStore(dataDir);
+  const setUserStorePermissions = process.env.USER_STORE_SET_PERMISSIONS?.trim().toLowerCase() !== "false";
+  const userStore = new UserStore(dataDir, setUserStorePermissions);
   await userStore.load();
   logger.debug("Checking OIDC environment configuration.", {
     component: "auth",

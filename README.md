@@ -74,6 +74,8 @@ Confirm the files are owned by the intended operator or deployment account and t
 
 Edit `APP_PUBLIC_URL` if the manager will be reached at a different origin. For SSO, uncomment and configure the OIDC values in `.env`, create `secrets/oidc_client_secret`, and use the SSO Compose override described above. Compose mounts the encryption key as a read-only secret at `/run/secrets/manager_encryption_key`; keep its source file outside the `manager-data` volume and back it up separately. Losing or replacing the key makes encrypted broker credentials unreadable.
 
+`USER_STORE_SET_PERMISSIONS` defaults to `true` and makes the API set private permissions on the user-store directory and file. If a NAS filesystem rejects `chmod`, set it to `false` in `.env`; then restrict access to `users.json` through the NAS or host filesystem configuration.
+
 When Traefik or another reverse proxy is the only browser-facing entry point, set `TRUST_PROXY` in `.env` to the proxy's exact IP address or trusted Docker subnet (for example, `172.20.0.0/16`). Login throttling uses Express's `request.ip`, which trusts forwarded addresses only according to this setting. It defaults to `false`; avoid `true` or a hop count unless the proxy path is fixed, forwarded headers are overwritten by the proxy, and direct access to port 3000 is blocked. See the [Express guide to running behind proxies](https://expressjs.com/en/5x/guide/behind-proxies/) for the trust rules.
 
 ```sh

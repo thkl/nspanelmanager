@@ -25,21 +25,25 @@ interface UserStoreSnapshot {
   sessions: StoredSession[];
 }
 
-/** Persists local accounts and revocable opaque sessions in one private file. */
+  /** Persists local accounts and revocable opaque sessions in one file with optional permission enforcement. */
 export class UserStore {
   private readonly filePath: string;
   private snapshot: UserStoreSnapshot = { version: 1, users: [], sessions: [] };
   private writeQueue: Promise<void> = Promise.resolve();
 
-  /** Creates the local account store under the configured manager data directory. */
-  constructor(dataDir: string) { this.filePath = path.join(dataDir, "users.json"); }
+  /** Creates the local account store and optionally enforces private filesystem permissions. */
+  constructor(dataDir: string, private readonly setPermissions = true) { this.filePath = path.join(dataDir, "users.json"); }
 
   /** Loads accounts and sessions, creating an empty private store on first run. */
   async load(): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-    try { // wrap this in try cat cause it may fail on a nas .. 
-      await chmod(path.dirname(this.filePath), 0o700);
-    } catch {}
+    await mkdir(path.dirname(this.filePath), this.setPermissions ? { recursive: true, mode: 0o700 } : { recursive: true });
+    if (this.setPermissions) {
+      try {
+        await chmod(path.dirname(this.filePath), 0o700);
+      } catch {
+        // Some NAS filesystems do not support chmod; the operator can disable all permission changes below.
+      }
+    }
     try {
       const stored = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<UserStoreSnapshot>;
       if (stored.version !== 1 || !Array.isArray(stored.users) || !Array.isArray(stored.sessions) ||
@@ -56,7 +60,7 @@ export class UserStore {
       if (stored.sessions.some((session) => session.userId && !userIds.has(session.userId))) {
         throw new Error("The local user store contains a session for a missing account; refusing to load ambiguous access data.");
       }
-      await chmod(this.filePath, 0o600);
+      if (this.setPermissions) await chmod(this.filePath, 0o600);
       this.snapshot = {
         version: 1,
         users: stored.users,
@@ -221,8 +225,12 @@ export class UserStore {
     const data = `${JSON.stringify(this.snapshot, null, 2)}\n`;
     const write = async (): Promise<void> => {
       const temporaryPath = `${this.filePath}.tmp`;
-      await writeFile(temporaryPath, data, { mode: 0o600 });
-      await chmod(temporaryPath, 0o600);
+      if (this.setPermissions) {
+        await writeFile(temporaryPath, data, { mode: 0o600 });
+        await chmod(temporaryPath, 0o600);
+      } else {
+        await writeFile(temporaryPath, data);
+      }
       await rename(temporaryPath, this.filePath);
     };
     this.writeQueue = this.writeQueue.then(write, write);
