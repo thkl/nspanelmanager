@@ -21,12 +21,25 @@
     <button class="nav-item" [class.active]="view() === 'routes'" [attr.aria-current]="view() === 'routes' ? 'page' : null" (click)="show('routes')">
       <span>↔</span> MQTT routes <em>{{ manager.config().routes.length }}</em>
     </button>
-    <button class="nav-item" [class.active]="view() === 'broker'" [attr.aria-current]="view() === 'broker' ? 'page' : null" (click)="show('broker')">
-      <span>⌁</span> Connection
-    </button>
-    <button class="nav-item" [class.active]="view() === 'users'" [attr.aria-current]="view() === 'users' ? 'page' : null" (click)="show('users')">
-      <span>♙</span> Users
-    </button>
+    <div class="settings-nav">
+      <button class="nav-item" type="button" [class.active]="isSettingsView() || settingsExpanded()" [attr.aria-expanded]="settingsExpanded()" aria-controls="settings-menu" (click)="toggleSettings()">
+        <span>⚙</span> Settings <span class="settings-chevron" [class.expanded]="settingsExpanded()" aria-hidden="true">⌄</span>
+      </button>
+      <div id="settings-menu" class="settings-submenu" role="group" aria-label="Settings pages" [hidden]="!settingsExpanded()">
+        <button class="nav-item settings-child" type="button" aria-label="Connection settings" [class.active]="view() === 'broker'" [attr.aria-current]="view() === 'broker' ? 'page' : null" (click)="show('broker')">
+          <span>⌁</span> Connection
+        </button>
+        <button class="nav-item settings-child" type="button" aria-label="User settings" [class.active]="view() === 'users'" [attr.aria-current]="view() === 'users' ? 'page' : null" (click)="show('users')">
+          <span>♙</span> Users
+        </button>
+        <button class="nav-item settings-child" type="button" aria-label="Application logs" [class.active]="view() === 'logs'" [attr.aria-current]="view() === 'logs' ? 'page' : null" (click)="show('logs')">
+          <span>≋</span> Logs
+        </button>
+        <button class="nav-item settings-child" type="button" aria-label="Data backup" [class.active]="view() === 'backups'" [attr.aria-current]="view() === 'backups' ? 'page' : null" (click)="show('backups')">
+          <span>↓</span> Backup
+        </button>
+      </div>
+    </div>
     <div class="sidebar-bottom">
       <div class="broker-state"><i [class.online]="manager.mqtt().connected"></i><span>{{ manager.mqtt().connected ? 'Broker connected' : 'Broker disconnected' }}</span></div>
       <small class="version">NSPanel Manager · MVP</small>
@@ -40,7 +53,9 @@
         <span class="connection-pill" [class.is-connected]="manager.mqtt().connected"><i></i>{{ manager.mqtt().connected ? 'MQTT online' : 'MQTT offline' }}</span>
         <span class="signed-in-user">{{ manager.authUser()?.email }}</span>
         <button class="signout-button" type="button" (click)="signOut()">Sign out</button>
-        <button class="icon-button" aria-label="Refresh current page" (click)="refreshCurrent()">↻</button>
+        @if (view() !== 'backups') {
+          <button class="icon-button" aria-label="Refresh current page" (click)="refreshCurrent()">↻</button>
+        }
       </div>
     </header>
 
@@ -58,8 +73,12 @@
       <nspanel-routes-page #routesPage />
     } @else if (view() === 'broker') {
       <nspanel-broker-page #brokerPage />
-    } @else {
+    } @else if (view() === 'users') {
       <nspanel-users-page #usersPage />
+    } @else if (view() === 'logs') {
+      <nspanel-logs-page #logsPage />
+    } @else {
+      <nspanel-backups-page />
     }
   </main>
 </div>

@@ -4,6 +4,7 @@ import { normalizePanelSettings, validNodeName } from "../domain/panel-settings.
 import { defaultPanelSettings, type Panel } from "../types.js";
 import type { ConfigStore } from "../services/config-store.js";
 import type { MqttRuntime } from "../services/mqtt-runtime.js";
+import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 
 /**
  * Creates the HTTP endpoints for panel profile lifecycle operations.
@@ -13,7 +14,7 @@ import type { MqttRuntime } from "../services/mqtt-runtime.js";
  * to firmware. This router owns profile-specific behavior; broker setup and
  * generic MQTT route editing live in separate feature routers.
  */
-export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime): Router {
+export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry): Router {
   const router = Router();
 
   router.post("/", async (request, response) => {
@@ -21,7 +22,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime):
     const nodeName = stringValue(request.body?.nodeName).trim();
     if (!name || !validNodeName(nodeName)) return response.status(400).json({ error: "Name and a valid MQTT node name are required." });
     if (store.get().panels.some((panel) => panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
-    const panel = await store.addPanel({ name, nodeName, settings: defaultPanelSettings(name) });
+    const panel = await store.addPanel({ name, nodeName, settings: defaultPanelSettings(name), nativePluginInstances: {} });
     mqttRuntime.syncSubscriptions();
     response.status(201).json({ panel });
   });
@@ -34,8 +35,18 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime):
     const nodeName = stringValue(input.nodeName).trim();
     if (!name || !validNodeName(nodeName)) return response.status(400).json({ error: "Name and a valid MQTT node name are required." });
     if (store.get().panels.some((panel) => panel.id !== current.id && panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
-    const panel: Panel = { ...current, name, nodeName, settings: normalizePanelSettings(input.settings, name) };
+    const nativePluginInstances = normalizeNativePluginInstances(input.nativePluginInstances === undefined ? current.nativePluginInstances : input.nativePluginInstances);
+    for (const [pageId, instanceId] of Object.entries(nativePluginInstances)) {
+      const instance = store.get().pluginInstances.find((item) => item.id === instanceId);
+      const profile = instance && store.get().pluginProfiles.find((item) => item.id === instance.pluginProfileId);
+      const definition = profile && pluginRegistry.get(profile.pluginId);
+      if (!instance || !definition || definition.nativePanelPage !== pageId) {
+        return response.status(400).json({ error: `Choose a registered plugin instance that supports the '${pageId}' native page.` });
+      }
+    }
+    const panel: Panel = { ...current, name, nodeName, settings: normalizePanelSettings(input.settings, name), nativePluginInstances };
     await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
+    await mqttRuntime.refreshNativePanel(panel);
     mqttRuntime.syncSubscriptions();
     response.json({ panel });
   });
@@ -64,3 +75,8 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime):
 }
 
 function stringValue(value: unknown): string { return typeof value === "string" ? value : ""; }
+
+function normalizeNativePluginInstances(input: unknown): Record<string, string> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return Object.fromEntries(Object.entries(input).filter((entry): entry is [string, string] => typeof entry[1] === "string" && Boolean(entry[1].trim())));
+}

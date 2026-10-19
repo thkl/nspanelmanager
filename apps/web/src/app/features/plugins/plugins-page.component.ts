@@ -51,7 +51,6 @@ export class PluginsPageComponent implements OnInit {
   readonly savingInstance = signal(false);
   readonly savingProfile = signal(false);
   readonly buttonSlots = Array.from({ length: 8 }, (_, index) => String(index + 1));
-  readonly variablePlaceholderExample = "{{name}}";
 
   /** Provides shared configuration and typed API operations for this page. */
   constructor(readonly manager: ManagerStore) {}
@@ -639,6 +638,18 @@ export class PluginsPageComponent implements OnInit {
   variablesValid(): boolean {
     const entries = Object.entries(this.instanceVariables());
     return entries.length <= 64 && entries.every(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name) && value.length <= 4096);
+  }
+
+  /** Shows required per-location fields for the selected built-in weather provider. */
+  instanceVariableHelp(): string {
+    const profile = this.manager.config().pluginProfiles.find((item) => item.id === this.selectedPluginProfileId());
+    if (profile?.pluginId === "open-meteo-weather") {
+      return "Add latitude and longitude for this location. Optionally add timezone (for example Europe/Berlin); leave it blank to use automatic timezone detection.";
+    }
+    if (profile?.pluginId === "mqtt-thermostat") {
+      return "These values belong to this thermostat. For the default Homematic topics, add channel (for example LEQ0999385:2).";
+    }
+    return "These values belong to this device. Use {{name}} in scripts and MQTT actions, or read variables.name in JavaScript.";
   }
 
   /** Resolves plugin metadata for a saved instance row. */

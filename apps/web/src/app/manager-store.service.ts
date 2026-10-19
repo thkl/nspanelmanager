@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, ManagerConfig, ManagerState, MqttRoute, MqttStatus, Panel, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult } from "./models";
+import type { AuthStatus, AuthUser, BrokerInput, ManagerConfig, ManagerState, MqttRoute, MqttStatus, Panel, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -96,6 +96,14 @@ export class ManagerStore {
   /** Updates the lightweight connection indicator without reloading drafts. */
   refreshHealth(): Observable<{ mqtt: MqttStatus }> {
     return this.http.get<{ mqtt: MqttStatus }>("/api/health").pipe(tap((health) => this.mqtt.set(health.mqtt)));
+  }
+
+  /** Reads a bounded, optionally filtered set of recent records from rotated manager log files. */
+  loadLogs(filters: { limit?: number; offset?: number; category?: string; level?: LogLevel } = {}): Observable<AdminLogResult> {
+    const query = new URLSearchParams({ limit: String(filters.limit ?? 200), offset: String(filters.offset ?? 0) });
+    if (filters.category) query.set("category", filters.category);
+    if (filters.level) query.set("level", filters.level);
+    return this.http.get<AdminLogResult>(`/api/logs?${query.toString()}`);
   }
 
   /** Saves broker settings and refreshes the public configuration returned by the API. */

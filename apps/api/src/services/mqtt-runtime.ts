@@ -19,7 +19,10 @@ export class MqttRuntime {
   private activeTopics = new Set<string>();
   private readonly pluginSubscriptions = new Map<string, PluginMqttSubscription[]>();
   private readonly initializedPluginConfigs = new Map<string, string>();
+  private readonly pluginPollTimers = new Map<string, NodeJS.Timeout>();
+  private readonly pollingPlugins = new Set<string>();
   private readonly pendingMessages = new Set<Promise<void>>();
+  private readonly nativePanelPages = new Map<string, string>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
 
@@ -110,6 +113,7 @@ export class MqttRuntime {
     this.client = undefined;
     this.connected = false;
     this.activeTopics.clear();
+    for (const id of this.pluginPollTimers.keys()) this.clearPluginPoll(id);
     if (client) await new Promise<void>((resolve) => client.end(true, {}, () => resolve()));
     await Promise.all(this.pendingMessages);
   }
@@ -122,6 +126,7 @@ export class MqttRuntime {
       if (!enabledIds.has(id)) {
         this.initializedPluginConfigs.delete(id);
         this.pluginSubscriptions.delete(id);
+        this.clearPluginPoll(id);
       }
     }
 
@@ -131,27 +136,30 @@ export class MqttRuntime {
       if (!definition) continue;
       const fingerprint = JSON.stringify([definition.id, definition.version, instance.config, instance.variables]);
       if (this.initializedPluginConfigs.get(instance.id) === fingerprint) continue;
+      this.clearPluginPoll(instance.id);
       this.initializedPluginConfigs.set(instance.id, fingerprint);
       this.pluginSubscriptions.delete(instance.id);
-      if (!definition.initialize) continue;
-      try {
-        const subscriptions = await definition.initialize(
-          instance,
-          this.runtimeState.getPluginState(instance.id),
-          this.createPluginLifecycleContext(instance, "startup")
-        );
-        this.pluginSubscriptions.set(instance.id, subscriptions.filter((subscription) => isValidTopicFilter(subscription.topicFilter)));
-      } catch (error) {
-        this.pluginSubscriptions.set(instance.id, []);
-        const detail = error instanceof Error ? error.message : String(error);
-        this.lastError = detail;
-        this.logger.error("Plugin startup function failed.", {
-          component: "plugin",
-          instance: instance.name,
-          phase: "startup",
-          detail
-        });
+      if (definition.initialize) {
+        try {
+          const subscriptions = await definition.initialize(
+            instance,
+            this.runtimeState.getPluginState(instance.id),
+            this.createPluginLifecycleContext(instance, "startup")
+          );
+          this.pluginSubscriptions.set(instance.id, subscriptions.filter((subscription) => isValidTopicFilter(subscription.topicFilter)));
+        } catch (error) {
+          this.pluginSubscriptions.set(instance.id, []);
+          const detail = error instanceof Error ? error.message : String(error);
+          this.lastError = detail;
+          this.logger.error("Plugin startup function failed.", {
+            component: "plugin",
+            instance: instance.name,
+            phase: "startup",
+            detail
+          });
+        }
       }
+      this.startPluginPoll(instance, definition);
     }
     this.syncSubscriptions();
   }
@@ -240,7 +248,23 @@ export class MqttRuntime {
   }
 
   /** Drops active flow context and panel-scoped values for a deleted panel. */
-  async removePanelRuntimeState(panelId: string): Promise<void> { await this.runtimeState.removePanel(panelId); }
+  async removePanelRuntimeState(panelId: string): Promise<void> {
+    this.nativePanelPages.delete(panelId);
+    await this.runtimeState.removePanel(panelId);
+  }
+
+  /** Reapplies assigned plugin state after panel settings are saved, including home-screen telemetry. */
+  async refreshNativePanel(panel: Panel): Promise<void> {
+    const instances = this.resolvePluginInstances();
+    for (const [pageId, instanceId] of Object.entries(panel.nativePluginInstances ?? {})) {
+      const instance = instances.find((candidate) => candidate.id === instanceId && candidate.enabled);
+      const definition = instance && this.plugins.get(instance.pluginId);
+      if (!instance || !definition || definition.nativePanelPage !== pageId) continue;
+      const state = this.runtimeState.getPluginState(instance.id);
+      await this.publishAssignedPanelState(definition, instance, panel, {}, state, state);
+      if (this.nativePanelPages.get(panel.id) === pageId) await this.publishNativePanelState(definition, instance, panel, state);
+    }
+  }
 
   /** Closes a currently visible flow screen before its favorite binding is removed. */
   async closePanelBinding(panel: Panel, bindingId: string): Promise<void> {
@@ -260,14 +284,20 @@ export class MqttRuntime {
     const instances = this.resolvePluginInstances(config);
     const eventPanel = config.panels.find((panel) => topic.startsWith(`${panel.nodeName}/event/`));
     if (eventPanel && isPanelPageEvent(eventPanel, topic)) {
+      this.nativePanelPages.delete(eventPanel.id);
       await this.clearActivePluginPage(eventPanel);
+    }
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && (payload === "booted" || payload === "sleep")) {
+      this.nativePanelPages.delete(eventPanel.id);
     }
 
     await this.dispatchPluginMessage(instances, message);
     await this.dispatchPluginSubscriptions(instances, message);
+    if (eventPanel) await this.dispatchNativePanelEvent(eventPanel, message, instances);
 
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
       this.publishPanelSettings(eventPanel);
+      await this.refreshNativePanel(eventPanel);
       await this.restorePanelSession(eventPanel, config.panelBindings, instances);
     } else if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "sleep") {
       // Stop pushing device telemetry to a panel once its firmware reports that
@@ -294,9 +324,145 @@ export class MqttRuntime {
       if (!definition || !definition.subscriptions(instance).some((filter) => matchesTopic(filter, message.topic))) continue;
       const patch = definition.decodeMessage(instance, message);
       if (!patch || Object.keys(patch).length === 0) continue;
-      const state = { ...this.runtimeState.getPluginState(instance.id), ...patch };
+      const previousState = this.runtimeState.getPluginState(instance.id);
+      const state = { ...previousState, ...patch };
       await this.runtimeState.setPluginState(instance.id, state);
       await this.refreshBoundPanels(instance, state);
+      await this.refreshNativePanelStates(instance, state);
+      await this.refreshAssignedPanelStates(instance, state, previousState, patch);
+    }
+  }
+
+  /** Starts one immediate refresh and an unref'ed interval for a polling plugin instance. */
+  private startPluginPoll(instance: ResolvedPluginInstance, definition: PluginDefinition): void {
+    const intervalMs = definition.pollIntervalMs?.(instance);
+    if (!definition.poll || typeof intervalMs !== "number" || !Number.isFinite(intervalMs) || intervalMs < 1_000 || intervalMs > 86_400_000) return;
+    void this.pollPluginInstance(instance.id);
+    const timer = setInterval(() => { void this.pollPluginInstance(instance.id); }, intervalMs);
+    timer.unref();
+    this.pluginPollTimers.set(instance.id, timer);
+  }
+
+  /** Fetches and dispatches one service plugin's normalized state update. */
+  private async pollPluginInstance(instanceId: string): Promise<void> {
+    if (this.closing || this.pollingPlugins.has(instanceId)) return;
+    const instance = this.resolvePluginInstances().find((candidate) => candidate.id === instanceId && candidate.enabled);
+    const definition = instance && this.plugins.get(instance.pluginId);
+    if (!instance || !definition?.poll) return;
+    this.pollingPlugins.add(instanceId);
+    try {
+      const previousState = this.runtimeState.getPluginState(instance.id);
+      const patch = await definition.poll(instance, previousState);
+      if (this.closing || !patch || Object.keys(patch).length === 0) return;
+      const nextState = { ...previousState, ...patch };
+      await this.runtimeState.setPluginState(instance.id, nextState);
+      await this.refreshBoundPanels(instance, nextState);
+      await this.refreshNativePanelStates(instance, nextState);
+      await this.refreshAssignedPanelStates(instance, nextState, previousState, patch);
+    } catch (error) {
+      if (this.closing) return;
+      const detail = error instanceof Error ? error.message : String(error);
+      this.lastError = detail;
+      this.logger.error("Plugin service refresh failed.", {
+        component: "plugin", instance: instance.name, phase: "poll", detail
+      });
+    } finally {
+      this.pollingPlugins.delete(instanceId);
+    }
+  }
+
+  /** Clears a service polling interval when an instance is disabled, changed, removed, or shut down. */
+  private clearPluginPoll(instanceId: string): void {
+    const timer = this.pluginPollTimers.get(instanceId);
+    if (timer) clearInterval(timer);
+    this.pluginPollTimers.delete(instanceId);
+  }
+
+  /** Runs the configured plugin integration for one firmware-native panel event. */
+  private async dispatchNativePanelEvent(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[]): Promise<void> {
+    for (const [pageId, instanceId] of Object.entries(panel.nativePluginInstances ?? {})) {
+      const instance = instances.find((candidate) => candidate.id === instanceId && candidate.enabled);
+      const definition = instance && this.plugins.get(instance.pluginId);
+      if (!instance || !definition || definition.nativePanelPage !== pageId) continue;
+
+      const transition = definition.nativePanelTransition?.(instance, panel, message);
+      if (transition === "open") this.nativePanelPages.set(panel.id, pageId);
+      else if (transition === "close") {
+        if (this.nativePanelPages.get(panel.id) === pageId) this.nativePanelPages.delete(panel.id);
+        continue;
+      }
+      if (this.nativePanelPages.get(panel.id) !== pageId) continue;
+
+      try {
+        const previousState = this.runtimeState.getPluginState(instance.id);
+        const result = definition.handleNativePanelEvent
+          ? await definition.handleNativePanelEvent(instance, panel, message, previousState)
+          : undefined;
+        const nextState = result?.statePatch ? { ...previousState, ...result.statePatch } : previousState;
+        if (result?.statePatch) await this.runtimeState.setPluginState(instance.id, nextState);
+        for (const command of result?.commands ?? []) {
+          if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+        }
+        if (transition === "open" || result?.statePatch) await this.publishNativePanelState(definition, instance, panel, nextState);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.lastError = detail;
+        this.logger.error("Native panel plugin event failed.", {
+          component: "plugin", instance: instance.name, panel: panel.name, phase: "native panel event", topic: message.topic, detail
+        });
+      }
+    }
+  }
+
+  /** Pushes normalized plugin state only to panels whose native page is currently open. */
+  private async refreshNativePanelStates(instance: ResolvedPluginInstance, state: PluginState): Promise<void> {
+    const config = this.store.get();
+    const definition = this.plugins.get(instance.pluginId);
+    if (!definition?.nativePanelPage || !definition.renderNativePanelState) return;
+    for (const panel of config.panels) {
+      if (panel.nativePluginInstances?.[definition.nativePanelPage] !== instance.id || this.nativePanelPages.get(panel.id) !== definition.nativePanelPage) continue;
+      await this.publishNativePanelState(definition, instance, panel, state);
+    }
+  }
+
+  /** Sends changed device values to panels assigned to the plugin's native page, regardless of page visibility. */
+  private async refreshAssignedPanelStates(instance: ResolvedPluginInstance, state: PluginState, previousState: PluginState, change: PluginState): Promise<void> {
+    const definition = this.plugins.get(instance.pluginId);
+    const pageId = definition?.nativePanelPage;
+    if (!definition || !pageId) return;
+    for (const panel of this.store.get().panels) {
+      if (panel.nativePluginInstances?.[pageId] !== instance.id) continue;
+      await this.publishAssignedPanelState(definition, instance, panel, state, previousState, change);
+    }
+  }
+
+  /** Publishes plugin state intended for the panel beyond its currently visible plugin page. */
+  private async publishAssignedPanelState(definition: PluginDefinition, instance: ResolvedPluginInstance, panel: Panel, state: PluginState, previousState: PluginState, change: PluginState): Promise<void> {
+    if (!definition.renderPanelState) return;
+    try {
+      for (const command of definition.renderPanelState(instance, panel, state, previousState, change)) {
+        if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error("Assigned panel plugin state update failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "assigned panel state", detail
+      });
+    }
+  }
+
+  /** Publishes a native-page plugin's translated state through the shared broker connection. */
+  private async publishNativePanelState(definition: PluginDefinition, instance: ResolvedPluginInstance, panel: Panel, state: PluginState): Promise<void> {
+    if (!definition.renderNativePanelState) return;
+    try {
+      for (const command of definition.renderNativePanelState(instance, panel, state)) {
+        if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error("Native panel plugin state update failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "native panel render", detail
+      });
     }
   }
 
@@ -371,6 +537,7 @@ export class MqttRuntime {
 
   /** Clears a panel's plugin page after firmware navigation leaves plugin-managed screens. */
   private async clearActivePluginPage(panel: Panel): Promise<void> {
+    this.nativePanelPages.delete(panel.id);
     const session = this.runtimeState.getPanelSession(panel.id);
     if (!session?.screen) return;
     await this.runtimeState.setPanelSession(panel.id, { ...session, screen: undefined, history: [] });
@@ -451,6 +618,7 @@ export class MqttRuntime {
     const instances = this.resolvePluginInstances(config);
     for (const panel of config.panels) {
       this.publishPanelSettings(panel);
+      await this.refreshNativePanel(panel);
       await this.restorePanelSession(panel, config.panelBindings, instances);
     }
   }

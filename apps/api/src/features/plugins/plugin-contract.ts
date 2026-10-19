@@ -87,6 +87,13 @@ export interface PluginSubscriptionResult {
   navigation?: PluginPageNavigation;
 }
 
+/** Result of translating input from a firmware-native page into MQTT work. */
+export interface PluginNativePanelResult {
+  commands?: PluginCommand[];
+  /** Immediate normalized state changes, such as an optimistic target update. */
+  statePatch?: PluginState;
+}
+
 export type PluginStorageScope = "global" | "plugin" | "panel";
 
 /** A panel's durable script values, addressed by its saved name or ID. */
@@ -136,10 +143,14 @@ export interface PluginDefinition {
   readonly version: number;
   readonly description: string;
   readonly capabilities: readonly string[];
+  /** Native firmware page ID this integration can serve, such as `thermostat`. */
+  readonly nativePanelPage?: string;
   readonly configSchema: readonly PluginConfigField[];
 
   /** Returns an error message when reusable plugin configuration is incomplete. */
   validateConfig(config: Record<string, PluginConfigValue>): string | undefined;
+  /** Validates per-instance variables after profile configuration is resolved. */
+  validateInstance?(instance: ResolvedPluginInstance): string | undefined;
   /** Lists incoming MQTT filters for the configured instance. */
   subscriptions(instance: ResolvedPluginInstance): readonly string[];
   /** Runs when an enabled instance starts or its configuration changes. */
@@ -154,6 +165,18 @@ export interface PluginDefinition {
   renderScreen(instance: ResolvedPluginInstance, state: PluginState, screen: string, context: PluginRuntimeContext): PluginScreen | void | Promise<PluginScreen | void>;
   /** Maps a panel action to commands and an optional optimistic state update. */
   handleAction(instance: ResolvedPluginInstance, state: PluginState, action: string, context: PluginRuntimeContext): PluginActionResult | Promise<PluginActionResult>;
+  /** Reports whether one panel MQTT event opens or closes this native page. */
+  nativePanelTransition?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope): "open" | "close" | undefined;
+  /** Handles one native page event, such as a thermostat setpoint or mode button. */
+  handleNativePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope, state: PluginState): PluginNativePanelResult | void | Promise<PluginNativePanelResult | void>;
+  /** Converts normalized device state to firmware commands while its native page is open. */
+  renderNativePanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState): readonly PluginCommand[];
+  /** Converts changed plugin state to panel commands that remain useful off-page, such as a home-screen temperature. */
+  renderPanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, previousState: PluginState, change: PluginState): readonly PluginCommand[];
+  /** Returns the configured interval for a service plugin's scheduled state refresh. */
+  pollIntervalMs?(instance: ResolvedPluginInstance): number;
+  /** Fetches external service state; the runtime caches the patch and routes it to assigned panels. */
+  poll?(instance: ResolvedPluginInstance, state: PluginState): Promise<PluginState | void>;
 }
 
 /** Reads a typed value from plugin configuration, returning a safe fallback. */

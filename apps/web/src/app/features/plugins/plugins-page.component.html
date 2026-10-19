@@ -333,8 +333,8 @@
         </select>
       </label>
       <section class="instance-variables" aria-labelledby="instance-variables-heading">
-        <div class="field-heading">
-          <div><span id="instance-variables-heading" class="field-label">Instance variables</span><small>These values belong to this device. Use <code [textContent]="variablePlaceholderExample"></code> in scripts and MQTT actions, or read <code>variables.name</code> in JavaScript.</small></div>
+          <div class="field-heading">
+          <div><span id="instance-variables-heading" class="field-label">Instance variables</span><small>{{ instanceVariableHelp() }}</small></div>
           <button type="button" class="text-action" (click)="addVariable()">＋ Add variable</button>
         </div>
         @for (entry of variableEntries(); track $index; let variableIndex = $index) {

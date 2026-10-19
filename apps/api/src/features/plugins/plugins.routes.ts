@@ -100,6 +100,10 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const startupError = await validateStartupScript(config, {});
     if (startupError) return response.status(400).json({ error: startupError });
     const profile: PluginProfile = { ...current, name, pluginId: definition.id, config };
+    for (const instance of store.get().pluginInstances.filter((item) => item.pluginProfileId === profile.id)) {
+      const error = definition.validateInstance?.({ ...instance, pluginId: definition.id, config });
+      if (error) return response.status(400).json({ error: `Instance '${instance.name}': ${error}` });
+    }
     await store.update((managerConfig) => {
       managerConfig.pluginProfiles = managerConfig.pluginProfiles.map((item) => item.id === profile.id ? profile : item);
     });
@@ -126,6 +130,9 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     if (variablesError) return response.status(400).json({ error: variablesError });
     const variables = normalizePluginVariables(request.body?.variables);
     const instance: PluginInstance = { id: randomUUID(), name, pluginProfileId, enabled: true, variables };
+    const definition = registry.get(profile.pluginId);
+    const instanceError = definition?.validateInstance?.({ ...instance, pluginId: definition.id, config: profile.config });
+    if (instanceError) return response.status(400).json({ error: instanceError });
     await store.update((current) => { current.pluginInstances.push(instance); });
     await runtime.refreshPluginInstances();
     response.status(201).json({ instance });
@@ -145,6 +152,9 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
       ? current.variables
       : normalizePluginVariables(request.body.variables);
     const instance: PluginInstance = { ...current, name, pluginProfileId, enabled, variables };
+    const definition = registry.get(profile.pluginId);
+    const instanceError = definition?.validateInstance?.({ ...instance, pluginId: definition.id, config: profile.config });
+    if (instanceError) return response.status(400).json({ error: instanceError });
     await store.update((config) => { config.pluginInstances = config.pluginInstances.map((item) => item.id === instance.id ? instance : item); });
     await runtime.refreshPluginInstances();
     response.json({ instance });
@@ -162,6 +172,10 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const updated = await store.update((current) => {
       current.panelBindings = current.panelBindings.filter((binding) => binding.pluginInstanceId !== id);
       for (const binding of removedBindings) clearFavoriteBinding(current.panels, binding);
+      current.panels = current.panels.map((panel) => ({
+        ...panel,
+        nativePluginInstances: Object.fromEntries(Object.entries(panel.nativePluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id))
+      }));
       current.pluginInstances = current.pluginInstances.filter((item) => item.id !== id);
     });
     await runtime.removePluginRuntimeState(id);
@@ -184,6 +198,9 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const index = Number(request.body?.favoriteIndex);
     if (!panel || !instance?.enabled || !pluginRegistered || !name || !Number.isInteger(index) || index < 0 || index > 11) {
       return response.status(400).json({ error: "Choose a panel, plugin instance, favorite slot, and shortcut name." });
+    }
+    if (pluginRegistered.nativePanelPage) {
+      return response.status(400).json({ error: `This plugin uses the panel's native '${pluginRegistered.nativePanelPage}' page. Assign its instance in the panel settings.` });
     }
     if (config.panelBindings.some((binding) => binding.panelId === panelId && binding.trigger.type === "favorite" && binding.trigger.index === index)) {
       return response.status(409).json({ error: "That favorite slot is already bound." });

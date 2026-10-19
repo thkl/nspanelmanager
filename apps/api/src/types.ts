@@ -28,6 +28,8 @@ export interface Panel {
   name: string;
   nodeName: string;
   settings: PanelSettings;
+  /** Reusable plugin instances assigned to firmware-native pages by page ID. */
+  nativePluginInstances?: Record<string, string>;
 }
 
 export type RouteDirection = "external-to-panel" | "panel-to-external";

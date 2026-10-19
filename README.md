@@ -84,6 +84,16 @@ Open `http://localhost:3000`. Copy the one-time setup token from the API startup
 
 The container data directory defaults to `/data`. Set `DATA_DIR` in `.env` to another absolute path inside the container; Compose mounts the persistent `manager-data` volume at that path. Local `pnpm dev` and `pnpm start:debug` keep using `apps/api/data`.
 
+## Application logs
+
+The authenticated workspace includes a **Logs** page with category and severity filters, plus paging at 50, 100, or 200 records per page. The API bounds each read to 20,000 scanned lines; narrow the filters when older entries are needed. It writes structured JSON log records to `DATA_DIR/logs` by default (`/data/logs` in Docker). Set `LOG_DIR` to use another directory; if you do, make sure it is writable by the manager and mounted persistently in Docker. Winston rotates files daily or at 10 MB and retains the latest 20 files. The manager creates the log directory with owner-only access and log files with owner read/write access. Treat logs as sensitive: configured scripts can write their own values through `debug.log(...)`.
+
+## Backups and manual restore
+
+Signed-in administrators can open **Backup** and download a ZIP of the complete configured `DATA_DIR`. The archive streams directly to the browser and includes regular files under that directory, including logs when `LOG_DIR` is inside it. Treat the downloaded ZIP as sensitive because it contains user records, configuration, and saved script state.
+
+The credential-encryption key (`APP_ENCRYPTION_KEY_FILE`) and optional OIDC client secret are outside `DATA_DIR`; back them up separately and keep them protected. Losing the encryption key makes stored MQTT credentials unreadable. To restore manually, stop the manager, extract the ZIP so its `data/` contents replace or populate the configured `DATA_DIR`, restore deployment secrets and configuration separately, then restart the manager. If `LOG_DIR` is outside `DATA_DIR`, back it up separately if those logs are needed. Restore is an operator procedure; the UI does not import archives.
+
 ## MQTT routes
 
 Use an external topic as a source and a panel command topic as the target for state updates. For example:
@@ -96,5 +106,26 @@ Use an external topic as a source and a panel command topic as the target for st
 Source topics accept MQTT `+` and `#` wildcards. Payload templates support `{{payload}}`, `{{topic}}`, `{{nodeName}}`, and JSON paths such as `{{json.temperature}}`. For external-to-panel routes, choose a panel; `{nodeName}` is replaced with its configured MQTT node name.
 
 Authentication protects manager APIs; the panel MQTT runtime remains available to firmware independently. Keep the manager behind HTTPS when accessed beyond the local development machine. See [AGENTS.md](AGENTS.md) for contributor commands and conventions.
+
+## Built-in thermostat page
+
+Create an **MQTT thermostat** profile under **Plugins**, then create an instance for each thermostat. The profile is reusable; each instance can use its own topic variables. For a Homematic device, set the instance variable `channel` to a value such as `LEQ0999385:2`. The default profile fields then resolve to:
+
+| Setting | Value |
+| --- | --- |
+| Status topic filter | `ccu/status/{{channel}}/+` |
+| Current topic suffix | `ACTUAL_TEMPERATURE` |
+| Target topic suffix | `SET_TEMPERATURE` |
+| Current request topic | `ccu/get/{{channel}}/ACTUAL_TEMPERATURE` |
+| Set topic | `ccu/set/{{channel}}/SET_TEMPERATURE` |
+| Temperature value path | `val` |
+
+The default request payload is `{}`. Set temperature publishes the numeric value from `{{value}}`; panel `up` and `dn` events add or subtract the configured delta from the latest target, clamped to the configured minimum and maximum. Auto and Boost use `mode:{{mode}}`, producing `mode:auto` or `mode:boost`. The profile also exposes an optional target request topic and configurable minimum, maximum, Up/Down delta, and all three payload templates. Change the value path or templates to match another MQTT thermostat's payload contract.
+
+On the panel's **Panels** page, assign the thermostat instance in **Thermostat page**. The manager requests state when the built-in thermostat page opens, translates its temperature and mode events to MQTT, and sends current/target updates only while that page is open. When the assigned thermostat's actual temperature changes, it also publishes the numeric reading to `<nodeName>/cmnd/temperature/current` for the panel's home-screen temperature. Flash compatible firmware from `esphome/panel3.yaml`: it publishes `event/page/thermostat` on entry and `event/page/page0` on Back so the manager knows when to stop thermostat-page updates. Other `/event/page/#` navigation and display sleep also clear the active page.
+
+## Built-in weather screen
+
+Create an **Open-Meteo weather** profile under **Plugins** and choose a refresh interval from 5 to 360 minutes. Create an instance with `latitude` and `longitude` variables; `timezone` is optional and defaults to automatic detection (for example, `Europe/Berlin`). Assign that instance to **Weather screen** under **Panels → Built-in panel pages**. The manager fetches current conditions and a five-day forecast, caches changed results, and sends `<nodeName>/cmnd/weather` only while that panel's weather page is open. The cached forecast is replayed when the page opens. Open-Meteo's public forecast endpoint needs no API key for this use. The payload uses numeric rain and wind values, a `min/max` temperature string per forecast day, and panel font glyphs for `condition` and `cond`. WMO condition codes are translated through OpenWeatherMap icon categories into the panel glyph map (for example, partly cloudy → `C`, rain → `I`).
 
 See the [MVP plan](docs/MVP-PLAN.md) for the proposed plugin system, entity model, custom flows, and delivery milestones.

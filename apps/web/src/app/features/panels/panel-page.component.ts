@@ -2,7 +2,7 @@ import { Component, OnInit, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { concatMap, from, switchMap, toArray, type Observable } from "rxjs";
 import { ManagerStore } from "../../manager-store.service";
-import type { Panel, PanelBinding } from "../../models";
+import type { Panel, PanelBinding, PluginDefinition } from "../../models";
 
 /**
  * Edits the persisted per-panel display profile and favorite-to-plugin bindings.
@@ -21,6 +21,7 @@ import type { Panel, PanelBinding } from "../../models";
 })
 export class PanelPageComponent implements OnInit {
   readonly selectedPanelId = signal<string | null>(null);
+  readonly pluginDefinitions = signal<PluginDefinition[]>([]);
   readonly draft = signal<Panel | null>(null);
   readonly favoriteInstances = signal<Record<number, string>>({});
   readonly addingPanel = signal(false);
@@ -32,7 +33,10 @@ export class PanelPageComponent implements OnInit {
   constructor(readonly manager: ManagerStore) {}
 
   /** Loads the latest panel list and selects the current or first available panel. */
-  ngOnInit(): void { this.refresh(); }
+  ngOnInit(): void {
+    this.refresh();
+    this.manager.loadPlugins().subscribe({ next: ({ plugins }) => this.pluginDefinitions.set(plugins) });
+  }
 
   /**
    * Reloads configuration, preserving the current selection where possible.
@@ -94,12 +98,55 @@ export class PanelPageComponent implements OnInit {
   /** Returns the plugin instance currently assigned to one favorite slot. */
   favoriteInstance(index: number): string {
     const id = this.favoriteInstances()[index] ?? "";
-    return this.manager.config().pluginInstances.some((instance) => instance.id === id) ? id : "";
+    return this.favoritePluginInstances().some((instance) => instance.id === id) ? id : "";
   }
 
   /** Updates the unsaved plugin instance selection for one favorite slot. */
   setFavoriteInstance(index: number, pluginInstanceId: string): void {
     this.favoriteInstances.update((assignments) => ({ ...assignments, [index]: pluginInstanceId }));
+  }
+
+  /** Lists plugin definitions that integrate with firmware-owned panel screens. */
+  nativePanelPlugins(): PluginDefinition[] {
+    return this.pluginDefinitions().filter((plugin) => Boolean(plugin.nativePanelPage));
+  }
+
+  /** Lists enabled configuration instances that support one firmware-owned page. */
+  nativePageInstances(pageId: string) {
+    const pluginIds = new Set(this.nativePanelPlugins()
+      .filter((plugin) => plugin.nativePanelPage === pageId)
+      .map((plugin) => plugin.id));
+    const profileIds = new Set(this.manager.config().pluginProfiles
+      .filter((profile) => pluginIds.has(profile.pluginId))
+      .map((profile) => profile.id));
+    return this.manager.config().pluginInstances.filter((instance) => profileIds.has(instance.pluginProfileId));
+  }
+
+  /** Lists instances that can be launched through the generic favorite/info page flow. */
+  favoritePluginInstances() {
+    const nativePluginIds = new Set(this.pluginDefinitions().filter((plugin) => plugin.nativePanelPage).map((plugin) => plugin.id));
+    const nativeProfileIds = new Set(this.manager.config().pluginProfiles.filter((profile) => nativePluginIds.has(profile.pluginId)).map((profile) => profile.id));
+    return this.manager.config().pluginInstances.filter((instance) => !nativeProfileIds.has(instance.pluginProfileId));
+  }
+
+  /** Returns the instance assigned to a firmware-owned screen, if any. */
+  nativePageInstance(pageId: string): string { return this.draft()?.nativePluginInstances?.[pageId] ?? ""; }
+
+  /** Assigns or clears an instance for one firmware-owned screen. */
+  setNativePageInstance(pageId: string, pluginInstanceId: string): void {
+    const panel = this.draft();
+    if (!panel) return;
+    const nativePluginInstances = { ...(panel.nativePluginInstances ?? {}) };
+    if (pluginInstanceId) nativePluginInstances[pageId] = pluginInstanceId;
+    else delete nativePluginInstances[pageId];
+    panel.nativePluginInstances = nativePluginInstances;
+  }
+
+  /** Provides a friendly page label for the firmware-native integration selector. */
+  nativePageLabel(pageId: string): string {
+    if (pageId === "thermostat") return "Thermostat page";
+    if (pageId === "weather") return "Weather screen";
+    return `${pageId} page`;
   }
 
   /** Requires a readable shortcut label whenever a plugin instance is assigned. */

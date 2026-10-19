@@ -66,6 +66,7 @@ export class ConfigStore {
         },
         panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
           ...panel,
+          nativePluginInstances: normalizeNativePluginInstances(panel.nativePluginInstances),
           settings: normalizePanelSettings(panel.settings, panel.name)
         })) : [],
         routes: Array.isArray(saved.routes) ? saved.routes : [],
@@ -175,6 +176,11 @@ function isPluginProfile(value: unknown): value is ManagerConfig["pluginProfiles
 function normalizePluginVariables(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
+function normalizeNativePluginInstances(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string" && Boolean(entry[1].trim())));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

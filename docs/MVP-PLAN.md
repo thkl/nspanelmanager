@@ -6,9 +6,15 @@
 
 **Stage 2 — Dyson hardware walkthrough:** Approved
 
+**Stage 3 — Security and operations:** In progress
+
+**Stage 4 — MQTT thermostat:** Implemented
+
+**Stage 5 — Open-Meteo weather:** Implemented
+
 ## Implementation Started
 
-The generic scripted plugin and its editor are working. Reusable plugin profiles hold topic filters, pages, JavaScript renderers, named functions, and button actions; device instances reference a profile and supply their own variables. Startup MQTT subscriptions, scoped storage, script preview and syntax checks, debug logging, variable interpolation, and favorite bindings are implemented. Dyson remains the first example configuration; the runtime contains no Dyson-specific controls. The user has approved the hardware walkthrough.
+The generic scripted plugin and its editor are working. Reusable plugin profiles hold topic filters, pages, JavaScript renderers, named functions, and button actions; device instances reference a profile and supply their own variables. Startup MQTT subscriptions, scoped storage, script preview and syntax checks, debug logging, variable interpolation, and favorite bindings are implemented. Central Winston logging now writes size-limited, daily rotating files, with an authenticated Logs workspace for filtering records by category and severity. The generic runtime also supports firmware-native page integrations. The MQTT thermostat profile uses that contract for the panel's built-in thermostat page, with configurable MQTT topics, payload templates, value path, temperature bounds, and Up/Down step. Its actual temperature also updates the assigned panel's home-screen temperature. Dyson remains the first scripted example configuration; the runtime contains no Dyson-specific controls.
 
 ## Product Goal
 
@@ -27,6 +33,7 @@ Simple topic routes remain available, while scripted plugin instances provide in
 - **Panel:** A firmware device with a unique MQTT `nodeName`, saved settings, and supported screens and controls.
 - **Entity:** A named device or value with a capability such as `switch`, `light`, `cover`, `sensor`, `climate`, or `media_player`. An entity has state, commands, and optional metadata.
 - **Plugin definition:** A registered runtime capability, such as the generic scripted MQTT plugin or a later service integration.
+- **Native panel page:** A firmware-owned screen, such as the thermostat page, which a compatible plugin instance can be assigned to. Its runtime receives panel events and sends translated state only while the page is open.
 - **Plugin profile:** A named, reusable configuration for a plugin definition. It holds shared topic filters, pages, render functions, named functions, and button actions; for example, a Dyson profile can be used by multiple fans.
 - **Plugin instance:** A device or service that references a plugin profile and supplies its own name and variables, such as `room` or `topic`. Instances can be bound independently to panel favorites.
 - **Page:** A named screen configured on a plugin profile. Its JavaScript renderer runs with the selected instance's variables and state, and provides eight button slots matching the panel firmware.
@@ -35,7 +42,7 @@ Simple topic routes remain available, while scripted plugin instances provide in
 
 ## Runtime and Data Processing
 
-The MQTT service owns the broker connection and dispatches message envelopes containing the topic, raw payload, QoS, retain flag, and receive time. Profile topic filters are expanded with each instance's variables; startup scripts can also register per-instance MQTT subscriptions. Each page's JavaScript renderer receives `message`, parsed `payload`, normalized `state`, a restricted `context`, `debug`, storage helpers, and `variables`. JSON payloads are parsed into objects or values in `message.payload` and `payload`; non-JSON payloads remain strings. A renderer returns a title, message, and up to eight button labels, or returns nothing to leave the panel display unchanged. Each slot's action is configured on the profile, so labels can change with device state while the button behavior remains explicit. The runtime caches incoming messages per instance even when the page is closed; it sends screen updates only to a panel with that instance's page open. Reopening a favorite renders from the latest cached message.
+The MQTT service owns the broker connection and dispatches message envelopes containing the topic, raw payload, QoS, retain flag, and receive time. Profile topic filters are expanded with each instance's variables; startup scripts can also register per-instance MQTT subscriptions. Each page's JavaScript renderer receives `message`, parsed `payload`, normalized `state`, a restricted `context`, `debug`, storage helpers, and `variables`. JSON payloads are parsed into objects or values in `message.payload` and `payload`; non-JSON payloads remain strings. A renderer returns a title, message, and up to eight button labels, or returns nothing to leave the panel display unchanged. Each slot's action is configured on the profile, so labels can change with device state while the button behavior remains explicit. The runtime caches incoming messages per instance even when the page is closed; it sends screen updates only to a panel with that instance's page open. Reopening a favorite renders from the latest cached message. A native-page integration gates page-specific updates on firmware page entry/exit, while integrations may send explicitly configured panel-wide values such as the thermostat's home-screen temperature.
 
 Button actions navigate within the plugin instance, publish a configured MQTT message, or call a named function. Functions receive a restricted context for MQTT publishing and global/plugin/panel storage; they cannot create independent broker clients. QuickJS isolates user code and applies time, memory, stack, and source-size limits; filesystem, process, and arbitrary network APIs are not exposed. HTTP-backed services such as weather can later feed messages into the same page-rendering contract.
 
@@ -77,7 +84,7 @@ Configuration and secrets remain server-side. The MVP keeps the latest normalize
 
 ## Web UI
 
-The Angular 22 standalone client is organized by feature. The plugin editor manages reusable profiles separately from device instances and their variables. Profiles expose MQTT filters, pages, JavaScript render/named functions, and table-configured button actions. JavaScript bodies use CodeMirror 6 with JavaScript highlighting. Action rows select a page, MQTT publish, or named function; instances can be bound independently to panel favorites. The editor checks script syntax and previews the current unsaved profile values against a sample topic and payload without publishing or changing saved settings. Preview output includes `debug.log(...)` lines. Continue using signals and built-in `@if`/`@for` control flow, with component TypeScript, HTML, and CSS in separate files.
+The Angular 22 standalone client is organized by feature. The plugin editor manages reusable profiles separately from device instances and their variables. Profiles expose MQTT filters, pages, JavaScript render/named functions, and table-configured button actions. JavaScript bodies use CodeMirror 6 with JavaScript highlighting. Action rows select a page, MQTT publish, or named function; instances can be bound independently to panel favorites. Native page instances are assigned in panel settings, separately from favorites. The MQTT thermostat profile exposes topic/value templates and temperature limits for the firmware's built-in thermostat page. The editor checks script syntax and previews the current unsaved profile values against a sample topic and payload without publishing or changing saved settings. Preview output includes `debug.log(...)` lines. Continue using signals and built-in `@if`/`@for` control flow, with component TypeScript, HTML, and CSS in separate files.
 
 ## First Vertical Slice: Fan Control
 
@@ -93,7 +100,7 @@ The walkthrough covers opening the configured start page from a favorite, render
 
 ## Security Implementation Progress
 
-The API now has a local administrator store with normalized unique emails, Argon2id password hashes, revocable HttpOnly sessions, login throttling, and account management. A one-time browser onboarding wizard creates and signs in the first administrator; its API endpoint permanently closes after that account is saved. SSO never provisions users. Optional OIDC uses authorization code flow with state, nonce, and PKCE. First-time linking requires a verified provider email matching an enabled local account, then subsequent logins use the stored issuer and subject pair. OIDC settings are supplied through deployment environment values and the client secret is mounted from a Docker secret file. The MQTT broker password is now encrypted at rest with AES-256-GCM, using a key mounted from a secret file outside the data volume; legacy plaintext passwords are encrypted during startup migration. Live activity diagnostics and volume recovery remain to complete this milestone.
+The API now has a local administrator store with normalized unique emails, Argon2id password hashes, revocable HttpOnly sessions, login throttling, and account management. A one-time browser onboarding wizard creates and signs in the first administrator; its API endpoint permanently closes after that account is saved. SSO never provisions users. Optional OIDC uses authorization code flow with state, nonce, and PKCE. First-time linking requires a verified provider email matching an enabled local account, then subsequent logins use the stored issuer and subject pair. OIDC settings are supplied through deployment environment values and the client secret is mounted from a Docker secret file. The MQTT broker password is encrypted at rest with AES-256-GCM, using a key mounted from a secret file outside the data volume; legacy plaintext passwords are encrypted during startup migration. The authenticated log viewer and streamed ZIP download of `DATA_DIR` are implemented. Restore is a documented manual operation; deployment secrets remain separately backed up.
 
 User-authored JavaScript is part of the scripted-plugin slice, not a later visual-flow milestone. QuickJS runs each function in a limited evaluation context; the manager exposes message data, read-only render context, and explicitly enabled publish/storage effects. See the [QuickJS-emscripten documentation](https://github.com/justjake/quickjs-emscripten) for its limits and evaluation model.
 
@@ -101,8 +108,10 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 
 1. **Scripted plugin — Working.** Reusable profiles and per-device instances, script editor, MQTT subscriptions and actions, page preview, syntax feedback, scoped storage, and favorite bindings are implemented.
 2. **First hardware walkthrough — Approved.** The user confirmed the scripted Dyson flow works well on the available hardware.
-3. **Security and operations — In progress.** One-time browser onboarding, local email/password accounts, Argon2id password hashes, administrator account management, revocable sessions, protected APIs, optional OIDC login, and encrypted MQTT broker credentials are implemented. OIDC is configured with issuer URL, client ID, and client secret file; the callback URL is derived from `APP_PUBLIC_URL`. SSO authenticates a user only when its verified email matches an enabled local account, then uses issuer plus `sub` for later logins. The broker credential key is generated separately and mounted as a Docker secret outside the manager data volume. Remaining work: add live activity/error diagnostics and confirm durable Docker-volume storage and recovery behavior.
-4. **Additional integrations — Planned.** Reuse the model for thermostats, blinds/covers, weather, and Sonos.
+3. **Security and operations — In progress.** One-time browser onboarding, local email/password accounts, Argon2id password hashes, administrator account management, revocable sessions, protected APIs, optional OIDC login, encrypted MQTT broker credentials, the authenticated rotating-log viewer, and a streamed ZIP download of `DATA_DIR` are implemented. OIDC is configured with issuer URL, client ID, and client secret file; the callback URL is derived from `APP_PUBLIC_URL`. SSO authenticates a user only when its verified email matches an enabled local account, then uses issuer plus `sub` for later logins. The broker credential key is generated separately and mounted as a Docker secret outside the manager data volume. Restore is a documented manual operation; validate the procedure against a real Docker volume before relying on it for recovery.
+4. **MQTT thermostat — Implemented.** Reusable profile and per-device instance variables, configurable status/request/set topics, JSON value extraction, temperature bounds and step, payload templates for requests/setpoints/modes, panel assignment to the native thermostat screen, and page-specific MQTT refresh gating. Firmware `up` and `dn` events adjust the latest target temperature by the configured delta and clamp it to the configured bounds. Changed actual temperature also updates the assigned panel's home-screen temperature. The first profile is configured for Homematic topics, while its fields support other topic and payload conventions.
+5. **Open-Meteo weather — Implemented.** A reusable service profile polls current conditions and a five-day forecast; each instance supplies latitude, longitude, and an optional timezone. The manager translates service data to the firmware weather payload, caches changed data, sends it only while the native weather page is open, and replays the forecast when the page opens. The panel can assign a weather instance independently for each location.
+6. **Additional integrations — Planned.** Reuse the model for blinds/covers and Sonos.
 
 ## MVP Acceptance Criteria
 
@@ -111,6 +120,8 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 - Match incoming MQTT messages with configured topic filters and pass the full envelope to a JavaScript renderer that returns a title, message, and up to eight button labels.
 - Configure every button as page navigation, MQTT topic/payload publishing, or a named function call; named functions can publish through the manager context.
 - Build the Dyson fan flow from a reusable plugin profile and per-instance variables, with no fan-specific screen implementation in the runtime.
+- Configure reusable thermostat profiles for different MQTT conventions, assign an instance to a panel's built-in thermostat page, and map current/target values plus temperature and mode actions to external MQTT topics.
+- When the assigned thermostat reports a changed actual temperature, update the panel's home-screen temperature through `<nodeName>/cmnd/temperature/current` without sending thermostat-page updates while that page is closed.
 - Cache status updates while a page is closed, render the latest message when opened, and stop sending screen updates after Back or firmware sleep.
 - Persist active flow context and scoped values across manager restarts, with errors visible to the administrator.
 - Require administrator authentication through the configured OIDC provider for configuration changes and user-authored flow execution; define an explicit recovery path for provider outages.
@@ -122,7 +133,6 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 
 ## Decisions for Later Milestones
 
-- Which weather service and credential model should the first weather plugin use?
 - Should Sonos connect through an existing MQTT integration or directly to the local Sonos API?
 
 ## Out of Scope for the MVP

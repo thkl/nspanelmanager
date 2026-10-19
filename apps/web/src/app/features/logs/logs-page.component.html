@@ -1,0 +1,88 @@
+<section class="logs-page" aria-label="Manager logs">
+  <div class="logs-heading">
+    <div>
+      <p class="eyebrow">SYSTEM ACTIVITY</p>
+      <h2>Application logs</h2>
+      <p class="logs-description">Recent records from the manager's rotating log files. Log details may contain data written by configured scripts.</p>
+    </div>
+    <button class="refresh-button" type="button" (click)="refresh()" [disabled]="loading()">
+      <span aria-hidden="true">↻</span> {{ loading() ? 'Refreshing…' : 'Refresh logs' }}
+    </button>
+  </div>
+
+  <div class="logs-toolbar">
+    <label>
+      <span>Category</span>
+      <select [value]="category()" (change)="selectCategory($event)">
+        <option value="">All categories</option>
+        @for (categoryOption of categories(); track categoryOption) {
+          <option [value]="categoryOption">{{ categoryOption }}</option>
+        }
+      </select>
+    </label>
+    <label>
+      <span>Severity</span>
+      <select [value]="level()" (change)="selectLevel($event)">
+        <option value="all">All levels</option>
+        <option value="error">Error</option>
+        <option value="warn">Warning</option>
+        <option value="info">Info</option>
+        <option value="debug">Debug</option>
+      </select>
+    </label>
+    <label>
+      <span>Entries per page</span>
+      <select [value]="pageSize()" (change)="selectPageSize($event)">
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="200">200</option>
+      </select>
+    </label>
+    <span class="record-count">{{ logs().length }} entries · Page {{ pageIndex() + 1 }}</span>
+  </div>
+
+  @if (error()) {
+    <div class="logs-state error-state" role="alert">{{ error() }}</div>
+  } @else if (loading() && logs().length === 0) {
+    <div class="logs-state" aria-live="polite">Loading log files…</div>
+  } @else if (logs().length === 0) {
+    <div class="logs-state empty-state">No log entries match these filters.</div>
+  } @else {
+    @if (scanLimitReached()) {
+      <p class="scan-note">Showing the latest matching records from a bounded scan. Refine the filters if older entries are needed.</p>
+    }
+    <div class="logs-table-wrap">
+      <table class="logs-table">
+        <thead>
+          <tr><th scope="col">Time</th><th scope="col">Level</th><th scope="col">Category</th><th scope="col">Message</th><th scope="col">Context</th></tr>
+        </thead>
+        <tbody>
+          @for (entry of logs(); track $index) {
+            <tr>
+              <td class="timestamp"><time [attr.datetime]="entry.timestamp">{{ formatTimestamp(entry.timestamp) }}</time></td>
+              <td><span class="level-pill" [class.level-error]="entry.level === 'error'" [class.level-warn]="entry.level === 'warn'" [class.level-info]="entry.level === 'info'" [class.level-debug]="entry.level === 'debug'">{{ entry.level }}</span></td>
+              <td><span class="category-pill">{{ entry.category }}</span></td>
+              <td class="message-cell">{{ entry.message }}</td>
+              <td class="context-cell">
+                @if (hasContext(entry.context)) {
+                  <details>
+                    <summary>Details</summary>
+                    <pre>{{ formatContext(entry.context) }}</pre>
+                  </details>
+                } @else { <span class="muted">—</span> }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
+
+@if (!error() && !loading()) {
+  <nav class="logs-pagination" aria-label="Log pages">
+    <button type="button" (click)="previousPage()" [disabled]="pageIndex() === 0">← Previous</button>
+    <span>Page {{ pageIndex() + 1 }}</span>
+    <button type="button" (click)="nextPage()" [disabled]="!hasMore()">Next →</button>
+  </nav>
+}

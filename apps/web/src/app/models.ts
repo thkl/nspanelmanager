@@ -28,6 +28,7 @@ export interface Panel {
   name: string;
   nodeName: string;
   settings: PanelSettings;
+  nativePluginInstances?: Record<string, string>;
 }
 
 export type RouteDirection = "external-to-panel" | "panel-to-external";
@@ -73,6 +74,7 @@ export interface PluginDefinition {
   version: number;
   description: string;
   capabilities: string[];
+  nativePanelPage?: string;
   configSchema: PluginConfigField[];
 }
 
@@ -177,6 +179,25 @@ export interface PluginPagePreviewResult {
   message: string;
   buttons: string[];
   debugLogs: string[];
+}
+
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+/** Structured application log record shown in the admin log viewer. */
+export interface AdminLogEntry {
+  timestamp: string;
+  level: LogLevel;
+  message: string;
+  category: string;
+  context: Record<string, string>;
+}
+
+/** Bounded log response returned from retained rotating files. */
+export interface AdminLogResult {
+  logs: AdminLogEntry[];
+  categories: string[];
+  hasMore: boolean;
+  scanLimitReached: boolean;
 }
 
 export interface PluginScriptCheckResult {

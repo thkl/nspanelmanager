@@ -1,0 +1,28 @@
+<section class="backups-page" aria-label="Data backup">
+  <div class="backup-heading">
+    <div>
+      <p class="eyebrow">SYSTEM RECOVERY</p>
+      <h2>Data backup</h2>
+      <p class="backup-description">Download a ZIP containing the manager's complete persistent data folder.</p>
+    </div>
+  </div>
+
+  <article class="backup-card">
+    <div class="backup-icon" aria-hidden="true">↓</div>
+    <div class="backup-copy">
+      <h3>Download manager data</h3>
+      <p>The archive includes configuration, user accounts, saved script state, and files in the data folder such as logs. The ZIP is created for this download and is not stored on the server.</p>
+      <a class="download-button" href="/api/backups/download">Download ZIP <span aria-hidden="true">↗</span></a>
+    </div>
+  </article>
+
+  <aside class="backup-notice" role="note">
+    <h3>Keep the archive and secrets safe</h3>
+    <p>The ZIP contains sensitive configuration and account data. Store it securely. The credential-encryption key and optional OIDC client secret are kept outside the data folder; back them up separately. Without the encryption key, saved MQTT credentials cannot be read.</p>
+  </aside>
+
+  <aside class="restore-note" role="note">
+    <h3>Manual restore</h3>
+    <p>To restore, stop the manager, extract the archive contents into the configured <code>DATA_DIR</code>, restore required deployment secrets separately, then start the manager again.</p>
+  </aside>
+</section>

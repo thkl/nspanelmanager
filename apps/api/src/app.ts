@@ -10,6 +10,10 @@ import type { PluginRegistry } from "./features/plugins/plugin-registry.js";
 import { createAuthRouter, requireAuthenticatedUser, requireSameOrigin } from "./features/auth/auth.routes.js";
 import type { AuthService } from "./features/auth/auth-service.js";
 import type { Logger } from "./services/logger.js";
+import { createLogsRouter } from "./features/logs/logs.routes.js";
+import type { LogFileReader } from "./features/logs/log-file-reader.js";
+import { createBackupsRouter } from "./features/backups/backups.routes.js";
+import type { BackupArchiveService } from "./features/backups/backup-archive-service.js";
 
 /**
  * Assembles the Express application and its feature-focused API routers.
@@ -19,7 +23,7 @@ import type { Logger } from "./services/logger.js";
  * production it serves the Angular build from `WEB_ROOT`; local development
  * uses Angular CLI's dev server and proxies `/api` to this application.
  */
-export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry, authService: AuthService, logger: Logger): Express {
+export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry, authService: AuthService, logger: Logger, logFileReader: LogFileReader, backupService: BackupArchiveService): Express {
   const app = express();
   app.set("trust proxy", parseTrustProxySetting(process.env.TRUST_PROXY));
   app.disable("x-powered-by");
@@ -29,10 +33,12 @@ export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRe
   app.use("/api/auth", createAuthRouter(authService, logger));
   app.use("/api", requireAuthenticatedUser(authService));
 
+  app.use("/api/logs", createLogsRouter(logFileReader));
+  app.use("/api/backups", createBackupsRouter(backupService, logger));
   app.get("/api/health", (_request, response) => response.json({ ok: true, mqtt: mqttRuntime.status() }));
   app.get("/api/state", (_request, response) => response.json({ config: publicConfig(store.get(), pluginRegistry), mqtt: mqttRuntime.status() }));
   app.use("/api/broker", createBrokerRouter(store, mqttRuntime, pluginRegistry));
-  app.use("/api/panels", createPanelRouter(store, mqttRuntime));
+  app.use("/api/panels", createPanelRouter(store, mqttRuntime, pluginRegistry));
   app.use("/api/routes", createMqttRouteRouter(store, mqttRuntime));
   app.use("/api/plugins", createPluginsRouter(store, mqttRuntime, pluginRegistry));
   app.use("/api", (_request, response) => response.status(404).json({ error: "API endpoint not found." }));
