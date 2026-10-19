@@ -1,0 +1,10 @@
+<section class="single-card card">
+  <div class="card-heading"><div><h2>MQTT broker</h2><p>Connect the manager to the broker used by your NSPanel firmware and smart devices.</p></div><span class="status-tag" [class.good]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'Connected' : 'Disconnected' }}</span></div>
+  <div class="form-grid two-col broker-form">
+    <label>Broker URL<input [ngModel]="draft().url" (ngModelChange)="setUrl($event)" placeholder="mqtt://192.168.1.10:1883"><small>Use mqtt:// or mqtts:// with an optional port.</small></label>
+    <label>Username<input [ngModel]="draft().username" (ngModelChange)="setUsername($event)" placeholder="Optional"></label>
+    <label>Password<input type="password" [ngModel]="draft().password" (ngModelChange)="setPassword($event)" [placeholder]="manager.config().broker.passwordConfigured ? 'Saved — leave blank to keep it' : 'Optional'"></label>
+  </div>
+  <div class="card-footer"><div class="help-copy"><b>Topic pattern</b><span>Panel firmware uses <code>&lt;node-name&gt;/cmnd/#</code> and publishes events under <code>&lt;node-name&gt;/event/#</code>.</span></div><button class="button primary" [disabled]="saving()" (click)="save()">{{ saving() ? 'Saving…' : 'Save connection' }}</button></div>
+  @if (manager.mqtt().error) { <div class="error-line">{{ manager.mqtt().error }}</div> }
+</section>

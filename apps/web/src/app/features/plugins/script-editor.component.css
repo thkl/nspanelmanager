@@ -1,0 +1,6 @@
+:host { display: block; width: 100%; min-width: 0; }
+.editor-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.format-button { padding: 4px 10px; border: 1px solid #cbd8d2; border-radius: 6px; background: #f8faf9; color: #2e5143; font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.format-button:hover:not(:disabled) { background: #edf6f1; border-color: #9ab9aa; }
+.format-button:disabled { opacity: 0.55; cursor: default; }
+.editor-host { width: 100%; }

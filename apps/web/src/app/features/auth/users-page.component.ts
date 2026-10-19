@@ -1,0 +1,96 @@
+import { Component, OnInit, signal } from "@angular/core";
+import { DatePipe } from "@angular/common";
+import { FormsModule } from "@angular/forms";
+import type { AuthUser } from "../../models";
+import { ManagerStore } from "../../manager-store.service";
+
+/** Manages local administrator accounts and their optional linked SSO identities. */
+@Component({
+  selector: "nspanel-users-page",
+  standalone: true,
+  imports: [DatePipe, FormsModule],
+  templateUrl: "./users-page.component.html",
+  styleUrl: "./users-page.component.css"
+})
+export class UsersPageComponent implements OnInit {
+  readonly users = signal<AuthUser[]>([]);
+  readonly email = signal("");
+  readonly password = signal("");
+  readonly resetPasswords = signal<Record<string, string>>({});
+  readonly loading = signal(false);
+  readonly error = signal("");
+
+  /** Receives the shared account API and manager notice service. */
+  constructor(readonly manager: ManagerStore) {}
+
+  /** Loads the current account list when the feature page is opened. */
+  ngOnInit(): void { this.refresh(); }
+
+  /** Fetches the credential-free local user list. */
+  refresh(): void {
+    this.loading.set(true);
+    this.manager.loadUsers().subscribe({
+      next: ({ users }) => { this.users.set(users); this.loading.set(false); },
+      error: () => { this.error.set("Could not load local accounts."); this.loading.set(false); }
+    });
+  }
+
+  /** Creates a local administrator with a password stored only as a slow hash. */
+  createUser(): void {
+    this.error.set("");
+    this.manager.createUser(this.email(), this.password()).subscribe({
+      next: ({ user }) => {
+        this.users.update((users) => [...users, user]);
+        this.email.set("");
+        this.password.set("");
+        this.manager.inform(`Local account created for ${user.email}.`);
+      },
+      error: (error) => this.error.set(error.error?.error || "Could not create the account.")
+    });
+  }
+
+  /** Enables or disables a local account and immediately reflects the saved state. */
+  toggleUser(user: AuthUser): void {
+    this.error.set("");
+    this.manager.updateUser(user.id, { enabled: !user.enabled }).subscribe({
+      next: ({ user: updated }) => this.replaceUser(updated),
+      error: (error) => this.error.set(error.error?.error || "Could not update the account.")
+    });
+  }
+
+  /** Resets another account's password and clears the unsaved password field. */
+  resetPassword(user: AuthUser): void {
+    const password = this.resetPasswords()[user.id] ?? "";
+    this.error.set("");
+    this.manager.updateUser(user.id, { password }).subscribe({
+      next: ({ user: updated }) => {
+        this.replaceUser(updated);
+        this.resetPasswords.update((passwords) => ({ ...passwords, [user.id]: "" }));
+        this.manager.inform(`Password reset for ${user.email}.`);
+      },
+      error: (error) => this.error.set(error.error?.error || "Could not reset the password.")
+    });
+  }
+
+  /** Removes a local account after confirmation; the final enabled administrator is protected by the API. */
+  removeUser(user: AuthUser): void {
+    if (!confirm(`Remove the local account for ${user.email}?`)) return;
+    this.error.set("");
+    this.manager.removeUser(user.id).subscribe({
+      next: () => {
+        this.users.update((users) => users.filter((item) => item.id !== user.id));
+        this.manager.inform(`Local account removed for ${user.email}.`);
+      },
+      error: (error) => this.error.set(error.error?.error || "Could not remove the account.")
+    });
+  }
+
+  /** Stores the per-account password field without adding it to shared manager state. */
+  setResetPassword(userId: string, password: string): void {
+    this.resetPasswords.update((current) => ({ ...current, [userId]: password }));
+  }
+
+  private replaceUser(updated: AuthUser): void {
+    this.users.update((users) => users.map((user) => user.id === updated.id ? updated : user));
+  }
+}

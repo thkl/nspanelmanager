@@ -1,0 +1,634 @@
+import mqtt, { type MqttClient } from "mqtt";
+import type { ConfigStore } from "./config-store.js";
+import type { ManagerConfig, MqttRoute, Panel, PanelBinding, ResolvedPluginInstance } from "../types.js";
+import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
+import type { RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
+import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
+import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
+import { Logger } from "./logger.js";
+
+/**
+ * Maintains the shared MQTT connection and dispatches device and panel events.
+ * The runtime coordinates registered plugins, panel protocol adaptation,
+ * durable flow sessions, and the existing configurable MQTT route feature.
+ */
+export class MqttRuntime {
+  private client?: MqttClient;
+  private connected = false;
+  private lastError = "";
+  private activeTopics = new Set<string>();
+  private readonly pluginSubscriptions = new Map<string, PluginMqttSubscription[]>();
+  private readonly initializedPluginConfigs = new Map<string, string>();
+  private readonly pendingMessages = new Set<Promise<void>>();
+  private closing = false;
+  private readonly panelProtocol: PanelProtocolAdapter;
+
+  /** Creates the runtime around saved config, registered plugins, and runtime storage. */
+  constructor(
+    private readonly store: ConfigStore,
+    private readonly plugins: PluginRegistry,
+    private readonly runtimeState: RuntimeStateStore,
+    private readonly logger: Logger = new Logger()
+  ) {
+    this.panelProtocol = new PanelProtocolAdapter((topic, payload) => this.publish(topic, payload));
+  }
+
+  /** Exposes health only; credentials and the client object never leave this service. */
+  status(): { connected: boolean; error: string } { return { connected: this.connected, error: this.lastError }; }
+
+  /**
+   * Replaces the current broker client using the latest saved credentials.
+   * MQTT.js handles transient reconnect attempts after the client is created;
+   * an empty URL leaves the manager disconnected during first-run setup.
+   */
+  async reconnect(): Promise<void> {
+    this.closing = false;
+    this.lastError = "";
+    await this.refreshPluginInstances();
+    if (this.client) {
+      const oldClient = this.client;
+      this.client = undefined;
+      this.connected = false;
+      this.activeTopics.clear();
+      await new Promise<void>((resolve) => oldClient.end(true, {}, () => resolve()));
+    }
+    const broker = this.store.get().broker;
+    if (!broker.url) return;
+
+    try {
+      const client = mqtt.connect(broker.url, {
+        username: broker.username || undefined,
+        password: broker.password || undefined,
+        clientId: `nspanel-manager-${Math.random().toString(16).slice(2, 10)}`,
+        reconnectPeriod: 3000,
+        connectTimeout: 10000
+      });
+      this.client = client;
+      client.on("connect", () => {
+        this.connected = true;
+        this.lastError = "";
+        this.syncSubscriptions();
+        void this.restoreAllPanels().catch((error: unknown) => {
+          this.lastError = error instanceof Error ? error.message : String(error);
+        });
+      });
+      client.on("reconnect", () => { this.connected = false; });
+      client.on("offline", () => { this.connected = false; });
+      client.on("error", (error) => { this.lastError = error.message; });
+      client.on("message", (topic, payload, packet) => {
+        if (this.closing) return;
+        const envelope: MqttMessageEnvelope = {
+          topic,
+          payload: payload.toString(),
+          qos: packet.qos,
+          retain: packet.retain,
+          receivedAt: Date.now()
+        };
+        const processing = this.handleMessage(envelope).catch((error: unknown) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          this.lastError = detail;
+          this.logger.error("MQTT message processing failed.", {
+            component: "mqtt",
+            phase: "dispatch",
+            topic,
+            detail
+          });
+        });
+        this.pendingMessages.add(processing);
+        void processing.finally(() => this.pendingMessages.delete(processing));
+      });
+    } catch (error) {
+      this.connected = false;
+      this.lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  /** Stops MQTT ingress and waits for message handlers already in progress. */
+  async close(): Promise<void> {
+    this.closing = true;
+    const client = this.client;
+    this.client = undefined;
+    this.connected = false;
+    this.activeTopics.clear();
+    if (client) await new Promise<void>((resolve) => client.end(true, {}, () => resolve()));
+    await Promise.all(this.pendingMessages);
+  }
+
+  /** Initializes enabled plugin instances and refreshes their registered MQTT callbacks. */
+  async refreshPluginInstances(): Promise<void> {
+    const instances = this.resolvePluginInstances();
+    const enabledIds = new Set(instances.filter((instance) => instance.enabled).map((instance) => instance.id));
+    for (const id of this.initializedPluginConfigs.keys()) {
+      if (!enabledIds.has(id)) {
+        this.initializedPluginConfigs.delete(id);
+        this.pluginSubscriptions.delete(id);
+      }
+    }
+
+    for (const instance of instances) {
+      if (!instance.enabled) continue;
+      const definition = this.plugins.get(instance.pluginId);
+      if (!definition) continue;
+      const fingerprint = JSON.stringify([definition.id, definition.version, instance.config, instance.variables]);
+      if (this.initializedPluginConfigs.get(instance.id) === fingerprint) continue;
+      this.initializedPluginConfigs.set(instance.id, fingerprint);
+      this.pluginSubscriptions.delete(instance.id);
+      if (!definition.initialize) continue;
+      try {
+        const subscriptions = await definition.initialize(
+          instance,
+          this.runtimeState.getPluginState(instance.id),
+          this.createPluginLifecycleContext(instance, "startup")
+        );
+        this.pluginSubscriptions.set(instance.id, subscriptions.filter((subscription) => isValidTopicFilter(subscription.topicFilter)));
+      } catch (error) {
+        this.pluginSubscriptions.set(instance.id, []);
+        const detail = error instanceof Error ? error.message : String(error);
+        this.lastError = detail;
+        this.logger.error("Plugin startup function failed.", {
+          component: "plugin",
+          instance: instance.name,
+          phase: "startup",
+          detail
+        });
+      }
+    }
+    this.syncSubscriptions();
+  }
+
+  /** Subscribes to distinct panel events, plugin state filters, and route sources. */
+  syncSubscriptions(): void {
+    if (!this.client?.connected) return;
+    const config = this.store.get();
+    const instances = this.resolvePluginInstances(config);
+    const desiredTopics = new Set<string>();
+    for (const panel of config.panels) desiredTopics.add(`${panel.nodeName}/event/#`);
+    for (const route of config.routes) desiredTopics.add(route.sourceTopic);
+    for (const instance of instances) {
+      if (!instance.enabled) continue;
+      const definition = this.plugins.get(instance.pluginId);
+      for (const topic of definition?.subscriptions(instance) ?? []) if (topic) desiredTopics.add(topic);
+      for (const subscription of this.pluginSubscriptions.get(instance.id) ?? []) desiredTopics.add(subscription.topicFilter);
+    }
+    const additions = [...desiredTopics].filter((topic) => !this.activeTopics.has(topic));
+    const removals = [...this.activeTopics].filter((topic) => !desiredTopics.has(topic));
+    if (additions.length) {
+      const client = this.client;
+      try {
+        client.subscribe(additions, (error, granted) => {
+          if (client !== this.client) return;
+          if (error) {
+            for (const topic of additions) this.activeTopics.delete(topic);
+            this.lastError = error.message;
+            this.logger.error("MQTT subscribe request failed.", {
+              component: "mqtt",
+              topics: additions.join(", "),
+              detail: error.message
+            });
+            return;
+          }
+          for (const grant of granted ?? []) {
+            if (grant.qos === 128) {
+              this.activeTopics.delete(grant.topic);
+              const detail = `Broker refused subscription to '${grant.topic}'.`;
+              this.lastError = detail;
+              this.logger.error(detail, { component: "mqtt", topic: grant.topic });
+            } else {
+              this.logger.info("MQTT subscription acknowledged.", { component: "mqtt", topic: grant.topic });
+            }
+          }
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        for (const topic of additions) this.activeTopics.delete(topic);
+        this.lastError = detail;
+        this.logger.error("MQTT subscribe request failed.", {
+          component: "mqtt",
+          topics: additions.join(", "),
+          detail
+        });
+      }
+    }
+    if (removals.length) this.client.unsubscribe(removals);
+    this.activeTopics = desiredTopics;
+  }
+
+  /** Publishes a profile as JSON to the panel's existing settings command topic. */
+  publishPanelSettings(panel: Panel): boolean {
+    return this.publish(`${panel.nodeName}/cmnd/settings`, JSON.stringify(panel.settings));
+  }
+
+  /** Drops active flow and cached scoped values for a deleted plugin instance. */
+  async removePluginRuntimeState(instanceId: string): Promise<void> { await this.runtimeState.removePluginInstance(instanceId); }
+
+  /** Routes preview diagnostics through the shared logger while keeping them in the preview result. */
+  logPluginDebug(pluginName: string, phase: string, message: string): void {
+    this.logger.debug(message, { component: "plugin", instance: pluginName, phase });
+  }
+
+  /** Returns the durable values visible to an invocation of one plugin script. */
+  getScriptStorageSnapshots(instanceId: string): {
+    global: Record<string, unknown>;
+    plugin: Record<string, unknown>;
+    panels: PanelStorageSnapshot[];
+  } {
+    return {
+      global: this.runtimeState.getScopeValues("global", ""),
+      plugin: this.runtimeState.getScopeValues("plugin", instanceId),
+      panels: this.getPanelStorageSnapshots()
+    };
+  }
+
+  /** Drops active flow context and panel-scoped values for a deleted panel. */
+  async removePanelRuntimeState(panelId: string): Promise<void> { await this.runtimeState.removePanel(panelId); }
+
+  /** Closes a currently visible flow screen before its favorite binding is removed. */
+  async closePanelBinding(panel: Panel, bindingId: string): Promise<void> {
+    const session = this.runtimeState.getPanelSession(panel.id);
+    if (session?.bindingId !== bindingId) return;
+    await this.runtimeState.setPanelSession(panel.id);
+    this.panelProtocol.exitToHome(panel);
+  }
+
+  /**
+   * Handles one inbound MQTT packet, first offering it to matching plugins and
+   * panel protocol handlers, then preserving configured route forwarding.
+   */
+  private async handleMessage(message: MqttMessageEnvelope): Promise<void> {
+    const config = this.store.get();
+    const { topic, payload } = message;
+    const instances = this.resolvePluginInstances(config);
+    const eventPanel = config.panels.find((panel) => topic.startsWith(`${panel.nodeName}/event/`));
+    if (eventPanel && isPanelPageEvent(eventPanel, topic)) {
+      await this.clearActivePluginPage(eventPanel);
+    }
+
+    await this.dispatchPluginMessage(instances, message);
+    await this.dispatchPluginSubscriptions(instances, message);
+
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
+      this.publishPanelSettings(eventPanel);
+      await this.restorePanelSession(eventPanel, config.panelBindings, instances);
+    } else if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "sleep") {
+      // Stop pushing device telemetry to a panel once its firmware reports that
+      // it has gone to sleep. The latest plugin state remains cached; the next
+      // favorite press renders it when the user returns.
+      await this.runtimeState.setPanelSession(eventPanel.id);
+    } else if (eventPanel) {
+      const event = this.panelProtocol.decodeEvent(eventPanel.nodeName, topic, payload);
+      if (event) await this.handlePanelInput(eventPanel, event, config.panelBindings, instances);
+    }
+
+    for (const route of config.routes) {
+      if (!matchesTopic(route.sourceTopic, topic)) continue;
+      if (route.direction === "panel-to-external" && !eventPanel) continue;
+      if (route.direction === "external-to-panel" && eventPanel) continue;
+      this.applyRoute(route, topic, payload, eventPanel, config.panels);
+    }
+  }
+
+  private async dispatchPluginMessage(instances: ResolvedPluginInstance[], message: MqttMessageEnvelope): Promise<void> {
+    for (const instance of instances) {
+      if (!instance.enabled) continue;
+      const definition = this.plugins.get(instance.pluginId);
+      if (!definition || !definition.subscriptions(instance).some((filter) => matchesTopic(filter, message.topic))) continue;
+      const patch = definition.decodeMessage(instance, message);
+      if (!patch || Object.keys(patch).length === 0) continue;
+      const state = { ...this.runtimeState.getPluginState(instance.id), ...patch };
+      await this.runtimeState.setPluginState(instance.id, state);
+      await this.refreshBoundPanels(instance, state);
+    }
+  }
+
+  /** Invokes every dynamic startup callback whose topic filter matches this packet. */
+  private async dispatchPluginSubscriptions(instances: ResolvedPluginInstance[], message: MqttMessageEnvelope): Promise<void> {
+    for (const instance of instances) {
+      if (!instance.enabled) continue;
+      const definition = this.plugins.get(instance.pluginId);
+      if (!definition?.handleSubscription) continue;
+      const subscriptions = this.pluginSubscriptions.get(instance.id) ?? [];
+      for (const subscription of subscriptions) {
+        if (!matchesTopic(subscription.topicFilter, message.topic)) continue;
+        try {
+          const result = await definition.handleSubscription(
+            instance,
+            subscription,
+            message,
+            this.runtimeState.getPluginState(instance.id),
+            this.createPluginLifecycleContext(instance, "mqtt subscription")
+          );
+          if (result?.statePatch) {
+            const state = { ...this.runtimeState.getPluginState(instance.id), ...result.statePatch };
+            await this.runtimeState.setPluginState(instance.id, state);
+          }
+          for (const command of result?.commands ?? []) {
+            if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+          }
+          if (result?.navigation) await this.navigateActivePluginPanels(instance, result.navigation);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          this.lastError = detail;
+          this.logger.error("Plugin MQTT callback failed.", {
+            component: "plugin",
+            instance: instance.name,
+            phase: "mqtt subscription",
+            topic: message.topic,
+            detail
+          });
+        }
+      }
+    }
+  }
+
+  /** Applies a script-requested navigation to every active panel using this plugin instance. */
+  private async navigateActivePluginPanels(instance: ResolvedPluginInstance, navigation: PluginPageNavigation): Promise<void> {
+    const config = this.store.get();
+    const state = this.runtimeState.getPluginState(instance.id);
+    for (const binding of config.panelBindings.filter((candidate) => candidate.pluginInstanceId === instance.id)) {
+      const panel = config.panels.find((candidate) => candidate.id === binding.panelId);
+      const session = panel ? this.runtimeState.getPanelSession(panel.id) : undefined;
+      if (!panel || !session || session.bindingId !== binding.id || session.pluginInstanceId !== instance.id) continue;
+      if (navigation.type === "reload" && navigation.screen === undefined && !session.screen) continue;
+      const screen = navigation.screen ?? session.screen;
+      if (!screen) continue;
+      const history = [...(session.history ?? [])];
+      if (navigation.type === "go" && session.screen && screen !== session.screen) history.push(session.screen);
+      await this.runtimeState.setPanelSession(panel.id, { ...session, screen, history });
+      await this.showScreen(panel, binding, instance, state, screen);
+    }
+  }
+
+  /** Refreshes only plugin screens with an active user session on the matching panel. */
+  private async refreshBoundPanels(instance: ResolvedPluginInstance, state: PluginState): Promise<void> {
+    const config = this.store.get();
+    for (const binding of config.panelBindings.filter((item) => item.pluginInstanceId === instance.id)) {
+      const panel = config.panels.find((item) => item.id === binding.panelId);
+      const session = panel ? this.runtimeState.getPanelSession(panel.id) : undefined;
+      if (!panel || !session?.screen || session.bindingId !== binding.id) continue;
+      await this.showScreen(panel, binding, instance, state, session.screen);
+    }
+  }
+
+  /** Clears a panel's plugin page after firmware navigation leaves plugin-managed screens. */
+  private async clearActivePluginPage(panel: Panel): Promise<void> {
+    const session = this.runtimeState.getPanelSession(panel.id);
+    if (!session?.screen) return;
+    await this.runtimeState.setPanelSession(panel.id, { ...session, screen: undefined, history: [] });
+  }
+
+  private async handlePanelInput(panel: Panel, event: PanelInputEvent, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<void> {
+    if (event.type === "favorite") {
+      const binding = bindings.find((item) => item.panelId === panel.id && item.trigger.type === "favorite" && item.trigger.index === event.index);
+      const instance = binding && instances.find((item) => item.id === binding.pluginInstanceId && item.enabled);
+      const definition = instance && this.plugins.get(instance.pluginId);
+      if (!binding || !instance || !definition) return;
+      const startScreen = definition.startScreen?.(instance) ?? "overview";
+      await this.runtimeState.setPanelSession(panel.id, { bindingId: binding.id, pluginInstanceId: instance.id, screen: startScreen, history: [] });
+      await this.renderBinding(panel, binding, instance, startScreen);
+      return;
+    }
+
+    const session = this.runtimeState.getPanelSession(panel.id);
+    if (!session?.screen || session.bindingId !== event.bindingId) return;
+    const binding = bindings.find((item) => item.id === session.bindingId && item.panelId === panel.id);
+    const instance = instances.find((item) => item.id === session.pluginInstanceId && item.enabled);
+    const definition = instance && this.plugins.get(instance.pluginId);
+    if (!binding || !instance || !definition) {
+      await this.runtimeState.setPanelSession(panel.id);
+      return;
+    }
+
+    if (event.type === "info-back") {
+      const startScreen = definition.startScreen?.(instance) ?? "overview";
+      if (session.screen !== startScreen) {
+        const history = [...(session.history ?? [])];
+        const screen = history.pop() ?? startScreen;
+        await this.runtimeState.setPanelSession(panel.id, { ...session, screen, history });
+        await this.renderBinding(panel, binding, instance, screen);
+      } else {
+        await this.runtimeState.setPanelSession(panel.id);
+        this.panelProtocol.exitToHome(panel);
+      }
+      return;
+    }
+
+    if (event.type !== "info-button" || event.index < 0 || event.index > 7 || !event.action) return;
+    const previousState = this.runtimeState.getPluginState(instance.id);
+    const context = this.createPluginContext(panel, binding, instance);
+    const result = await definition.handleAction(instance, previousState, event.action, context);
+    const nextState = result.statePatch ? { ...previousState, ...result.statePatch } : previousState;
+    if (result.statePatch) await this.runtimeState.setPluginState(instance.id, nextState);
+    for (const command of result.commands ?? []) {
+      if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+    }
+    if (result.screen === "exit") {
+      await this.runtimeState.setPanelSession(panel.id);
+      this.panelProtocol.exitToHome(panel);
+      return;
+    }
+    const history = [...(session.history ?? [])];
+    if (result.navigation?.type !== "reload" && result.screen !== session.screen) history.push(session.screen);
+    await this.runtimeState.setPanelSession(panel.id, { ...session, screen: result.screen, history });
+    await this.showScreen(panel, binding, instance, nextState, result.screen);
+  }
+
+  private async restorePanelSession(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<void> {
+    const session = this.runtimeState.getPanelSession(panel.id);
+    if (!session) return;
+    const binding = bindings.find((item) => item.id === session.bindingId && item.panelId === panel.id);
+    const instance = instances.find((item) => item.id === session.pluginInstanceId && item.enabled);
+    if (!binding || !instance || !this.plugins.get(instance.pluginId)) {
+      await this.runtimeState.setPanelSession(panel.id);
+      return;
+    }
+    if (!session.screen) return;
+    await this.renderBinding(panel, binding, instance, session.screen);
+  }
+
+  /** Replays saved profiles and active plugin screens after a broker connection returns. */
+  private async restoreAllPanels(): Promise<void> {
+    const config = this.store.get();
+    const instances = this.resolvePluginInstances(config);
+    for (const panel of config.panels) {
+      this.publishPanelSettings(panel);
+      await this.restorePanelSession(panel, config.panelBindings, instances);
+    }
+  }
+
+  private async renderBinding(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance, screen: string): Promise<void> {
+    const definition = this.plugins.get(instance.pluginId);
+    if (definition) await this.showScreen(panel, binding, instance, this.runtimeState.getPluginState(instance.id), screen);
+  }
+
+  private async showScreen(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance, state: PluginState, screen: string): Promise<void> {
+    const definition: PluginDefinition | undefined = this.plugins.get(instance.pluginId);
+    const isCurrentSession = (): boolean => {
+      const current = this.runtimeState.getPanelSession(panel.id);
+      return current?.bindingId === binding.id && current.pluginInstanceId === instance.id && current.screen === screen;
+    };
+    if (!definition || !isCurrentSession()) return;
+    const context = this.createPluginContext(panel, binding, instance);
+    let view: Awaited<ReturnType<PluginDefinition["renderScreen"]>>;
+    try {
+      view = await definition.renderScreen(instance, state, screen, context);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const lastMessage = state.lastMessage;
+      const topic = typeof lastMessage === "object" && lastMessage !== null && "topic" in lastMessage &&
+        typeof lastMessage.topic === "string" ? lastMessage.topic : "";
+      this.lastError = detail;
+      this.logger.error("Plugin page render failed.", {
+        component: "plugin",
+        instance: instance.name,
+        panel: panel.name,
+        page: screen,
+        phase: "render",
+        topic,
+        detail
+      });
+      return;
+    }
+    // Rendering can yield to MQTT sleep/navigation events. Recheck so late
+    // telemetry cannot wake the panel or overwrite a newer page.
+    if (view && isCurrentSession()) this.panelProtocol.showScreen(panel, binding, view);
+  }
+
+  private createPluginContext(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance): PluginRuntimeContext {
+    const ownerId = (scope: PluginStorageScope): string => scope === "global" ? "" : scope === "panel" ? panel.id : instance.id;
+    const resolvePanelId = (panelNameOrId: string): string => {
+      const matches = this.store.get().panels.filter((candidate) => candidate.id === panelNameOrId || candidate.name === panelNameOrId);
+      if (matches.length !== 1) throw new Error(matches.length ? `Panel name '${panelNameOrId}' is ambiguous.` : `Panel '${panelNameOrId}' was not found.`);
+      return matches[0].id;
+    };
+    return {
+      panel: { id: panel.id, name: panel.name, nodeName: panel.nodeName },
+      binding: { id: binding.id, name: binding.name, panelId: binding.panelId, pluginInstanceId: binding.pluginInstanceId, trigger: binding.trigger },
+      variables: instance.variables ?? {},
+      storage: {
+        get: async (scope, key) => this.runtimeState.getValue(scope, ownerId(scope), key),
+        set: async (scope, key, value) => this.runtimeState.setValue(scope, ownerId(scope), key, value),
+        delete: async (scope, key) => this.runtimeState.deleteValue(scope, ownerId(scope), key),
+        snapshot: async (scope) => this.runtimeState.getScopeValues(scope, ownerId(scope)),
+        snapshotPanels: async () => this.getPanelStorageSnapshots(),
+        setPanel: async (panelNameOrId, key, value) => this.runtimeState.setValue("panel", resolvePanelId(panelNameOrId), key, value),
+        deletePanel: async (panelNameOrId, key) => this.runtimeState.deleteValue("panel", resolvePanelId(panelNameOrId), key)
+      },
+      publish: (topic, payload) => this.publish(topic, payload),
+      debug: { log: (message) => this.logger.debug(message, { component: "plugin", instance: instance.name, phase: "panel", panel: panel.name }) }
+    };
+  }
+
+  /** Creates the panel-independent context used by plugin startup and MQTT callbacks. */
+  private createPluginLifecycleContext(instance: ResolvedPluginInstance, phase: string): PluginRuntimeContext {
+    const resolvePanelId = (panelNameOrId: string): string => {
+      const matches = this.store.get().panels.filter((candidate) => candidate.id === panelNameOrId || candidate.name === panelNameOrId);
+      if (matches.length !== 1) throw new Error(matches.length ? `Panel name '${panelNameOrId}' is ambiguous.` : `Panel '${panelNameOrId}' was not found.`);
+      return matches[0].id;
+    };
+    const ownerId = (scope: PluginStorageScope): string => scope === "global" ? "" : scope === "plugin" ? instance.id : "";
+    return {
+      panel: { id: "", name: instance.name, nodeName: "" },
+      binding: {
+        id: "", name: "Plugin startup", panelId: "", pluginInstanceId: instance.id,
+        trigger: { type: "favorite", index: 0 }
+      },
+      variables: instance.variables ?? {},
+      storage: {
+        get: async (scope, key) => this.runtimeState.getValue(scope, ownerId(scope), key),
+        set: async (scope, key, value) => {
+          if (scope === "panel") throw new Error("Choose a panel by name with panel.set(panelName, key, value).");
+          await this.runtimeState.setValue(scope, ownerId(scope), key, value);
+        },
+        delete: async (scope, key) => {
+          if (scope === "panel") throw new Error("Choose a panel by name with panel.delete(panelName, key).");
+          await this.runtimeState.deleteValue(scope, ownerId(scope), key);
+        },
+        snapshot: async (scope) => this.runtimeState.getScopeValues(scope, ownerId(scope)),
+        snapshotPanels: async () => this.getPanelStorageSnapshots(),
+        setPanel: async (panelNameOrId, key, value) => this.runtimeState.setValue("panel", resolvePanelId(panelNameOrId), key, value),
+        deletePanel: async (panelNameOrId, key) => this.runtimeState.deleteValue("panel", resolvePanelId(panelNameOrId), key)
+      },
+      publish: (topic, payload) => this.publish(topic, payload),
+      debug: { log: (message) => this.logger.debug(message, { component: "plugin", instance: instance.name, phase }) }
+    };
+  }
+
+  private getPanelStorageSnapshots(): PanelStorageSnapshot[] {
+    return this.store.get().panels.map((panel) => ({
+      id: panel.id,
+      name: panel.name,
+      values: this.runtimeState.getScopeValues("panel", panel.id)
+    }));
+  }
+
+  /** Resolves saved instance references against reusable plugin profiles for runtime calls. */
+  private resolvePluginInstances(config: ManagerConfig = this.store.get()): ResolvedPluginInstance[] {
+    const profiles = new Map(config.pluginProfiles.map((profile) => [profile.id, profile]));
+    return config.pluginInstances.flatMap((instance) => {
+      const profile = profiles.get(instance.pluginProfileId);
+      return profile ? [{ ...instance, pluginId: profile.pluginId, config: profile.config }] : [];
+    });
+  }
+
+  /** Forwards a route and gates direct panel screen commands on an open flow session. */
+  private applyRoute(route: MqttRoute, topic: string, payload: string, eventPanel: Panel | undefined, panels: Panel[]): void {
+    const routePanel = route.panelId ? panels.find((panel) => panel.id === route.panelId) : eventPanel;
+    const nodeName = routePanel?.nodeName ?? eventPanel?.nodeName ?? "";
+    const targetTopic = route.targetTopic.replaceAll("{nodeName}", nodeName);
+    if (!targetTopic || targetTopic.includes("{nodeName}")) return;
+    if (route.direction === "external-to-panel" && routePanel && (
+      targetTopic === `${routePanel.nodeName}/cmnd/info` ||
+      targetTopic === `${routePanel.nodeName}/cmnd/nextion`
+    ) && !this.runtimeState.getPanelSession(routePanel.id)?.screen) return;
+    const output = renderPayload(route.payloadTemplate, topic, payload, routePanel);
+    this.publish(targetTopic, output);
+  }
+
+  private publish(topic: string, payload: string): boolean {
+    if (!this.client?.connected || !isPublishableTopic(topic)) return false;
+    this.client.publish(topic, payload);
+    return true;
+  }
+}
+
+function isPublishableTopic(topic: string): boolean { return Boolean(topic.trim()) && !/[+#\u0000]/.test(topic); }
+
+function isPanelPageEvent(panel: Panel, topic: string): boolean {
+  const pageTopic = `${panel.nodeName}/event/page`;
+  return topic === pageTopic || topic.startsWith(`${pageTopic}/`);
+}
+
+function isValidTopicFilter(filter: string): boolean {
+  if (!filter || filter.includes("\u0000")) return false;
+  const levels = filter.split("/");
+  return levels.every((level, index) => {
+    if (level.includes("#")) return level === "#" && index === levels.length - 1;
+    return !level.includes("+") || level === "+";
+  });
+}
+
+function matchesTopic(filter: string, topic: string): boolean {
+  const expected = filter.split("/");
+  const actual = topic.split("/");
+  for (let i = 0; i < expected.length; i++) {
+    if (expected[i] === "#") return true;
+    if (i >= actual.length || (expected[i] !== "+" && expected[i] !== actual[i])) return false;
+  }
+  return expected.length === actual.length;
+}
+
+function renderPayload(template: string, topic: string, payload: string, panel?: Panel): string {
+  let parsed: unknown;
+  try { parsed = JSON.parse(payload); } catch { parsed = undefined; }
+  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, key: string) => {
+    const lookup = key.trim();
+    if (lookup === "payload") return payload;
+    if (lookup === "topic") return topic;
+    if (lookup === "nodeName") return panel?.nodeName ?? "";
+    const value = lookup.startsWith("json.") ? lookup.slice(5).split(".").reduce<unknown>((current, part) => {
+      if (current && typeof current === "object") return (current as Record<string, unknown>)[part];
+      return undefined;
+    }, parsed) : undefined;
+    return value === undefined || value === null ? "" : String(value);
+  });
+}

@@ -1,0 +1,34 @@
+<section class="single-card card">
+  <div class="card-heading"><div><h2>MQTT routes</h2><p>Connect incoming device states with panel commands, and panel actions with device commands.</p></div><span class="count-badge">{{ manager.config().routes.length }}</span></div>
+  <div class="route-explainer">
+    <div><span class="route-icon">⇢</span><b>External → panel</b><small>For example, thermostat state to a panel display topic.</small></div>
+    <div><span class="route-icon">⇠</span><b>Panel → external</b><small>For example, panel button event to a device command.</small></div>
+  </div>
+
+  @if (manager.config().routes.length > 0) {
+    <div class="route-list">
+      @for (route of manager.config().routes; track route.id) {
+        <div class="route-row">
+          <div class="route-direction">{{ route.direction === 'external-to-panel' ? 'EXT → PANEL' : 'PANEL → EXT' }}</div>
+          <div class="route-details"><b>{{ route.name }}</b><code>{{ route.sourceTopic }}</code><span>→</span><code>{{ route.targetTopic }}</code>@if (route.panelId) { <small>Panel: {{ panelName(route.panelId) }}</small> }</div>
+          <button class="text-danger" (click)="removeRoute(route)">Remove</button>
+        </div>
+      }
+    </div>
+  } @else {
+    <div class="empty-routes"><b>No routes configured</b><span>Create a route below to connect your devices.</span></div>
+  }
+
+  <div class="section-title section-spaced route-form-title"><span class="section-number">＋</span><div><h3>Add a route</h3><p>Source topics accept + and # wildcards. Payload tokens: payload, topic, nodeName, and JSON paths like json.temperature.</p></div></div>
+  <div class="route-form">
+    <label>Route name<input [(ngModel)]="draft().name" placeholder="Thermostat current temperature"></label>
+    <label>Direction<select [ngModel]="draft().direction" (ngModelChange)="setDirection($event)"><option value="external-to-panel">External state → panel</option><option value="panel-to-external">Panel event → device</option></select></label>
+    @if (draft().direction === 'external-to-panel') {
+      <label>Target panel<select [(ngModel)]="draft().panelId"><option value="">Choose a panel</option>@for (panel of manager.config().panels; track panel.id) { <option [value]="panel.id">{{ panel.name }}</option> }</select></label>
+    }
+    <label>Source topic<input [(ngModel)]="draft().sourceTopic" [placeholder]="draft().direction === 'external-to-panel' ? 'home/thermostat/temperature' : 'nsp-livingroom/event/item/0'"></label>
+    <label>Target topic<input [(ngModel)]="draft().targetTopic" [placeholder]="targetTopicPlaceholder"></label>
+    <label class="wide">Payload template<input [(ngModel)]="draft().payloadTemplate" placeholder="payload"><small>For external-to-panel routes, the selected panel’s node name is used in the target topic.</small></label>
+    <div class="wide form-actions"><button class="button primary" [disabled]="saving()" (click)="addRoute()">{{ saving() ? 'Adding…' : 'Add route' }} <span>＋</span></button></div>
+  </div>
+</section>

@@ -1,0 +1,75 @@
+<div class="content-grid">
+  <section class="panel-list-card card">
+    <div class="card-heading"><div><h2>Your panels</h2><p>Manage screens and settings for each room.</p></div><span class="count-badge">{{ manager.config().panels.length }}</span></div>
+    @if (manager.config().panels.length === 0) {
+      <div class="empty-state"><span class="empty-icon">▣</span><b>No panels yet</b><p>Add a panel using its MQTT node name.</p></div>
+    }
+    @for (panel of manager.config().panels; track panel.id) {
+      <button class="panel-row" [class.selected]="selectedPanelId() === panel.id" [attr.aria-pressed]="selectedPanelId() === panel.id" (click)="selectPanel(panel)">
+        <span class="panel-icon">▣</span><span class="panel-row-copy"><b>{{ panel.name }}</b><small>{{ panel.nodeName }}</small></span><span class="row-arrow">›</span>
+      </button>
+    }
+    @if (addingPanel()) {
+      <div class="add-panel-box">
+        <label>Panel name<input [ngModel]="newName()" (ngModelChange)="newName.set($event)" placeholder="Kitchen"></label>
+        <label>MQTT node name<input [ngModel]="newNodeName()" (ngModelChange)="newNodeName.set($event)" placeholder="nsp-kitchen"></label>
+        <div class="inline-actions"><button class="button ghost small" (click)="addingPanel.set(false)">Cancel</button><button class="button primary small" (click)="addPanel()">Add panel</button></div>
+      </div>
+    } @else {
+      <button class="add-panel-button" (click)="addingPanel.set(true)"><span>＋</span> Add a panel</button>
+    }
+    <div class="info-tip"><span>ⓘ</span><p>Panels must use this broker. The node name must match the firmware substitution.</p></div>
+  </section>
+
+  @if (draft(); as panel) {
+    <section class="editor-card card">
+    <div class="editor-heading"><div class="device-title"><span class="device-icon">▣</span><div><h2>{{ panel.name }}</h2><p><code>{{ panel.nodeName }}</code> <span class="dot-sep">·</span> NSPanel firmware</p></div></div>
+      <div class="editor-actions"><button class="button ghost" (click)="removePanel()">Remove</button><button class="button primary" [disabled]="saving() || !favoritesValid(panel)" (click)="savePanel()">{{ saving() ? 'Saving…' : 'Save changes' }}</button></div></div>
+      <div class="settings-scroll">
+        <div class="section-title"><span class="section-number">01</span><div><h3>Display settings</h3><p>Basic labels and appearance.</p></div></div>
+        <div class="form-grid three-col">
+          <label>Display title<input [(ngModel)]="panel.settings.panelname" placeholder="Kitchen"></label>
+          <label>Brightness <span class="unit">%</span><input type="number" min="0" max="100" [(ngModel)]="panel.settings.brightness"></label>
+          <label>Current temperature <span class="unit">°C</span><input type="number" step="0.1" [(ngModel)]="panel.settings.currenttemperature" placeholder="Optional"></label>
+          <label class="toggle-row"><span><b>Screensaver</b><small>Show the screen saver</small></span><input type="checkbox" [ngModel]="panel.settings.screensaver === 1" (ngModelChange)="panel.settings.screensaver = $event ? 1 : 0"></label>
+          <label class="toggle-row"><span><b>Night mode</b><small>Dim nighttime display</small></span><input type="checkbox" [ngModel]="panel.settings.nightmode === 1" (ngModelChange)="panel.settings.nightmode = $event ? 1 : 0"></label>
+        </div>
+
+        <div class="section-title section-spaced"><span class="section-number">02</span><div><h3>Main screen buttons</h3><p>Four shortcut tiles shown on the home screen.</p></div></div>
+        @for (button of panel.settings.buttons; track $index; let i = $index) {
+          <div class="button-config"><span class="button-index">0{{ i + 1 }}</span><label>Label<input [(ngModel)]="button.label" placeholder="Living room lights"></label><label>Icon name<input [(ngModel)]="button.image" placeholder="lightbulb"></label><label>Mode<select [(ngModel)]="button.mode"><option [ngValue]="0">Toggle</option><option [ngValue]="1">Open detail page</option></select></label></div>
+        }
+
+        <div class="section-title section-spaced"><span class="section-number">03</span><div><h3>Favorites page</h3><p>Name the panel’s 12 favorite shortcuts and optionally assign a plugin instance.</p></div></div>
+        <div class="form-grid two-col favorite-heading"><label>Page title<input [(ngModel)]="panel.settings.favorites.name" placeholder="Favorites"></label></div>
+        <div class="favorite-grid">
+          @for (favorite of panel.settings.favorites.buttons; track $index; let i = $index) {
+            <div class="favorite-item">
+              <span class="favorite-index">{{ (i + 1).toString().padStart(2, '0') }}</span>
+              <div class="favorite-item-fields">
+                <label>Favorite name<input [(ngModel)]="favorite.label" [placeholder]="'Favorite ' + (i + 1)"></label>
+                <label>Plugin instance
+                  <select [ngModel]="favoriteInstance(i)" (ngModelChange)="setFavoriteInstance(i, $event)">
+                    <option value="">No plugin assigned</option>
+                    @for (instance of manager.config().pluginInstances; track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }
+                  </select>
+                </label>
+              </div>
+            </div>
+          }
+        </div>
+        @if (!favoritesValid(panel)) { <p class="favorite-validation" role="alert">Add a favorite name for each slot assigned to a plugin instance.</p> }
+
+        <div class="section-title section-spaced"><span class="section-number">04</span><div><h3>Physical buttons</h3><p>Choose whether each relay responds locally or through an MQTT route.</p></div></div>
+        <div class="form-grid two-col hardware-grid">
+          <label>Left hardware button<select [(ngModel)]="panel.settings.hwbuttons['0']"><option [ngValue]="0">Toggle relay locally</option><option [ngValue]="1">Publish event only</option></select></label>
+          <label>Right hardware button<select [(ngModel)]="panel.settings.hwbuttons['1']"><option [ngValue]="0">Toggle relay locally</option><option [ngValue]="1">Publish event only</option></select></label>
+        </div>
+
+        <div class="save-bottom"><span>Changes are stored by the manager until applied.</span><button class="button primary" [disabled]="!manager.mqtt().connected" (click)="applyPanel()">Apply to panel <span>↗</span></button></div>
+      </div>
+    </section>
+  } @else {
+    <section class="editor-card card blank-editor"><div class="empty-icon">▣</div><h2>Select a panel</h2><p>Choose a panel from the list to edit its display settings, or add your first one.</p></section>
+  }
+</div>

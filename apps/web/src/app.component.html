@@ -1,0 +1,66 @@
+@if (!authLoaded()) {
+  <main class="auth-loading" aria-live="polite">Loading sign-in status…</main>
+} @else if (authError()) {
+  <main class="auth-loading" role="alert">The manager API is unavailable. Refresh the page to try again.</main>
+} @else if (!manager.authUser()) {
+  <nspanel-auth-page />
+} @else {
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="#" (click)="$event.preventDefault(); show('panels')">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy"><b>panel manager</b><small>HOME CONTROL</small></span>
+    </a>
+    <p class="nav-label">WORKSPACE</p>
+    <button class="nav-item" [class.active]="view() === 'panels'" [attr.aria-current]="view() === 'panels' ? 'page' : null" (click)="show('panels')">
+      <span>▦</span> Panels <em>{{ manager.config().panels.length }}</em>
+    </button>
+    <button class="nav-item" [class.active]="view() === 'plugins'" [attr.aria-current]="view() === 'plugins' ? 'page' : null" (click)="show('plugins')">
+      <span>◈</span> Plugins <em>{{ manager.config().pluginInstances.length }}</em>
+    </button>
+    <button class="nav-item" [class.active]="view() === 'routes'" [attr.aria-current]="view() === 'routes' ? 'page' : null" (click)="show('routes')">
+      <span>↔</span> MQTT routes <em>{{ manager.config().routes.length }}</em>
+    </button>
+    <button class="nav-item" [class.active]="view() === 'broker'" [attr.aria-current]="view() === 'broker' ? 'page' : null" (click)="show('broker')">
+      <span>⌁</span> Connection
+    </button>
+    <button class="nav-item" [class.active]="view() === 'users'" [attr.aria-current]="view() === 'users' ? 'page' : null" (click)="show('users')">
+      <span>♙</span> Users
+    </button>
+    <div class="sidebar-bottom">
+      <div class="broker-state"><i [class.online]="manager.mqtt().connected"></i><span>{{ manager.mqtt().connected ? 'Broker connected' : 'Broker disconnected' }}</span></div>
+      <small class="version">NSPanel Manager · MVP</small>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="topbar">
+      <div><div class="eyebrow">SMART HOME / {{ viewLabel }}</div><h1>{{ pageTitle }}</h1></div>
+      <div class="top-actions">
+        <span class="connection-pill" [class.is-connected]="manager.mqtt().connected"><i></i>{{ manager.mqtt().connected ? 'MQTT online' : 'MQTT offline' }}</span>
+        <span class="signed-in-user">{{ manager.authUser()?.email }}</span>
+        <button class="signout-button" type="button" (click)="signOut()">Sign out</button>
+        <button class="icon-button" aria-label="Refresh current page" (click)="refreshCurrent()">↻</button>
+      </div>
+    </header>
+
+    @if (manager.notice(); as notice) {
+      <div class="notice" [class.error]="notice.kind === 'error'" role="status" aria-live="polite">
+        {{ notice.text }}<button aria-label="Dismiss message" (click)="manager.dismissNotice()">×</button>
+      </div>
+    }
+
+    @if (view() === 'panels') {
+      <nspanel-panel-page #panelPage />
+    } @else if (view() === 'plugins') {
+      <nspanel-plugins-page #pluginsPage />
+    } @else if (view() === 'routes') {
+      <nspanel-routes-page #routesPage />
+    } @else if (view() === 'broker') {
+      <nspanel-broker-page #brokerPage />
+    } @else {
+      <nspanel-users-page #usersPage />
+    }
+  </main>
+</div>
+}

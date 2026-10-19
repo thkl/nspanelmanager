@@ -1,0 +1,13 @@
+node_modules/
+dist/
+apps/web/.angular/
+apps/web/dist/
+apps/api/dist/
+data/
+.env
+secrets/
+esphome/secrets.yaml
+.DS_Store
+.impeccable/
+.pnpm-store/
+esphome/

@@ -1,0 +1,14 @@
+{
+  "name": "nspanel-manager",
+  "private": true,
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22.22.3 <23"
+  },
+  "scripts": {
+    "start:debug": "pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api start:debug",
+    "dev": "pnpm --parallel --filter @nspanel/api --filter @nspanel/web dev",
+    "build": "pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api build",
+    "security:keygen": "pnpm --filter @nspanel/api security:keygen"
+  }
+}

@@ -1,0 +1,78 @@
+import { Component, OnInit, signal } from "@angular/core";
+import { FormsModule } from "@angular/forms";
+import { ManagerStore } from "../../manager-store.service";
+import type { MqttRoute, RouteDraft } from "../../models";
+
+/**
+ * Creates and removes the manager's generic MQTT topic bridges.
+ *
+ * External-to-panel routes publish state to a selected panel command topic.
+ * Panel-to-external routes listen for a panel event and publish the resulting
+ * payload to an integration command topic. The MQTT runtime supports wildcard
+ * source filters and simple payload tokens, so users can replace small Node-RED
+ * forwarding flows without custom code.
+ */
+@Component({
+  selector: "nspanel-routes-page",
+  standalone: true,
+  imports: [FormsModule],
+  templateUrl: "./routes-page.component.html",
+  styleUrl: "./routes-page.component.css"
+})
+export class RoutesPageComponent implements OnInit {
+  readonly draft = signal<RouteDraft>(this.emptyDraft());
+  readonly saving = signal(false);
+
+  /** Provides a direction-specific example without placing raw braces in HTML. */
+  get targetTopicPlaceholder(): string {
+    return this.draft().direction === "external-to-panel"
+      ? "{nodeName}/cmnd/thermostate/current"
+      : "home/lights/livingroom/set";
+  }
+
+  /** Receives shared configuration and route operations from the manager store. */
+  constructor(readonly manager: ManagerStore) {}
+
+  /** Ensures the displayed panel labels and routes come from persisted state. */
+  ngOnInit(): void { this.refresh(); }
+
+  /** Refreshes server-managed lists without discarding the route being drafted. */
+  refresh(): void {
+    this.manager.refresh().subscribe({ error: () => this.manager.inform("Could not load MQTT routes.", "error") });
+  }
+
+  /** Adds the currently drafted topic mapping and resets the editor on success. */
+  addRoute(): void {
+    this.saving.set(true);
+    this.manager.addRoute(this.draft()).subscribe({
+      next: () => {
+        this.draft.set(this.emptyDraft());
+        this.saving.set(false);
+        this.manager.inform("MQTT route added.");
+      },
+      error: (error) => { this.saving.set(false); this.manager.inform(error.error?.error || "Could not add route.", "error"); }
+    });
+  }
+
+  /** Deletes a route from the broker subscription set and persistent profile. */
+  removeRoute(route: MqttRoute): void {
+    this.manager.removeRoute(route).subscribe({
+      next: () => this.manager.inform("Route removed."),
+      error: () => this.manager.inform("Could not remove route.", "error")
+    });
+  }
+
+  /** Updates route direction and clears a now-inapplicable panel target. */
+  setDirection(direction: RouteDraft["direction"]): void {
+    this.draft.update((draft) => ({ ...draft, direction, panelId: direction === "external-to-panel" ? draft.panelId : "" }));
+  }
+
+  /** Resolves a route's optional panel id into the current human-readable name. */
+  panelName(id: string | undefined): string {
+    return this.manager.config().panels.find((panel) => panel.id === id)?.name ?? "All matching panels";
+  }
+
+  private emptyDraft(): RouteDraft {
+    return { name: "", direction: "external-to-panel", panelId: "", sourceTopic: "", targetTopic: "", payloadTemplate: "{{payload}}" };
+  }
+}

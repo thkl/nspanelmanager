@@ -1,0 +1,372 @@
+<section class="plugin-layout">
+  <article class="card plugin-editor">
+    <div class="card-heading">
+      <div><h2>{{ editingProfileId() ? 'Edit plugin' : 'Create a reusable plugin' }}</h2><p>Define a device integration once, then use it from as many instances as you need.</p></div>
+      <span class="plugin-mark">◈</span>
+    </div>
+
+    @if (definitions().length > 0) {
+      <div class="plugin-form">
+        <label>Plugin type
+          <select [ngModel]="selectedPluginId()" (ngModelChange)="selectPlugin($event)" [disabled]="!!editingProfileId()">
+            @for (definition of definitions(); track definition.id) { <option [value]="definition.id">{{ definition.name }}</option> }
+          </select>
+        </label>
+        @if (selectedDefinition; as definition) {
+          <div class="plugin-description"><b>{{ definition.name }}</b><span>{{ definition.description }}</span><small>Capabilities: {{ definition.capabilities.join(', ') }}</small></div>
+          <label>Plugin name<input [ngModel]="profileName()" (ngModelChange)="profileName.set($event)" placeholder="Dyson"></label>
+          <div class="config-grid">
+            @for (field of definition.configSchema; track field.key) {
+              @if (field.type === 'table' && isTabbedPageField(field)) {
+                <section class="page-config-field">
+                  <div class="field-heading">
+                    <div><span class="field-label">{{ field.label }}</span>@if (field.help) { <small>{{ field.help }}</small> }</div>
+                    <span class="page-count">{{ tableRows(field).length }} / {{ field.maxRows ?? 16 }}</span>
+                  </div>
+                  <div class="page-tab-bar">
+                    <div class="page-tabs" role="tablist" aria-label="Plugin pages">
+                      @for (page of tableRows(field); track $index; let pageIndex = $index) {
+                        <button type="button" class="page-tab" role="tab" [class.active]="pageIndex === activePageIndex()" [attr.aria-selected]="pageIndex === activePageIndex()" [attr.aria-controls]="'plugin-page-panel-' + pageIndex" [attr.id]="'plugin-page-tab-' + pageIndex" (click)="selectPage(pageIndex)">{{ page.name || page.id || 'Page ' + (pageIndex + 1) }}</button>
+                      }
+                    </div>
+                    <button type="button" class="text-action add-page" [disabled]="tableRows(field).length >= (field.maxRows ?? 16)" (click)="addPage(field)">＋ Add page</button>
+                  </div>
+                  @if (activePage(field); as page) {
+                    <section class="page-tab-panel" role="tabpanel" [attr.id]="'plugin-page-panel-' + activePageIndex()" [attr.aria-labelledby]="'plugin-page-tab-' + activePageIndex()">
+                      <div class="page-panel-heading"><h3>Page settings</h3><button type="button" class="text-danger" [disabled]="tableRows(field).length <= (field.minRows ?? 1)" (click)="removePage(field, activePageIndex())">Remove page</button></div>
+                      <div class="page-identity">
+                        <label>Page ID<input [ngModel]="page.id" (ngModelChange)="setPageCell(field, activePageIndex(), 'id', $event)" placeholder="overview"></label>
+                        <label>Page name<input [ngModel]="page.name" (ngModelChange)="setPageCell(field, activePageIndex(), 'name', $event)" placeholder="Overview"></label>
+                      </div>
+                      <div class="multiline-editor page-renderer">
+                        <span>Render function body</span>
+                        <nspanel-script-editor [ariaLabel]="'Render function for ' + (page.name || page.id)" [ngModel]="page.renderCode" (ngModelChange)="setPageCell(field, activePageIndex(), 'renderCode', $event)"></nspanel-script-editor>
+                        <div class="script-check-row">
+                          <button type="button" class="text-action" [disabled]="scriptCheckState(field, activePageIndex(), 'renderCode')?.status === 'checking'" (click)="checkScript(field, activePageIndex(), 'renderCode')">{{ scriptCheckState(field, activePageIndex(), 'renderCode')?.status === 'checking' ? 'Checking…' : 'Check syntax' }}</button>
+                          @if (scriptCheckState(field, activePageIndex(), 'renderCode'); as check) {
+                            <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message }}</span>
+                          }
+                        </div>
+                      </div>
+                      @if (buttonActionsField(); as actionField) {
+                        <section class="page-buttons" [attr.aria-labelledby]="'page-buttons-heading-' + activePageIndex()">
+                          <div class="page-buttons-heading">
+                            <button type="button" class="page-buttons-toggle" [attr.aria-expanded]="arePageButtonsExpanded(activePageIndex())" [attr.aria-controls]="'page-button-actions-' + activePageIndex()" (click)="togglePageButtons(activePageIndex())">
+                              <span class="page-buttons-chevron" [class.expanded]="arePageButtonsExpanded(activePageIndex())" aria-hidden="true">⌄</span>
+                              <span class="page-buttons-toggle-copy"><span class="page-buttons-title" [attr.id]="'page-buttons-heading-' + activePageIndex()">Button actions</span><span>These actions belong to {{ page.name || page.id }}. The button labels come from the render function above.</span></span>
+                              <span class="page-action-count">{{ pageActions(actionField, page.id).length }} configured</span>
+                            </button>
+                            <button type="button" class="button secondary add-page-action" [disabled]="!canAddPageAction(actionField, page.id)" (click)="addPageAction(actionField, page.id)">＋ Add button action</button>
+                          </div>
+                          <div class="page-button-content" [attr.id]="'page-button-actions-' + activePageIndex()" [hidden]="!arePageButtonsExpanded(activePageIndex())">
+                            @if (actionField.help) { <small class="page-action-help">{{ actionField.help }}</small> }
+                            @if (pageActions(actionField, page.id).length > 0) {
+                              <div class="page-action-list">
+                                @for (entry of pageActions(actionField, page.id); track entry.index) {
+                                  <div class="page-action-row">
+                                    <div class="page-action-fields">
+                                      <label>Button slot
+                                        <select [ngModel]="entry.action.slot" (ngModelChange)="setPageActionCell(actionField, entry.index, 'slot', $event)">
+                                          @for (slot of buttonSlots; track slot) { <option [value]="slot" [disabled]="pageActionSlotUsed(actionField, page.id, slot, entry.index)">Button {{ slot }}</option> }
+                                        </select>
+                                      </label>
+                                      <label>Action type
+                                        <select [ngModel]="entry.action.type" (ngModelChange)="setPageActionType(actionField, entry.index, $event)">
+                                          <option value="none">No action</option>
+                                          <option value="page">Open page</option>
+                                          <option value="mqtt">Send MQTT</option>
+                                          <option value="function">Run function</option>
+                                        </select>
+                                      </label>
+                                      @if (entry.action.type === 'page') {
+                                        <label class="wide">Open page
+                                          <select [ngModel]="entry.action.target" (ngModelChange)="setPageActionCell(actionField, entry.index, 'target', $event)">
+                                            <option value="">Choose a page…</option>
+                                            @for (targetPage of tableRows(field); track $index) { <option [value]="targetPage.id">{{ targetPage.name || targetPage.id }} ({{ targetPage.id }})</option> }
+                                          </select>
+                                        </label>
+                                      }
+                                      @if (entry.action.type === 'function') {
+                                        <label class="wide">Function
+                                          <select [ngModel]="entry.action.target" (ngModelChange)="setPageActionCell(actionField, entry.index, 'target', $event)">
+                                            <option value="">Choose a function…</option>
+                                            @for (fn of pageFunctionTargets(); track fn.id) { <option [value]="fn.id">{{ fn.id }}</option> }
+                                          </select>
+                                        </label>
+                                      }
+                                      @if (entry.action.type === 'mqtt') {
+                                        <label>MQTT topic<input [ngModel]="entry.action.topic" (ngModelChange)="setPageActionCell(actionField, entry.index, 'topic', $event)" placeholder="home/device/set"></label>
+                                        <label class="wide">MQTT payload<textarea [ngModel]="entry.action.payload" (ngModelChange)="setPageActionCell(actionField, entry.index, 'payload', $event)" rows="3" placeholder='{"power":"ON"}'></textarea></label>
+                                      }
+                                    </div>
+                                    <button type="button" class="text-danger remove-page-action" (click)="removePageAction(actionField, entry.index)">Remove</button>
+                                  </div>
+                                }
+                              </div>
+                            } @else {
+                              <p class="no-page-actions">No button actions configured for this page yet.</p>
+                            }
+                          </div>
+                        </section>
+                      }
+                    </section>
+                  }
+                </section>
+              } @else if (field.type === 'table' && isTabbedFunctionField(field)) {
+                <section class="page-config-field function-config-field">
+                  <div class="field-heading">
+                    <div><span class="field-label">{{ field.label }}</span>@if (field.help) { <small>{{ field.help }}</small> }</div>
+                    <span class="page-count">{{ tableRows(field).length }} / {{ field.maxRows ?? 32 }}</span>
+                  </div>
+                  <div class="page-tab-bar">
+                    @if (tableRows(field).length > 0) {
+                      <div class="page-tabs" role="tablist" aria-label="Helper functions">
+                        @for (fn of tableRows(field); track $index; let functionIndex = $index) {
+                          <button type="button" class="page-tab" role="tab" [class.active]="functionIndex === activeFunctionIndex()" [attr.aria-selected]="functionIndex === activeFunctionIndex()" [attr.aria-controls]="'plugin-function-panel-' + functionIndex" [attr.id]="'plugin-function-tab-' + functionIndex" (click)="selectFunction(functionIndex)">{{ fn.id || 'Function ' + (functionIndex + 1) }}</button>
+                        }
+                      </div>
+                    } @else {
+                      <span class="function-tab-empty">No helper functions configured yet.</span>
+                    }
+                    <button type="button" class="text-action add-page" [disabled]="tableRows(field).length >= (field.maxRows ?? 32)" (click)="addFunction(field)">＋ Add helper</button>
+                  </div>
+                  @if (activeFunction(field); as fn) {
+                    <section class="page-tab-panel" role="tabpanel" [attr.id]="'plugin-function-panel-' + activeFunctionIndex()" [attr.aria-labelledby]="'plugin-function-tab-' + activeFunctionIndex()">
+                      <div class="page-panel-heading"><h3>Helper settings</h3><button type="button" class="text-danger" (click)="removeFunction(field, activeFunctionIndex())">Remove helper</button></div>
+                      <div class="page-identity">
+                        <label>Function ID<input [ngModel]="fn.id" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'id', $event)" placeholder="formatStatus"></label>
+                        <label>Parameters<input [ngModel]="fn.parameters" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'parameters', $event)" placeholder="message, label"></label>
+                      </div>
+                      <div class="multiline-editor page-renderer">
+                        <span>Function body</span>
+                        <nspanel-script-editor [ariaLabel]="'Function body for ' + (fn.id || 'helper')" [ngModel]="fn.code" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'code', $event)"></nspanel-script-editor>
+                        <div class="script-check-row">
+                          <button type="button" class="text-action" [disabled]="scriptCheckState(field, activeFunctionIndex(), 'code')?.status === 'checking'" (click)="checkScript(field, activeFunctionIndex(), 'code')">{{ scriptCheckState(field, activeFunctionIndex(), 'code')?.status === 'checking' ? 'Checking…' : 'Check syntax' }}</button>
+                          @if (scriptCheckState(field, activeFunctionIndex(), 'code'); as check) {
+                            <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message }}</span>
+                          }
+                        </div>
+                      </div>
+                    </section>
+                  }
+                </section>
+              } @else if (field.type === 'table' && isTabbedButtonActionField(field)) {
+                <!-- Button actions are edited inside their owning page tab. -->
+              } @else if (field.type === 'table') {
+                <div class="table-config-field">
+                  <span class="field-label">{{ field.label }}</span>
+                  @if (field.help) { <small>{{ field.help }}</small> }
+                  <div class="table-scroll">
+                    <table class="config-table">
+                      <thead><tr><th>{{ field.rowHeader ?? 'Row' }}</th>@for (column of field.columns ?? []; track column.key) { @if (!column.multiline) { <th>{{ column.label }}</th> } }<th></th></tr></thead>
+                      <tbody>
+                        @for (row of tableRows(field); track $index; let rowIndex = $index) {
+                          <tr>
+                            <th>{{ rowIndex + 1 }}</th>
+                            @for (column of field.columns ?? []; track column.key) {
+                              @if (!column.multiline) {
+                                <td>
+                                  @if (tableColumnOptions(field, column.key, row); as options) {
+                                    <select [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
+                                      <option value="">Choose…</option>
+                                      @for (option of options; track option) { <option [value]="option">{{ option }}</option> }
+                                    </select>
+                                  } @else {
+                                    <input [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
+                                  }
+                                </td>
+                              }
+                            }
+                            <td><button type="button" class="text-danger" [disabled]="tableRows(field).length <= (field.minRows ?? 0)" (click)="removeTableRow(field, rowIndex)">Remove</button></td>
+                          </tr>
+                          @if (hasMultilineColumns(field)) {
+                            <tr class="table-detail-row">
+                              <td [attr.colspan]="tableVisibleColumnCount(field) + 2">
+                                <div class="multiline-editors">
+                                  @for (column of field.columns ?? []; track column.key) {
+                                    @if (column.multiline) {
+                                      <div class="multiline-editor">
+                                        <span>{{ column.label }} · {{ (field.rowHeader ?? 'Row').toLowerCase() }} {{ rowIndex + 1 }}</span>
+                                        @if (isScriptColumn(field, column.key)) {
+                                          <nspanel-script-editor [ariaLabel]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)"></nspanel-script-editor>
+                                        } @else {
+                                          <textarea [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)" rows="4"></textarea>
+                                        }
+                                        @if (isScriptColumn(field, column.key)) {
+                                          <div class="script-check-row">
+                                            <button type="button" class="text-action" [disabled]="scriptCheckState(field, rowIndex, column.key)?.status === 'checking'" (click)="checkScript(field, rowIndex, column.key)">{{ scriptCheckState(field, rowIndex, column.key)?.status === 'checking' ? 'Checking…' : 'Check syntax' }}</button>
+                                            @if (scriptCheckState(field, rowIndex, column.key); as check) {
+                                              <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message }}</span>
+                                            }
+                                          </div>
+                                        }
+                                      </div>
+                                    }
+                                  }
+                                </div>
+                              </td>
+                            </tr>
+                          }
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                  <button type="button" class="text-action add-row" [disabled]="tableRows(field).length >= (field.maxRows ?? 8)" (click)="addTableRow(field)">＋ {{ field.addRowLabel ?? 'Add row' }}</button>
+                </div>
+              } @else {
+                @if (isScriptField(field)) {
+                  <div class="config-script-field">
+                    <span class="field-label">{{ field.label }}</span>
+                    <nspanel-script-editor [ariaLabel]="field.label" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)"></nspanel-script-editor>
+                    <div class="script-check-row">
+                      <button type="button" class="text-action" [disabled]="scriptFieldCheckState(field)?.status === 'checking'" (click)="checkScriptField(field)">{{ scriptFieldCheckState(field)?.status === 'checking' ? 'Checking…' : 'Check syntax' }}</button>
+                      @if (scriptFieldCheckState(field); as check) {
+                        <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message }}</span>
+                      }
+                    </div>
+                    @if (field.help) { <small>{{ field.help }}</small> }
+                  </div>
+                } @else {
+                  <label [class.wide]="field.type === 'textarea' || field.key.includes('Topic') || field.key.includes('Template')">
+                    {{ field.label }}
+                    @if (field.type === 'textarea') {
+                      <textarea [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false" rows="4"></textarea>
+                    } @else {
+                      <input [type]="field.type" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false">
+                    }
+                    @if (field.help) { <small>{{ field.help }}</small> }
+                  </label>
+                }
+              }
+            }
+          </div>
+          @if (canPreviewPage) {
+            <section class="page-test" aria-labelledby="page-test-title">
+              <div class="page-test-heading">
+                <div><h3 id="page-test-title">Test a page</h3><p>Render with the current editor values and a sample MQTT message. Changes are previewed without saving or replacing the saved settings.</p></div>
+                <span class="preview-mark">JS</span>
+              </div>
+              <div class="page-test-inputs">
+                <label>Page
+                  <select [ngModel]="previewPageId()" (ngModelChange)="setPreviewPageId($event)">
+                    @for (page of previewPages(); track page.id) { <option [value]="page.id">{{ page.name }} ({{ page.id }})</option> }
+                  </select>
+                </label>
+                <label>Incoming MQTT topic
+                  <input [ngModel]="previewTopic()" (ngModelChange)="setPreviewTopic($event)" placeholder="dyson/livingroom/status">
+                </label>
+                <label class="payload-input">Incoming MQTT payload
+                  <textarea [ngModel]="previewPayload()" (ngModelChange)="setPreviewPayload($event)" rows="5" placeholder="Paste the MQTT payload here"></textarea>
+                </label>
+              </div>
+              <p class="preview-help">When incoming topic filters are configured, this topic must match one of them. Otherwise it is passed directly to the renderer as a sample. In JavaScript, read it as <code>message.topic</code>. JSON payloads are parsed in both <code>message.payload</code> and <code>payload</code>; other payloads remain text.</p>
+              <button type="button" class="button secondary" [disabled]="previewingPage() || !previewPageId() || !previewTopic().trim()" (click)="previewPage()">{{ previewingPage() ? 'Rendering…' : 'Render preview' }} <span>▶</span></button>
+              @if (pagePreviewError()) { <p class="preview-error" role="alert">{{ pagePreviewError() }}</p> }
+              @if (pagePreview(); as preview) {
+                <div class="page-preview" aria-live="polite">
+                  @if (!preview.rendered) {
+                    <p class="preview-no-page">This function returned no page. The panel would not receive an update.</p>
+                  } @else {
+                    <div class="preview-screen-title"><span>{{ preview.title }}</span><small>{{ preview.pageId }}</small></div>
+                    <p>{{ preview.message }}</p>
+                    <div class="preview-buttons">
+                      @for (label of preview.buttons; track $index; let slot = $index) {
+                        <span class="preview-button" [class.empty]="!label"><b>{{ slot + 1 }}</b>{{ label || '—' }}</span>
+                      }
+                    </div>
+                  }
+                  <section class="preview-debug" aria-label="JavaScript debug output">
+                    <h4>Debug output</h4>
+                    @if (preview.debugLogs.length > 0) {
+                      <ol>
+                        @for (line of preview.debugLogs; track $index) { <li><code>{{ line }}</code></li> }
+                      </ol>
+                    } @else {
+                      <p>No debug.log output from this render.</p>
+                    }
+                  </section>
+                </div>
+              }
+            </section>
+          }
+        }
+        <div class="form-actions">
+          <button class="button primary" [disabled]="savingProfile() || !profileName().trim()" (click)="savePluginProfile()">{{ savingProfile() ? 'Saving…' : editingProfileId() ? 'Save plugin' : 'Create plugin' }} <span>＋</span></button>
+          @if (editingProfileId()) { <button class="button secondary" (click)="cancelProfileEdit()">New plugin</button> }
+        </div>
+      </div>
+      <section class="saved-plugins">
+        <div class="card-heading"><div><h3>Saved plugins</h3><p>Reusable device logic and page actions.</p></div><span class="count-badge">{{ manager.config().pluginProfiles.length }}</span></div>
+        @if (manager.config().pluginProfiles.length > 0) {
+          <div class="instance-list">
+            @for (profile of manager.config().pluginProfiles; track profile.id) {
+              <div class="instance-row">
+                <div class="instance-icon">◈</div>
+                <div class="instance-details"><b>{{ profile.name }}</b><span>{{ pluginName(profile.pluginId) }}</span></div>
+                <div class="row-actions"><button class="text-action" (click)="editPluginProfile(profile)">Edit</button><button class="text-danger" (click)="removePluginProfile(profile)">Remove</button></div>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="empty-state compact"><b>No saved plugins yet</b><span>Create one above, such as a reusable Dyson controller.</span></div>
+        }
+      </section>
+    } @else {
+      <div class="empty-state"><b>No plugins are registered</b><span>Built-in and custom plugins appear here when added to the server registry.</span></div>
+    }
+  </article>
+
+  <article class="card instance-card">
+    <div class="card-heading">
+      <div><h2>{{ editingInstanceId() ? 'Edit instance' : 'Create an instance' }}</h2><p>Choose a saved plugin and give this device its own name and variable values.</p></div>
+      <div class="row-actions">
+        @if (editingInstanceId()) { <button type="button" class="text-action" (click)="cancelEdit()">＋ New instance</button> }
+        <span class="count-badge">{{ manager.config().pluginInstances.length }}</span>
+      </div>
+    </div>
+    <div class="instance-form">
+      <label>Instance name<input [ngModel]="instanceName()" (ngModelChange)="instanceName.set($event)" placeholder="Living room fan"></label>
+      <label>Plugin
+        <select [ngModel]="selectedPluginProfileId()" (ngModelChange)="setInstanceProfile($event)">
+          <option value="">Choose a saved plugin</option>
+          @for (profile of manager.config().pluginProfiles; track profile.id) { <option [value]="profile.id">{{ profile.name }}</option> }
+        </select>
+      </label>
+      <section class="instance-variables" aria-labelledby="instance-variables-heading">
+        <div class="field-heading">
+          <div><span id="instance-variables-heading" class="field-label">Instance variables</span><small>These values belong to this device. Use <code [textContent]="variablePlaceholderExample"></code> in scripts and MQTT actions, or read <code>variables.name</code> in JavaScript.</small></div>
+          <button type="button" class="text-action" (click)="addVariable()">＋ Add variable</button>
+        </div>
+        @for (entry of variableEntries(); track $index; let variableIndex = $index) {
+          <div class="variable-row">
+            <label>Variable name<input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" placeholder="room" autocomplete="off"></label>
+            <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" placeholder="livingroom"></textarea></label>
+            <button type="button" class="text-danger" (click)="removeVariable(entry.name)">Remove</button>
+          </div>
+        } @empty {
+          <p class="no-variables">For example, set <code>room = livingroom</code> on one instance and <code>room = bedroom</code> on another.</p>
+        }
+        @if (!variablesValid()) { <small class="variable-error">Use unique names with letters, numbers, or underscores (up to 64 characters), and values under 4,096 characters.</small> }
+      </section>
+      <div class="form-actions">
+        <button class="button primary" [disabled]="savingInstance() || !instanceName().trim() || !selectedPluginProfileId() || !variablesValid()" (click)="saveInstance()">{{ savingInstance() ? 'Saving…' : editingInstanceId() ? 'Save instance' : 'Create instance' }} <span>＋</span></button>
+        @if (editingInstanceId()) { <button class="button secondary" (click)="cancelEdit()">Cancel</button> }
+      </div>
+    </div>
+    <div class="card-heading instance-list-heading"><div><h3>Configured instances</h3><p>Assign plugin instances to panel favorites in the panel settings.</p></div></div>
+    @if (manager.config().pluginInstances.length > 0) {
+      <div class="instance-list">
+        @for (instance of manager.config().pluginInstances; track instance.id) {
+          <div class="instance-row">
+            <div class="instance-icon">⌁</div>
+            <div class="instance-details"><b>{{ instance.name }}</b><span>{{ instancePluginName(instance) }}</span><code>{{ primaryTopic(instance) }}</code></div>
+            <div class="row-actions"><button class="text-action" (click)="editInstance(instance)">Edit</button><button class="text-danger" (click)="removeInstance(instance)">Remove</button></div>
+          </div>
+        }
+      </div>
+    } @else {
+      <div class="empty-state"><b>No plugin instances yet</b><span>Add a configured instance to connect device state and commands.</span></div>
+    }
+  </article>
+
+</section>
