@@ -91,7 +91,7 @@ export class CredentialEncryption {
       const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       return { value: plaintext.toString("utf8"), needsMigration: false };
     } catch {
-      throw new Error("Unable to decrypt the stored MQTT broker password. Restore the original APP_ENCRYPTION_KEY_FILE and manager data together.");
+      throw new Error("Unable to decrypt the stored MQTT broker password. Restore the original MANAGER_ENCRYPTION_KEY_FILE and manager data together.");
     }
   }
 }

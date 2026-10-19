@@ -92,7 +92,7 @@ The authenticated workspace includes a **Logs** page with category and severity 
 
 Signed-in administrators can open **Backup** and download a ZIP of the complete configured `DATA_DIR`. The archive streams directly to the browser and includes regular files under that directory, including logs when `LOG_DIR` is inside it. Treat the downloaded ZIP as sensitive because it contains user records, configuration, and saved script state.
 
-The credential-encryption key (`APP_ENCRYPTION_KEY_FILE`) and optional OIDC client secret are outside `DATA_DIR`; back them up separately and keep them protected. Losing the encryption key makes stored MQTT credentials unreadable. To restore manually, stop the manager, extract the ZIP so its `data/` contents replace or populate the configured `DATA_DIR`, restore deployment secrets and configuration separately, then restart the manager. If `LOG_DIR` is outside `DATA_DIR`, back it up separately if those logs are needed. Restore is an operator procedure; the UI does not import archives.
+The credential-encryption key (`MANAGER_ENCRYPTION_KEY_FILE`) and optional OIDC client secret are outside `DATA_DIR`; back them up separately and keep them protected. Losing the encryption key makes stored MQTT credentials unreadable. To restore manually, stop the manager, extract the ZIP so its `data/` contents replace or populate the configured `DATA_DIR`, restore deployment secrets and configuration separately, then restart the manager. If `LOG_DIR` is outside `DATA_DIR`, back it up separately if those logs are needed. Restore is an operator procedure; the UI does not import archives.
 
 ## MQTT routes
 

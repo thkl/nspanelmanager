@@ -27,7 +27,9 @@ async function startServer(): Promise<void> {
   const logDirectory = process.env.LOG_DIR?.trim() || path.join(dataDir, "logs");
   const logFileReader = new LogFileReader(logDirectory);
   logger.addSink(await WinstonFileLogSink.create(logDirectory));
-  const encryptionKeyFile = process.env.APP_ENCRYPTION_KEY_FILE?.trim() || "../../secrets/manager_encryption_key";
+  const encryptionKeyFile = process.env.MANAGER_ENCRYPTION_KEY_FILE?.trim() ||
+    process.env.APP_ENCRYPTION_KEY_FILE?.trim() ||
+    "../../secrets/manager_encryption_key";
   const credentialEncryption = await CredentialEncryption.fromFile(encryptionKeyFile);
   const store = new ConfigStore(dataDir, credentialEncryption);
   await store.load();

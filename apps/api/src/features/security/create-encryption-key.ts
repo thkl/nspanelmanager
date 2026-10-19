@@ -5,7 +5,7 @@ import path from "node:path";
 /** Creates a private credential-encryption key without replacing an existing key. */
 async function createEncryptionKey(): Promise<void> {
   const outputPath = path.resolve(
-    process.argv[2] ?? path.resolve(process.cwd(), "../../secrets/manager_encryption_key")
+    process.argv[2] ?? process.env.MANAGER_ENCRYPTION_KEY_FILE?.trim() ?? path.resolve(process.cwd(), "../../secrets/manager_encryption_key")
   );
   await mkdir(path.dirname(outputPath), { recursive: true, mode: 0o700 });
   const key = `${randomBytes(32).toString("hex")}\n`;
