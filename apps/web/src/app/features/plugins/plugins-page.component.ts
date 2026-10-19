@@ -514,8 +514,12 @@ export class PluginsPageComponent implements OnInit {
     this.profileName.set(profile.name);
     this.selectPlugin(profile.pluginId);
     this.editingProfileId.set(profile.id);
-    this.instanceConfig.set(structuredClone(profile.config));
-    this.syncPreviewDefaults(profile.config);
+    const config = {
+      ...Object.fromEntries((this.selectedDefinition?.configSchema ?? []).map((field) => [field.key, field.defaultValue])),
+      ...structuredClone(profile.config)
+    };
+    this.instanceConfig.set(config);
+    this.syncPreviewDefaults(config);
   }
 
   /** Returns the profile editor to a clean draft for a new plugin. */

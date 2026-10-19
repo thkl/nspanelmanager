@@ -3,7 +3,7 @@ export interface MainButton {
   label: string;
   image: string;
   mode: number;
-  labelvalue?: string;
+  pluginInstanceId?: string;
 }
 
 export interface FavoriteButton {
@@ -75,6 +75,7 @@ export interface PluginDefinition {
   description: string;
   capabilities: string[];
   nativePanelPage?: string;
+  homeTileType?: "light" | "cover";
   configSchema: PluginConfigField[];
 }
 

@@ -119,8 +119,8 @@ export class ManagerStore {
   }
 
   /** Persists the selected panel profile and its firmware-compatible settings JSON. */
-  savePanel(panel: Panel): Observable<{ panel: Panel }> {
-    return this.http.put<{ panel: Panel }>(`/api/panels/${panel.id}`, panel).pipe(tap(({ panel: saved }) => {
+  savePanel(panel: Panel): Observable<{ panel: Panel; published: boolean; topic: string }> {
+    return this.http.put<{ panel: Panel; published: boolean; topic: string }>(`/api/panels/${panel.id}`, panel).pipe(tap(({ panel: saved }) => {
       this.config.update((config) => ({ ...config, panels: config.panels.map((item) => item.id === saved.id ? saved : item) }));
     }));
   }

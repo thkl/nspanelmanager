@@ -232,7 +232,7 @@
                     @if (field.type === 'textarea') {
                       <textarea [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false" rows="4"></textarea>
                     } @else {
-                      <input [type]="field.type" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false">
+                      <input [type]="field.type" [attr.step]="field.type === 'number' ? 'any' : null" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false">
                     }
                     @if (field.help) { <small>{{ field.help }}</small> }
                   </label>

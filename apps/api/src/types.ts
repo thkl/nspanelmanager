@@ -1,8 +1,11 @@
 export interface MainButton {
   label: string;
+  /** HMI icon ID: 0 lamp, 1 bulb, 2 downlight, 3 desk lamp, 4 outdoor lamp, 5 blind, 6 curtain. */
   image: string;
+  /** Firmware tile mode: 0 up/down and toggle, 1 level page, 2 toggle only. */
   mode: number;
-  labelvalue?: string;
+  /** Manager-only device instance assigned to this home-screen tile. */
+  pluginInstanceId?: string;
 }
 
 export interface FavoriteButton {
@@ -105,7 +108,7 @@ export function defaultPanelSettings(name = "New NSPanel"): PanelSettings {
     brightness: 100,
     screensaver: 0,
     nightmode: 0,
-    buttons: Array.from({ length: 4 }, () => ({ label: "", image: "", mode: 0 })),
+    buttons: Array.from({ length: 4 }, () => ({ label: "", image: "1", mode: 0 })),
     favorites: {
       name: "Favorites",
       buttons: Array.from({ length: 12 }, () => ({ label: "" }))

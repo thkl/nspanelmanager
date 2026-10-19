@@ -165,6 +165,10 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const config = store.get();
     if (!config.pluginInstances.some((item) => item.id === id)) return response.status(404).json({ error: "Plugin instance not found." });
     const removedBindings = config.panelBindings.filter((binding) => binding.pluginInstanceId === id);
+    const panelsUsingInstance = new Set(config.panels.filter((panel) =>
+      panel.settings.buttons.some((button) => button.pluginInstanceId === id) ||
+      Object.values(panel.nativePluginInstances ?? {}).includes(id)
+    ).map((panel) => panel.id));
     for (const binding of removedBindings) {
       const panel = config.panels.find((item) => item.id === binding.panelId);
       if (panel) await runtime.closePanelBinding(panel, binding.id);
@@ -174,12 +178,18 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
       for (const binding of removedBindings) clearFavoriteBinding(current.panels, binding);
       current.panels = current.panels.map((panel) => ({
         ...panel,
+        settings: {
+          ...panel.settings,
+          buttons: panel.settings.buttons.map((button) => button.pluginInstanceId === id
+            ? { ...button, pluginInstanceId: undefined }
+            : button)
+        },
         nativePluginInstances: Object.fromEntries(Object.entries(panel.nativePluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id))
       }));
       current.pluginInstances = current.pluginInstances.filter((item) => item.id !== id);
     });
     await runtime.removePluginRuntimeState(id);
-    for (const panel of updated.panels.filter((item) => config.panelBindings.some((binding) => binding.panelId === item.id && binding.pluginInstanceId === id))) {
+    for (const panel of updated.panels.filter((item) => panelsUsingInstance.has(item.id))) {
       runtime.publishPanelSettings(panel);
     }
     await runtime.refreshPluginInstances();

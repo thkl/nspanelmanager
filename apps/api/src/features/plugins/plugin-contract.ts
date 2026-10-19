@@ -94,6 +94,14 @@ export interface PluginNativePanelResult {
   statePatch?: PluginState;
 }
 
+/** Result of processing one home-tile action or one of its built-in detail-page events. */
+export interface PluginHomeTileResult {
+  commands?: PluginCommand[];
+  statePatch?: PluginState;
+  /** Updates the manager's page gate after a tile opens or closes a firmware page. */
+  page?: "home" | "light" | "level" | "closed";
+}
+
 export type PluginStorageScope = "global" | "plugin" | "panel";
 
 /** A panel's durable script values, addressed by its saved name or ID. */
@@ -145,6 +153,8 @@ export interface PluginDefinition {
   readonly capabilities: readonly string[];
   /** Native firmware page ID this integration can serve, such as `thermostat`. */
   readonly nativePanelPage?: string;
+  /** Device capability exposed to the four configurable panel home tiles. */
+  readonly homeTileType?: "light" | "cover";
   readonly configSchema: readonly PluginConfigField[];
 
   /** Returns an error message when reusable plugin configuration is incomplete. */
@@ -173,6 +183,10 @@ export interface PluginDefinition {
   renderNativePanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState): readonly PluginCommand[];
   /** Converts changed plugin state to panel commands that remain useful off-page, such as a home-screen temperature. */
   renderPanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, previousState: PluginState, change: PluginState): readonly PluginCommand[];
+  /** Handles a bound home tile, the built-in light page, or the level page's MQTT events. */
+  handleHomeTileEvent?(instance: ResolvedPluginInstance, panel: Panel, index: number, button: Panel["settings"]["buttons"][number], message: MqttMessageEnvelope, state: PluginState): PluginHomeTileResult | void | Promise<PluginHomeTileResult | void>;
+  /** Renders current device state to an active home tile or its built-in detail page. */
+  renderHomeTileState?(instance: ResolvedPluginInstance, panel: Panel, index: number, button: Panel["settings"]["buttons"][number], page: "home" | "light" | "level", state: PluginState): readonly PluginCommand[];
   /** Returns the configured interval for a service plugin's scheduled state refresh. */
   pollIntervalMs?(instance: ResolvedPluginInstance): number;
   /** Fetches external service state; the runtime caches the patch and routes it to assigned panels. */

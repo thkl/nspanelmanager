@@ -35,9 +35,24 @@
           <label class="toggle-row"><span><b>Night mode</b><small>Dim nighttime display</small></span><input type="checkbox" [ngModel]="panel.settings.nightmode === 1" (ngModelChange)="panel.settings.nightmode = $event ? 1 : 0"></label>
         </div>
 
-        <div class="section-title section-spaced"><span class="section-number">02</span><div><h3>Main screen buttons</h3><p>Four shortcut tiles shown on the home screen.</p></div></div>
+        <div class="section-title section-spaced"><span class="section-number">02</span><div><h3>Main screen buttons</h3><p>Configure each tile's icon and mode, then assign a light or cover. The device state supplies the displayed value label. Long-press a light tile for color and brightness controls.</p></div></div>
         @for (button of panel.settings.buttons; track $index; let i = $index) {
-          <div class="button-config"><span class="button-index">0{{ i + 1 }}</span><label>Label<input [(ngModel)]="button.label" placeholder="Living room lights"></label><label>Icon name<input [(ngModel)]="button.image" placeholder="lightbulb"></label><label>Mode<select [(ngModel)]="button.mode"><option [ngValue]="0">Toggle</option><option [ngValue]="1">Open detail page</option></select></label></div>
+          <div class="button-config">
+            <span class="button-index">0{{ i + 1 }}</span>
+            <label>Label<input [(ngModel)]="button.label" placeholder="Living room lights"></label>
+            <label>Icon<select [(ngModel)]="button.image">
+              <option value="0">Blind</option>
+              <option value="1">Downlight</option>
+              <option value="2">Desk lamp</option>
+              <option value="3">Wall mnt lamp</option>
+              <option value="4">Standing lamp</option>
+              <option value="5">Lamp 2</option>
+              <option value="6">Fan</option>
+            </select></label>
+            <label>Mode<select [(ngModel)]="button.mode"><option [ngValue]="0">Up/down + toggle</option><option [ngValue]="1" [disabled]="homeTileType(button.pluginInstanceId) === 'light'">Open level page</option><option [ngValue]="2">Toggle only</option></select></label>
+            <span></span> <!-- Dummy do not remove -->
+            <label>Plugin instance<select [ngModel]="button.pluginInstanceId || ''" (ngModelChange)="setHomeTileInstance(i, $event)"><option value="">No plugin instance</option>@for (instance of homeTileInstances(); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }</select></label>
+          </div>
         }
 
         <div class="section-title section-spaced"><span class="section-number">03</span><div><h3>Built-in panel pages</h3><p>Assign plugin instances to firmware-owned screens.</p></div></div>
@@ -83,7 +98,7 @@
           <label>Right hardware button<select [(ngModel)]="panel.settings.hwbuttons['1']"><option [ngValue]="0">Toggle relay locally</option><option [ngValue]="1">Publish event only</option></select></label>
         </div>
 
-        <div class="save-bottom"><span>Changes are stored by the manager until applied.</span><button class="button primary" [disabled]="!manager.mqtt().connected" (click)="applyPanel()">Apply to panel <span>↗</span></button></div>
+        <div class="save-bottom"><span>Saving sends settings to the panel. Use Apply to resend them.</span><button class="button primary" [disabled]="!manager.mqtt().connected" (click)="applyPanel()">Apply to panel <span>↗</span></button></div>
       </div>
     </section>
   } @else {

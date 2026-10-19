@@ -12,6 +12,10 @@
 
 **Stage 5 — Open-Meteo weather:** Implemented
 
+**Stage 6 — Home-page lights and blinds:** Implemented
+
+**Stage 7 — Sonos:** Next
+
 ## Implementation Started
 
 The generic scripted plugin and its editor are working. Reusable plugin profiles hold topic filters, pages, JavaScript renderers, named functions, and button actions; device instances reference a profile and supply their own variables. Startup MQTT subscriptions, scoped storage, script preview and syntax checks, debug logging, variable interpolation, and favorite bindings are implemented. Central Winston logging now writes size-limited, daily rotating files, with an authenticated Logs workspace for filtering records by category and severity. The generic runtime also supports firmware-native page integrations. The MQTT thermostat profile uses that contract for the panel's built-in thermostat page, with configurable MQTT topics, payload templates, value path, temperature bounds, and Up/Down step. Its actual temperature also updates the assigned panel's home-screen temperature. Dyson remains the first scripted example configuration; the runtime contains no Dyson-specific controls.
@@ -24,7 +28,7 @@ The MVP targets the existing ESPHome firmware in `esphome/nsp-livingroom.yaml` a
 
 ## Current Baseline
 
-The repository already contains an Angular 22 web client, an Express/TypeScript API, one shared MQTT connection, Docker deployment, panel profiles, and generic topic routes. Profiles are sent to `<nodeName>/cmnd/settings` when applied and when a panel publishes `booted` on `<nodeName>/event/display`. Routes can forward configured MQTT topics in either direction using simple payload templates.
+The repository already contains an Angular 22 web client, an Express/TypeScript API, one shared MQTT connection, Docker deployment, panel profiles, and generic topic routes. Saving or manually applying a profile publishes it to `<nodeName>/cmnd/settings`; settings are also replayed when MQTT reconnects and when a panel publishes `booted` on `<nodeName>/event/display`. Routes can forward configured MQTT topics in either direction using simple payload templates.
 
 Simple topic routes remain available, while scripted plugin instances provide interactive panel screens.
 
@@ -37,7 +41,7 @@ Simple topic routes remain available, while scripted plugin instances provide in
 - **Plugin profile:** A named, reusable configuration for a plugin definition. It holds shared topic filters, pages, render functions, named functions, and button actions; for example, a Dyson profile can be used by multiple fans.
 - **Plugin instance:** A device or service that references a plugin profile and supplies its own name and variables, such as `room` or `topic`. Instances can be bound independently to panel favorites.
 - **Page:** A named screen configured on a plugin profile. Its JavaScript renderer runs with the selected instance's variables and state, and provides eight button slots matching the panel firmware.
-- **Panel binding:** Connects one plugin instance to a panel favorite. The binding opens that instance's configured start page.
+- **Panel binding:** Connects one plugin instance to a panel favorite or a home-screen tile. Favorites open the plugin start page; light and cover tiles use the firmware's built-in detail screens.
 - **Button action:** One of: open another page in the same instance, publish a configured MQTT topic and payload, or call a named JavaScript function.
 
 ## Runtime and Data Processing
@@ -84,7 +88,7 @@ Configuration and secrets remain server-side. The MVP keeps the latest normalize
 
 ## Web UI
 
-The Angular 22 standalone client is organized by feature. The plugin editor manages reusable profiles separately from device instances and their variables. Profiles expose MQTT filters, pages, JavaScript render/named functions, and table-configured button actions. JavaScript bodies use CodeMirror 6 with JavaScript highlighting. Action rows select a page, MQTT publish, or named function; instances can be bound independently to panel favorites. Native page instances are assigned in panel settings, separately from favorites. The MQTT thermostat profile exposes topic/value templates and temperature limits for the firmware's built-in thermostat page. The editor checks script syntax and previews the current unsaved profile values against a sample topic and payload without publishing or changing saved settings. Preview output includes `debug.log(...)` lines. Continue using signals and built-in `@if`/`@for` control flow, with component TypeScript, HTML, and CSS in separate files.
+The Angular 22 standalone client is organized by feature. The plugin editor manages reusable profiles separately from device instances and their variables. Profiles expose MQTT filters, pages, JavaScript render/named functions, and table-configured button actions. JavaScript bodies use CodeMirror 6 with JavaScript highlighting. Action rows select a page, MQTT publish, or named function; instances can be bound independently to panel favorites. Native page instances are assigned in panel settings, separately from favorites. Main-screen tiles can be assigned to an MQTT light or cover instance, then configured independently for on/off or level controls and a toggle or built-in detail-page action. The MQTT thermostat profile exposes topic/value templates and temperature limits for the firmware's built-in thermostat page. The editor checks script syntax and previews the current unsaved profile values against a sample topic and payload without publishing or changing saved settings. Preview output includes `debug.log(...)` lines. Continue using signals and built-in `@if`/`@for` control flow, with component TypeScript, HTML, and CSS in separate files.
 
 ## First Vertical Slice: Fan Control
 
@@ -94,9 +98,9 @@ The user opens the configured start page from a panel favorite. The renderer sup
 
 ## First Hardware Walkthrough — Approved
 
-The user confirmed that the scripted Dyson flow works well on the available hardware and approved this stage. The next milestone is security and operations.
+The user confirmed that the scripted Dyson flow works well on the available hardware and approved this stage. It established the reusable message, script, MQTT, and panel-session model used by the later thermostat, weather, light, and cover integrations.
 
-The walkthrough covers opening the configured start page from a favorite, rendering current Dyson state, configuring the eight button slots, publishing from named functions, gating state refreshes to an open page, closing on sleep, and Back navigation. The user has approved the stage; these behaviors form the reusable contract for thermostat, blinds, weather, and Sonos configurations.
+The walkthrough covers opening the configured start page from a favorite, rendering current Dyson state, configuring the eight button slots, publishing from named functions, gating state refreshes to an open page, closing on sleep, and Back navigation. The user has approved the stage; these behaviors form the reusable contract for the implemented thermostat, blinds, weather, and upcoming Sonos integrations.
 
 ## Security Implementation Progress
 
@@ -111,7 +115,8 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 3. **Security and operations — In progress.** One-time browser onboarding, local email/password accounts, Argon2id password hashes, administrator account management, revocable sessions, protected APIs, optional OIDC login, encrypted MQTT broker credentials, the authenticated rotating-log viewer, and a streamed ZIP download of `DATA_DIR` are implemented. OIDC is configured with issuer URL, client ID, and client secret file; the callback URL is derived from `APP_PUBLIC_URL`. SSO authenticates a user only when its verified email matches an enabled local account, then uses issuer plus `sub` for later logins. The broker credential key is generated separately and mounted as a Docker secret outside the manager data volume. Restore is a documented manual operation; validate the procedure against a real Docker volume before relying on it for recovery.
 4. **MQTT thermostat — Implemented.** Reusable profile and per-device instance variables, configurable status/request/set topics, JSON value extraction, temperature bounds and step, payload templates for requests/setpoints/modes, panel assignment to the native thermostat screen, and page-specific MQTT refresh gating. Firmware `up` and `dn` events adjust the latest target temperature by the configured delta and clamp it to the configured bounds. Changed actual temperature also updates the assigned panel's home-screen temperature. The first profile is configured for Homematic topics, while its fields support other topic and payload conventions.
 5. **Open-Meteo weather — Implemented.** A reusable service profile polls current conditions and a five-day forecast; each instance supplies latitude, longitude, and an optional timezone. The manager translates service data to the firmware weather payload, caches changed data, sends it only while the native weather page is open, and replays the forecast when the page opens. The panel can assign a weather instance independently for each location.
-6. **Additional integrations — Planned.** Reuse the model for blinds/covers and Sonos.
+6. **Lights and blinds on the panel home page — Implemented.** Reusable MQTT light and cover plugins can be assigned to any of the four home tiles. Panel settings configure each tile's `image`, `mode`, and `label`; icon IDs 0–6 represent lamp, bulb, downlight, desk lamp, outdoor lamp, blind, and curtain. Mode 0 shows up/down controls and toggles on the center press, mode 1 opens the level page, and mode 2 toggles without up/down controls. A long press on an assigned light opens the brightness/color screen. Plugin profiles configure status filters, value paths, request/set topics, payload templates, endpoint labels for 0%/100%, brightness steps and conversion factors, position bounds, and level presets. Brightness factors convert raw MQTT values to the panel's 0–100 scale on input and convert panel percentages back to device units on output; Hue's 0–255 range uses `0.39215686`. While the home screen is visible, the runtime translates each light or cover state to a display label and sends only that label to `<nodeName>/cmnd/status`. When the level page opens, its zero-based `<nodeName>/event/level/{button}` query resolves the bound tile instance, publishes its configured state request when present, and sends the cached position as a numeric payload to `<nodeName>/cmnd/level/status`; later device updates refresh the level. The local `panel3.yaml` include implements this contract.
+7. **Sonos — Next.** Reuse the plugin model for media status and playback actions after the front-page light and blind flow is established.
 
 ## MVP Acceptance Criteria
 
@@ -122,6 +127,9 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 - Build the Dyson fan flow from a reusable plugin profile and per-instance variables, with no fan-specific screen implementation in the runtime.
 - Configure reusable thermostat profiles for different MQTT conventions, assign an instance to a panel's built-in thermostat page, and map current/target values plus temperature and mode actions to external MQTT topics.
 - When the assigned thermostat reports a changed actual temperature, update the panel's home-screen temperature through `<nodeName>/cmnd/temperature/current` without sending thermostat-page updates while that page is closed.
+- Bind reusable light and blind instances independently to any of the four panel home-page tiles, with firmware icon and mode configured on the panel and display labels derived from current device state.
+- Show the latest light or blind state on the home page and map tile actions to light toggle, brightness, and color or blind open, close, stop, and position commands.
+- Send state updates only while the panel is displaying its home page or the matching built-in detail screen; replay cached state when it returns.
 - Cache status updates while a page is closed, render the latest message when opened, and stop sending screen updates after Back or firmware sleep.
 - Persist active flow context and scoped values across manager restarts, with errors visible to the administrator.
 - Require administrator authentication through the configured OIDC provider for configuration changes and user-authored flow execution; define an explicit recovery path for provider outages.

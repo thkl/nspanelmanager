@@ -13,7 +13,7 @@ export function normalizePanelSettings(input: unknown, fallbackName: string): Pa
   if (!input || typeof input !== "object") return defaults;
   const settings = input as Record<string, unknown>;
   const buttons = Array.isArray(settings.buttons) ? settings.buttons.slice(0, 4) : defaults.buttons;
-  while (buttons.length < 4) buttons.push({ label: "", image: "", mode: 0 });
+  while (buttons.length < 4) buttons.push({ label: "", image: "1", mode: 0 });
   const rawFavorites = settings.favorites && typeof settings.favorites === "object" ? settings.favorites as Record<string, unknown> : {};
   const favorites = Array.isArray(rawFavorites.buttons) ? rawFavorites.buttons.slice(0, 12) : defaults.favorites.buttons;
   while (favorites.length < 12) favorites.push({ label: "" });
@@ -36,7 +36,13 @@ export function normalizePanelSettings(input: unknown, fallbackName: string): Pa
     nightmode: boundedNumber(settings.nightmode, 0, 1, 0),
     buttons: buttons.map((item) => {
       const button = item && typeof item === "object" ? item as Record<string, unknown> : {};
-      return { label: stringValue(button.label), image: stringValue(button.image), mode: boundedNumber(button.mode, 0, 1, 0), ...(stringValue(button.labelvalue) ? { labelvalue: stringValue(button.labelvalue) } : {}) };
+      const image = typeof button.image === "number" ? String(button.image) : stringValue(button.image);
+      return {
+        label: stringValue(button.label),
+        image: /^[0-6]$/.test(image) ? image : "1",
+        mode: boundedNumber(button.mode, 0, 2, 0),
+        ...(stringValue(button.pluginInstanceId).trim() ? { pluginInstanceId: stringValue(button.pluginInstanceId).trim() } : {}),
+      };
     }),
     favorites: {
       name: stringValue(rawFavorites.name) || "Favorites",

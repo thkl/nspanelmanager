@@ -9,10 +9,10 @@ import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 /**
  * Creates the HTTP endpoints for panel profile lifecycle operations.
  *
- * `POST /` creates a profile, `PUT /:id` normalizes settings, `DELETE /:id`
- * removes its associated routes, and `POST /:id/apply` publishes the profile
- * to firmware. This router owns profile-specific behavior; broker setup and
- * generic MQTT route editing live in separate feature routers.
+ * `POST /` creates a profile, `PUT /:id` normalizes and publishes changed
+ * settings, `DELETE /:id` removes its associated routes, and `POST /:id/apply`
+ * manually resends the profile to firmware. This router owns profile-specific
+ * behavior; broker setup and generic MQTT route editing live in separate routers.
  */
 export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry): Router {
   const router = Router();
@@ -44,11 +44,27 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
         return response.status(400).json({ error: `Choose a registered plugin instance that supports the '${pageId}' native page.` });
       }
     }
-    const panel: Panel = { ...current, name, nodeName, settings: normalizePanelSettings(input.settings, name), nativePluginInstances };
+    const settings = normalizePanelSettings(input.settings, name);
+    for (const [index, button] of settings.buttons.entries()) {
+      if (!button.pluginInstanceId) {
+        continue;
+      }
+      const instance = store.get().pluginInstances.find((item) => item.id === button.pluginInstanceId);
+      const profile = instance && store.get().pluginProfiles.find((item) => item.id === instance.pluginProfileId);
+      const definition = profile && pluginRegistry.get(profile.pluginId);
+      if (!instance || !definition?.homeTileType) {
+        return response.status(400).json({ error: `Choose a registered light or cover plugin instance for main button ${index + 1}.` });
+      }
+      if (button.mode === 1 && definition.homeTileType !== "cover") {
+        return response.status(400).json({ error: `Main button ${index + 1} uses the level page and must be assigned to a cover plugin.` });
+      }
+    }
+    const panel: Panel = { ...current, name, nodeName, settings, nativePluginInstances };
     await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
+    const published = mqttRuntime.publishPanelSettings(panel);
     await mqttRuntime.refreshNativePanel(panel);
     mqttRuntime.syncSubscriptions();
-    response.json({ panel });
+    response.json({ panel, published, topic: `${panel.nodeName}/cmnd/settings` });
   });
 
   router.delete("/:id", async (request, response) => {

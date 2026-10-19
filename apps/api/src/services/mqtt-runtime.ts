@@ -23,6 +23,7 @@ export class MqttRuntime {
   private readonly pollingPlugins = new Set<string>();
   private readonly pendingMessages = new Set<Promise<void>>();
   private readonly nativePanelPages = new Map<string, string>();
+  private readonly panelHomeTilePages = new Map<string, { page: "home" | "light" | "level"; index?: number }>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
 
@@ -223,7 +224,11 @@ export class MqttRuntime {
 
   /** Publishes a profile as JSON to the panel's existing settings command topic. */
   publishPanelSettings(panel: Panel): boolean {
-    return this.publish(`${panel.nodeName}/cmnd/settings`, JSON.stringify(panel.settings));
+    const settings = {
+      ...panel.settings,
+      buttons: panel.settings.buttons.map(({ label, image, mode }) => ({ label, image, mode }))
+    };
+    return this.publish(`${panel.nodeName}/cmnd/settings`, JSON.stringify(settings));
   }
 
   /** Drops active flow and cached scoped values for a deleted plugin instance. */
@@ -250,6 +255,7 @@ export class MqttRuntime {
   /** Drops active flow context and panel-scoped values for a deleted panel. */
   async removePanelRuntimeState(panelId: string): Promise<void> {
     this.nativePanelPages.delete(panelId);
+    this.panelHomeTilePages.delete(panelId);
     await this.runtimeState.removePanel(panelId);
   }
 
@@ -264,6 +270,7 @@ export class MqttRuntime {
       await this.publishAssignedPanelState(definition, instance, panel, {}, state, state);
       if (this.nativePanelPages.get(panel.id) === pageId) await this.publishNativePanelState(definition, instance, panel, state);
     }
+    if (this.panelHomeTilePages.get(panel.id)?.page === "home") await this.refreshAllHomeTiles(panel);
   }
 
   /** Closes a currently visible flow screen before its favorite binding is removed. */
@@ -286,18 +293,27 @@ export class MqttRuntime {
     if (eventPanel && isPanelPageEvent(eventPanel, topic)) {
       this.nativePanelPages.delete(eventPanel.id);
       await this.clearActivePluginPage(eventPanel);
+      this.updateHomeTilePageFromPanelEvent(eventPanel, message);
+    }
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/query` && payload.trim().toLowerCase() === "main") {
+      this.panelHomeTilePages.set(eventPanel.id, { page: "home" });
+      await this.refreshAllHomeTiles(eventPanel);
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && (payload === "booted" || payload === "sleep")) {
       this.nativePanelPages.delete(eventPanel.id);
+      this.panelHomeTilePages.delete(eventPanel.id);
     }
 
     await this.dispatchPluginMessage(instances, message);
     await this.dispatchPluginSubscriptions(instances, message);
     if (eventPanel) await this.dispatchNativePanelEvent(eventPanel, message, instances);
+    if (eventPanel) await this.dispatchHomeTileEvent(eventPanel, message, instances);
 
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
       this.publishPanelSettings(eventPanel);
       await this.refreshNativePanel(eventPanel);
+      this.panelHomeTilePages.set(eventPanel.id, { page: "home" });
+      await this.refreshAllHomeTiles(eventPanel);
       await this.restorePanelSession(eventPanel, config.panelBindings, instances);
     } else if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "sleep") {
       // Stop pushing device telemetry to a panel once its firmware reports that
@@ -330,6 +346,7 @@ export class MqttRuntime {
       await this.refreshBoundPanels(instance, state);
       await this.refreshNativePanelStates(instance, state);
       await this.refreshAssignedPanelStates(instance, state, previousState, patch);
+      await this.refreshHomeTileStates(instance, state);
     }
   }
 
@@ -359,6 +376,7 @@ export class MqttRuntime {
       await this.refreshBoundPanels(instance, nextState);
       await this.refreshNativePanelStates(instance, nextState);
       await this.refreshAssignedPanelStates(instance, nextState, previousState, patch);
+      await this.refreshHomeTileStates(instance, nextState);
     } catch (error) {
       if (this.closing) return;
       const detail = error instanceof Error ? error.message : String(error);
@@ -411,6 +429,151 @@ export class MqttRuntime {
           component: "plugin", instance: instance.name, panel: panel.name, phase: "native panel event", topic: message.topic, detail
         });
       }
+    }
+  }
+
+  /** Routes panel tile, light-page, and level-page events to the assigned tile plugin. */
+  private async dispatchHomeTileEvent(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[]): Promise<void> {
+    const eventPrefix = `${panel.nodeName}/event/`;
+    if (!message.topic.startsWith(eventPrefix)) return;
+    const suffix = message.topic.slice(eventPrefix.length);
+    const itemMatch = /^item\/([0-3])$/.exec(suffix);
+    const levelQueryMatch = /^level\/([0-3])$/.exec(suffix);
+    const levelSetMatch = /^level\/set\/([0-3])$/.exec(suffix);
+    let index: number | undefined;
+    if (itemMatch) index = Number(itemMatch[1]);
+    else if (levelQueryMatch) index = Number(levelQueryMatch[1]);
+    else if (levelSetMatch) index = Number(levelSetMatch[1]);
+    else if (["colorLamp/set", "colorscene", "page/colorlamp"].includes(suffix)) {
+      const current = this.panelHomeTilePages.get(panel.id);
+      if (current?.page === "light") index = current.index;
+    }
+    if (index === undefined) return;
+
+    const button = panel.settings.buttons[index];
+    const instance = button?.pluginInstanceId
+      ? instances.find((candidate) => candidate.id === button.pluginInstanceId && candidate.enabled)
+      : undefined;
+    const definition = instance && this.plugins.get(instance.pluginId);
+    const isLevelPageQuery = Boolean(levelQueryMatch && message.payload.trim().toLowerCase() === "query");
+    if (isLevelPageQuery) {
+      this.logger.info("Received panel level-page query.", {
+        component: "plugin",
+        phase: "level page query",
+        panel: panel.name,
+        nodeName: panel.nodeName,
+        topic: message.topic,
+        buttonIndex: String(index),
+        buttonLabel: button?.label ?? "",
+        pluginInstanceId: button?.pluginInstanceId ?? "",
+        instance: instance?.name ?? "",
+        pluginId: instance?.pluginId ?? "",
+        pluginProfileId: instance?.pluginProfileId ?? "",
+        configuredPresets: instance ? String(instance.config["presets"] ?? "") : "",
+        cachedPosition: instance ? String(this.runtimeState.getPluginState(instance.id).position ?? "") : ""
+      });
+    }
+    if (!button?.pluginInstanceId) return;
+    if (!instance || !definition?.handleHomeTileEvent) return;
+    if (levelQueryMatch || levelSetMatch) this.panelHomeTilePages.set(panel.id, { page: "level", index });
+
+    try {
+      const previousState = this.runtimeState.getPluginState(instance.id);
+      const result = await definition.handleHomeTileEvent(instance, panel, index, button, message, previousState);
+      if (!result) return;
+      const nextState = result.statePatch ? { ...previousState, ...result.statePatch } : previousState;
+      if (result.statePatch) await this.runtimeState.setPluginState(instance.id, nextState);
+      for (const command of result.commands ?? []) {
+        if (!isPublishableTopic(command.topic)) continue;
+        const published = this.publish(command.topic, command.payload);
+        if (isLevelPageQuery && command.topic === `${panel.nodeName}/cmnd/level/config`) {
+          this.logger.info("Publishing level-page configuration for panel query.", {
+            component: "plugin",
+            phase: "level page query",
+            panel: panel.name,
+            nodeName: panel.nodeName,
+            topic: message.topic,
+            commandTopic: command.topic,
+            instance: instance.name,
+            pluginId: instance.pluginId,
+            pluginProfileId: instance.pluginProfileId,
+            buttonIndex: String(index),
+            payload: command.payload,
+            publishIssued: String(published)
+          });
+        }
+      }
+      if (result.page === "closed") this.panelHomeTilePages.delete(panel.id);
+      else if (result.page) this.panelHomeTilePages.set(panel.id, { page: result.page, ...(result.page === "home" ? {} : { index }) });
+      const activePage = this.panelHomeTilePages.get(panel.id);
+      if (activePage) {
+        if (activePage.page === "home") await this.refreshAllHomeTiles(panel);
+        else if (activePage.index === index) await this.renderHomeTile(instance, panel, index, activePage.page, nextState);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.lastError = detail;
+      this.logger.error("Home tile plugin event failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "home tile event", topic: message.topic, detail
+      });
+    }
+  }
+
+  /** Tracks firmware navigation that changes which home tile may receive state updates. */
+  private updateHomeTilePageFromPanelEvent(panel: Panel, message: MqttMessageEnvelope): void {
+    const page = message.topic.slice(`${panel.nodeName}/event/page/`.length);
+    if (page === "page0") {
+      this.panelHomeTilePages.set(panel.id, { page: "home" });
+      return;
+    }
+    if (page === "pageLevel") {
+      this.panelHomeTilePages.set(panel.id, { page: "level" });
+      return;
+    }
+    if (page === "pageColorLight" || page === "colorlamp") return;
+    this.panelHomeTilePages.delete(panel.id);
+  }
+
+  /** Sends current state to every configured tile when the panel home screen is active. */
+  private async refreshAllHomeTiles(panel: Panel): Promise<void> {
+    for (const [index, button] of panel.settings.buttons.entries()) {
+      if (!button.pluginInstanceId) continue;
+      const instance = this.resolvePluginInstances().find((candidate) => candidate.id === button.pluginInstanceId && candidate.enabled);
+      const definition = instance && this.plugins.get(instance.pluginId);
+      if (!instance || !definition?.renderHomeTileState) continue;
+      await this.renderHomeTile(instance, panel, index, "home", this.runtimeState.getPluginState(instance.id));
+    }
+  }
+
+  /** Refreshes matching tiles only when the device's tile page is visible. */
+  private async refreshHomeTileStates(instance: ResolvedPluginInstance, state: PluginState): Promise<void> {
+    const definition = this.plugins.get(instance.pluginId);
+    if (!definition?.renderHomeTileState) return;
+    for (const panel of this.store.get().panels) {
+      const active = this.panelHomeTilePages.get(panel.id);
+      if (!active) continue;
+      for (const [index, button] of panel.settings.buttons.entries()) {
+        if (button.pluginInstanceId !== instance.id) continue;
+        if (active.page !== "home" && active.index !== index) continue;
+        await this.renderHomeTile(instance, panel, index, active.page, state);
+      }
+    }
+  }
+
+  /** Publishes one plugin's translated tile state through the shared broker connection. */
+  private async renderHomeTile(instance: ResolvedPluginInstance, panel: Panel, index: number, page: "home" | "light" | "level", state: PluginState): Promise<void> {
+    const definition = this.plugins.get(instance.pluginId);
+    const button = panel.settings.buttons[index];
+    if (!definition?.renderHomeTileState || !button) return;
+    try {
+      for (const command of definition.renderHomeTileState(instance, panel, index, button, page, state)) {
+        if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error("Home tile state render failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "home tile render", detail
+      });
     }
   }
 

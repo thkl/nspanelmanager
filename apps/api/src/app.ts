@@ -9,11 +9,13 @@ import { createPluginsRouter } from "./features/plugins/plugins.routes.js";
 import type { PluginRegistry } from "./features/plugins/plugin-registry.js";
 import { createAuthRouter, requireAuthenticatedUser, requireSameOrigin } from "./features/auth/auth.routes.js";
 import type { AuthService } from "./features/auth/auth-service.js";
-import type { Logger } from "./services/logger.js";
+import { Logger } from "./services/logger.js";
 import { createLogsRouter } from "./features/logs/logs.routes.js";
 import type { LogFileReader } from "./features/logs/log-file-reader.js";
 import { createBackupsRouter } from "./features/backups/backups.routes.js";
 import type { BackupArchiveService } from "./features/backups/backup-archive-service.js";
+
+const logger = new Logger();
 
 /**
  * Assembles the Express application and its feature-focused API routers.
@@ -29,7 +31,15 @@ export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRe
   app.disable("x-powered-by");
   app.use(express.json({ limit: "128kb" }));
 
-  app.use("/api", requireSameOrigin(process.env.APP_PUBLIC_URL?.trim() ?? ""));
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
+  if (!isDevelopment) {
+    logger.debug("Enabling CORS");
+    app.use("/api", requireSameOrigin(process.env.APP_PUBLIC_URL?.trim() ?? ""));
+  } else {
+    logger.debug("System is in dev mode");
+  }
+
   app.use("/api/auth", createAuthRouter(authService, logger));
   app.use("/api", requireAuthenticatedUser(authService));
 

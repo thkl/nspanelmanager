@@ -29,9 +29,11 @@ export class PluginRegistry {
   canonicalId(pluginId: string): string { return this.aliases.get(pluginId) ?? pluginId; }
 
   /** Returns public plugin metadata and schemas without runtime implementation functions. */
-  list(): Array<Pick<PluginDefinition, "id" | "name" | "version" | "description" | "capabilities" | "configSchema" | "nativePanelPage">> {
-    return [...this.definitions.values()].map(({ id, name, version, description, capabilities, configSchema, nativePanelPage }) => ({
-      id, name, version, description, capabilities, configSchema, ...(nativePanelPage ? { nativePanelPage } : {})
+  list(): Array<Pick<PluginDefinition, "id" | "name" | "version" | "description" | "capabilities" | "configSchema" | "nativePanelPage" | "homeTileType">> {
+    return [...this.definitions.values()].map(({ id, name, version, description, capabilities, configSchema, nativePanelPage, homeTileType }) => ({
+      id, name, version, description, capabilities, configSchema,
+      ...(nativePanelPage ? { nativePanelPage } : {}),
+      ...(homeTileType ? { homeTileType } : {})
     }));
   }
 }

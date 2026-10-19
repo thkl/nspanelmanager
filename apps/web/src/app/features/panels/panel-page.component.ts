@@ -90,7 +90,11 @@ export class PanelPageComponent implements OnInit {
       toArray(),
       switchMap(() => this.manager.savePanel(panel))
     ).subscribe({
-      next: ({ panel: saved }) => { this.setDraft(saved); this.saving.set(false); this.manager.inform("Panel settings saved."); },
+      next: ({ panel: saved, published, topic }) => {
+        this.setDraft(saved);
+        this.saving.set(false);
+        this.manager.inform(published ? `Panel settings saved and sent to ${topic}.` : "Panel settings saved; they will be sent when MQTT reconnects.");
+      },
       error: (error) => { this.saving.set(false); this.manager.inform(error.error?.error || "Could not save panel settings or favorite bindings.", "error"); }
     });
   }
@@ -147,6 +151,32 @@ export class PanelPageComponent implements OnInit {
     if (pageId === "thermostat") return "Thermostat page";
     if (pageId === "weather") return "Weather screen";
     return `${pageId} page`;
+  }
+
+  /** Lists enabled or saved instances whose plugin can drive a main-screen tile. */
+  homeTileInstances() {
+    const pluginIds = new Set(this.pluginDefinitions().filter((plugin) => plugin.homeTileType).map((plugin) => plugin.id));
+    const profileIds = new Set(this.manager.config().pluginProfiles.filter((profile) => pluginIds.has(profile.pluginId)).map((profile) => profile.id));
+    return this.manager.config().pluginInstances.filter((instance) => profileIds.has(instance.pluginProfileId));
+  }
+
+  /** Returns the configured light or cover capability for an assigned instance. */
+  homeTileType(pluginInstanceId?: string): "light" | "cover" | undefined {
+    const instance = this.homeTileInstances().find((candidate) => candidate.id === pluginInstanceId);
+    const profile = instance && this.manager.config().pluginProfiles.find((candidate) => candidate.id === instance.pluginProfileId);
+    return this.pluginDefinitions().find((plugin) => plugin.id === profile?.pluginId)?.homeTileType;
+  }
+
+  /** Assigns an instance and chooses its built-in detail page as the initial action. */
+  setHomeTileInstance(index: number, pluginInstanceId: string): void {
+    const panel = this.draft();
+    const button = panel?.settings.buttons[index];
+    if (!button) return;
+    if (pluginInstanceId) button.pluginInstanceId = pluginInstanceId;
+    else delete button.pluginInstanceId;
+    const type = this.homeTileType(pluginInstanceId);
+    if (type === "cover") button.mode = 1;
+    else if (type === "light") button.mode = 0;
   }
 
   /** Requires a readable shortcut label whenever a plugin instance is assigned. */
