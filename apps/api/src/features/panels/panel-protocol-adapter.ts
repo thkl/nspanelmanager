@@ -1,16 +1,17 @@
 import type { Panel, PanelBinding } from "../../types.js";
 import type { PluginScreen } from "../plugins/plugin-contract.js";
 
-/** Event decoded from the firmware's favorite and universal info-page topics. */
+/** Event decoded from the firmware's favorite, menu-page, and universal info-page topics. */
 export type PanelInputEvent =
   | { type: "favorite"; index: number }
+  | { type: "favorite-menu-button"; index: number; bindingId: string }
   | { type: "info-button"; index: number; bindingId: string; action: string }
   | { type: "info-back"; bindingId: string };
 
 /**
  * Encapsulates topic names and JSON envelopes used by the current ESPHome TFT.
  * Plugins and flow code work with screen models and actions; this adapter maps
- * them to the firmware's `cmnd/info` and `event/...` transport contract.
+ * them to the firmware's `cmnd/info`, `cmnd/menupage`, and `event/...` transport contracts.
  */
 export class PanelProtocolAdapter {
   /** Creates an adapter that publishes through the manager's shared MQTT client. */
@@ -31,6 +32,14 @@ export class PanelProtocolAdapter {
     }));
   }
 
+  /** Shows a plugin-owned 12-button page using the firmware's universal menu screen. */
+  showMenuPage(panel: Panel, page: { title: string; buttons: Array<{ label: string, topic?:string }> }): boolean {
+    const buttons = Array.from({ length: 12 }, (_, index) => ({ label: page.buttons[index]?.label ?? "",topic: page.buttons[index]?.topic ?? "" }));
+    return this.publish(`${panel.nodeName}/cmnd/menupage`, JSON.stringify({
+      page: { name: page.title, topic: "", buttons }
+    }));
+  }
+
   /** Returns the panel to its home page through the firmware's raw Nextion command topic. */
   exitToHome(panel: Panel): boolean { return this.publish(`${panel.nodeName}/cmnd/nextion`, "page page0"); }
 
@@ -41,6 +50,17 @@ export class PanelProtocolAdapter {
     const eventTopic = topic.slice(prefix.length);
     const favoriteMatch = /^favorites\/(\d+)$/.exec(eventTopic);
     if (favoriteMatch && payload === "press") return { type: "favorite", index: Number(favoriteMatch[1]) - 1 };
+    if (eventTopic === "menupage") {
+      let menuEvent: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(payload);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+        menuEvent = parsed as Record<string, unknown>;
+      } catch { return undefined; }
+      const index = Number(menuEvent.button) - 1;
+      if (typeof menuEvent.topic !== "string" || !Number.isInteger(index) || index < 0 || index > 11) return undefined;
+      return { type: "favorite-menu-button", index, bindingId: menuEvent.topic };
+    }
     const backMatch = /^infobutton\/back$/.exec(eventTopic);
     const buttonMatch = /^infobutton\/(\d+)$/.exec(eventTopic);
     if (!backMatch && !buttonMatch) return undefined;

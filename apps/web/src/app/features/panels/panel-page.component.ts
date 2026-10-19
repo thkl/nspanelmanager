@@ -126,11 +126,11 @@ export class PanelPageComponent implements OnInit {
     return this.manager.config().pluginInstances.filter((instance) => profileIds.has(instance.pluginProfileId));
   }
 
-  /** Lists instances that can be launched through the generic favorite/info page flow. */
+  /** Lists enabled instances that expose a favorite flow, including firmware-native pages. */
   favoritePluginInstances() {
-    const nativePluginIds = new Set(this.pluginDefinitions().filter((plugin) => plugin.nativePanelPage).map((plugin) => plugin.id));
-    const nativeProfileIds = new Set(this.manager.config().pluginProfiles.filter((profile) => nativePluginIds.has(profile.pluginId)).map((profile) => profile.id));
-    return this.manager.config().pluginInstances.filter((instance) => !nativeProfileIds.has(instance.pluginProfileId));
+    const favoritePluginIds = new Set(this.pluginDefinitions().filter((plugin) => plugin.favoriteFlow).flatMap((plugin) => [plugin.id, ...(plugin.aliases ?? [])]));
+    const favoriteProfileIds = new Set(this.manager.config().pluginProfiles.filter((profile) => favoritePluginIds.has(profile.pluginId)).map((profile) => profile.id));
+    return this.manager.config().pluginInstances.filter((instance) => instance.enabled && favoriteProfileIds.has(instance.pluginProfileId));
   }
 
   /** Returns the instance assigned to a firmware-owned screen, if any. */

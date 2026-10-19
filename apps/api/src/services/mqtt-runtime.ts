@@ -1,8 +1,9 @@
 import mqtt, { type MqttClient } from "mqtt";
+import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store.js";
 import type { ManagerConfig, MqttRoute, Panel, PanelBinding, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
-import type { RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
+import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 import { Logger } from "./logger.js";
@@ -231,8 +232,55 @@ export class MqttRuntime {
     return this.publish(`${panel.nodeName}/cmnd/settings`, JSON.stringify(settings));
   }
 
+  /** Publishes the firmware's 12 favorite indicator bits from directly bound devices. */
+  private async publishPanelFavoriteState(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<boolean> {
+    let mask = 0;
+    for (const binding of bindings) {
+      const index = binding.trigger.index;
+      if (binding.panelId !== panel.id || !Number.isInteger(index) || index < 0 || index > 11) continue;
+      const instance = instances.find((candidate) => candidate.id === binding.pluginInstanceId && candidate.enabled);
+      const definition = instance && this.plugins.get(instance.pluginId);
+      if (!instance || !definition?.favoriteStateActive) continue;
+      try {
+        const active = await definition.favoriteStateActive(
+          instance,
+          this.runtimeState.getPluginState(instance.id),
+          this.createPluginContext(panel, binding, instance)
+        );
+        if (active === true) mask |= 1 << index;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.logger.error("Favorite active state evaluation failed.", {
+          component: "plugin", instance: instance.name, panel: panel.name, phase: "favorite state", detail
+        });
+      }
+    }
+    return this.publish(`${panel.nodeName}/cmnd/favstate`, String(mask));
+  }
+
+  /** Publishes only the Favorites configuration used by the firmware's Favorites page. */
+  private publishPanelFavorites(panel: Panel): boolean {
+    return this.publish(
+      `${panel.nodeName}/cmnd/settings/favorites`,
+      JSON.stringify({ favorites: panel.settings.favorites })
+    );
+  }
+
   /** Drops active flow and cached scoped values for a deleted plugin instance. */
   async removePluginRuntimeState(instanceId: string): Promise<void> { await this.runtimeState.removePluginInstance(instanceId); }
+
+  /** Stores normalized device state in memory and refreshes favorite indicators that use it. */
+  private async setPluginState(instance: ResolvedPluginInstance, state: PluginState): Promise<void> {
+    await this.runtimeState.setPluginState(instance.id, state);
+    const config = this.store.get();
+    if (!config.panelBindings.some((binding) => binding.pluginInstanceId === instance.id)) return;
+    const instances = this.resolvePluginInstances(config);
+    for (const panel of config.panels) {
+      if (config.panelBindings.some((binding) => binding.panelId === panel.id && binding.pluginInstanceId === instance.id)) {
+        await this.publishPanelFavoriteState(panel, config.panelBindings, instances);
+      }
+    }
+  }
 
   /** Routes preview diagnostics through the shared logger while keeping them in the preview result. */
   logPluginDebug(pluginName: string, phase: string, message: string): void {
@@ -276,7 +324,7 @@ export class MqttRuntime {
   /** Closes a currently visible flow screen before its favorite binding is removed. */
   async closePanelBinding(panel: Panel, bindingId: string): Promise<void> {
     const session = this.runtimeState.getPanelSession(panel.id);
-    if (session?.bindingId !== bindingId) return;
+    if (!session || session.bindingId !== bindingId && !session.ancestors?.some((ancestor) => ancestor.bindingId === bindingId)) return;
     await this.runtimeState.setPanelSession(panel.id);
     this.panelProtocol.exitToHome(panel);
   }
@@ -290,9 +338,31 @@ export class MqttRuntime {
     const { topic, payload } = message;
     const instances = this.resolvePluginInstances(config);
     const eventPanel = config.panels.find((panel) => topic.startsWith(`${panel.nodeName}/event/`));
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/page/favs`) {
+      this.publishPanelFavorites(eventPanel);
+      await this.publishPanelFavoriteState(eventPanel, config.panelBindings, instances);
+    }
     if (eventPanel && isPanelPageEvent(eventPanel, topic)) {
       this.nativePanelPages.delete(eventPanel.id);
-      await this.clearActivePluginPage(eventPanel);
+      const page = topic.slice(`${eventPanel.nodeName}/event/page/`.length);
+      const session = this.runtimeState.getPanelSession(eventPanel.id);
+      if (page === "page0" && session?.ancestors?.length) {
+        await this.restoreParentPanelFlow(eventPanel, config.panelBindings, instances, session);
+      } else if (page === "page0" && session?.favoritePanelPage) {
+        await this.runtimeState.setPanelSession(eventPanel.id);
+      } else if (page === "pageLevel" && session?.favoritePanelPage === "level") {
+        // Firmware page navigation clears script page state while retaining the
+        // native favorite-page owner so its level queries and state refreshes work.
+        await this.runtimeState.setPanelSession(eventPanel.id, { ...session, screen: undefined, history: [] });
+      } else if (page === "pageLevel" && session?.menuPageActive && this.isMenuFlow(session, instances)) {
+        // A nonzero favorite mode enters pageLevel before publishing its selected row query.
+        await this.runtimeState.setPanelSession(eventPanel.id, { ...session, screen: undefined, history: [] });
+      } else if (page === "pageUniversal" && session && this.isMenuFlow(session, instances)) {
+        // The firmware menu is active, but it is not a script-owned page.
+        await this.runtimeState.setPanelSession(eventPanel.id, { ...session, screen: undefined, menuPageActive: true, history: [] });
+      } else {
+        await this.clearActivePluginPage(eventPanel);
+      }
       this.updateHomeTilePageFromPanelEvent(eventPanel, message);
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/query` && payload.trim().toLowerCase() === "main") {
@@ -307,13 +377,16 @@ export class MqttRuntime {
     await this.dispatchPluginMessage(instances, message);
     await this.dispatchPluginSubscriptions(instances, message);
     if (eventPanel) await this.dispatchNativePanelEvent(eventPanel, message, instances);
-    if (eventPanel) await this.dispatchHomeTileEvent(eventPanel, message, instances);
+    const favoritePageHandled = eventPanel ? await this.dispatchFavoritePanelEvent(eventPanel, message, instances, config.panelBindings) : false;
+    if (eventPanel && !favoritePageHandled) await this.dispatchHomeTileEvent(eventPanel, message, instances);
 
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
       this.publishPanelSettings(eventPanel);
       await this.refreshNativePanel(eventPanel);
       this.panelHomeTilePages.set(eventPanel.id, { page: "home" });
       await this.refreshAllHomeTiles(eventPanel);
+      const currentSession = this.runtimeState.getPanelSession(eventPanel.id);
+      if (currentSession && !currentSession.screen) await this.runtimeState.setPanelSession(eventPanel.id);
       await this.restorePanelSession(eventPanel, config.panelBindings, instances);
     } else if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "sleep") {
       // Stop pushing device telemetry to a panel once its firmware reports that
@@ -342,7 +415,7 @@ export class MqttRuntime {
       if (!patch || Object.keys(patch).length === 0) continue;
       const previousState = this.runtimeState.getPluginState(instance.id);
       const state = { ...previousState, ...patch };
-      await this.runtimeState.setPluginState(instance.id, state);
+      await this.setPluginState(instance, state);
       await this.refreshBoundPanels(instance, state);
       await this.refreshNativePanelStates(instance, state);
       await this.refreshAssignedPanelStates(instance, state, previousState, patch);
@@ -372,7 +445,7 @@ export class MqttRuntime {
       const patch = await definition.poll(instance, previousState);
       if (this.closing || !patch || Object.keys(patch).length === 0) return;
       const nextState = { ...previousState, ...patch };
-      await this.runtimeState.setPluginState(instance.id, nextState);
+      await this.setPluginState(instance, nextState);
       await this.refreshBoundPanels(instance, nextState);
       await this.refreshNativePanelStates(instance, nextState);
       await this.refreshAssignedPanelStates(instance, nextState, previousState, patch);
@@ -417,7 +490,7 @@ export class MqttRuntime {
           ? await definition.handleNativePanelEvent(instance, panel, message, previousState)
           : undefined;
         const nextState = result?.statePatch ? { ...previousState, ...result.statePatch } : previousState;
-        if (result?.statePatch) await this.runtimeState.setPluginState(instance.id, nextState);
+        if (result?.statePatch) await this.setPluginState(instance, nextState);
         for (const command of result?.commands ?? []) {
           if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
         }
@@ -482,7 +555,7 @@ export class MqttRuntime {
       const result = await definition.handleHomeTileEvent(instance, panel, index, button, message, previousState);
       if (!result) return;
       const nextState = result.statePatch ? { ...previousState, ...result.statePatch } : previousState;
-      if (result.statePatch) await this.runtimeState.setPluginState(instance.id, nextState);
+      if (result.statePatch) await this.setPluginState(instance, nextState);
       for (const command of result.commands ?? []) {
         if (!isPublishableTopic(command.topic)) continue;
         const published = this.publish(command.topic, command.payload);
@@ -648,7 +721,7 @@ export class MqttRuntime {
           );
           if (result?.statePatch) {
             const state = { ...this.runtimeState.getPluginState(instance.id), ...result.statePatch };
-            await this.runtimeState.setPluginState(instance.id, state);
+            await this.setPluginState(instance, state);
           }
           for (const command of result?.commands ?? []) {
             if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
@@ -673,10 +746,10 @@ export class MqttRuntime {
   private async navigateActivePluginPanels(instance: ResolvedPluginInstance, navigation: PluginPageNavigation): Promise<void> {
     const config = this.store.get();
     const state = this.runtimeState.getPluginState(instance.id);
-    for (const binding of config.panelBindings.filter((candidate) => candidate.pluginInstanceId === instance.id)) {
-      const panel = config.panels.find((candidate) => candidate.id === binding.panelId);
-      const session = panel ? this.runtimeState.getPanelSession(panel.id) : undefined;
-      if (!panel || !session || session.bindingId !== binding.id || session.pluginInstanceId !== instance.id) continue;
+    for (const panel of config.panels) {
+      const session = this.runtimeState.getPanelSession(panel.id);
+      const binding = session && this.resolveSessionBinding(panel, session, config.panelBindings);
+      if (!session || !binding || session.pluginInstanceId !== instance.id) continue;
       if (navigation.type === "reload" && navigation.screen === undefined && !session.screen) continue;
       const screen = navigation.screen ?? session.screen;
       if (!screen) continue;
@@ -690,11 +763,16 @@ export class MqttRuntime {
   /** Refreshes only plugin screens with an active user session on the matching panel. */
   private async refreshBoundPanels(instance: ResolvedPluginInstance, state: PluginState): Promise<void> {
     const config = this.store.get();
-    for (const binding of config.panelBindings.filter((item) => item.pluginInstanceId === instance.id)) {
-      const panel = config.panels.find((item) => item.id === binding.panelId);
-      const session = panel ? this.runtimeState.getPanelSession(panel.id) : undefined;
-      if (!panel || !session?.screen || session.bindingId !== binding.id) continue;
-      await this.showScreen(panel, binding, instance, state, session.screen);
+    for (const panel of config.panels) {
+      const session = this.runtimeState.getPanelSession(panel.id);
+      const binding = session && this.resolveSessionBinding(panel, session, config.panelBindings);
+      if (!session || session.pluginInstanceId !== instance.id || !binding) continue;
+      const definition = this.plugins.get(instance.pluginId);
+      if (session.favoritePanelPage && definition?.renderFavoritePanelState) {
+        this.publishFavoritePanelState(definition, instance, panel, state);
+      } else if (session.screen) {
+        await this.showScreen(panel, binding, instance, state, session.screen);
+      }
     }
   }
 
@@ -702,25 +780,180 @@ export class MqttRuntime {
   private async clearActivePluginPage(panel: Panel): Promise<void> {
     this.nativePanelPages.delete(panel.id);
     const session = this.runtimeState.getPanelSession(panel.id);
-    if (!session?.screen) return;
-    await this.runtimeState.setPanelSession(panel.id, { ...session, screen: undefined, history: [] });
+    if (!session) return;
+    await this.runtimeState.setPanelSession(panel.id, {
+      ...session,
+      screen: undefined,
+      menuPageActive: undefined,
+      favoritePanelPage: undefined,
+      history: [],
+      ancestors: []
+    });
+  }
+
+  /** Restores the parent menu or plugin page after firmware Back navigation. */
+  private async restoreParentPanelFlow(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[], session: PanelFlowSession): Promise<void> {
+    const ancestors = [...(session.ancestors ?? [])];
+    const parent = ancestors.pop();
+    const parentInstance = parent && instances.find((candidate) => candidate.id === parent.pluginInstanceId && candidate.enabled);
+    const parentBinding = parent && this.resolveSessionBinding(panel, parent, bindings);
+    if (!parent || !parentInstance || !parentBinding) {
+      await this.runtimeState.setPanelSession(panel.id);
+      this.panelProtocol.exitToHome(panel);
+      return;
+    }
+    const definition = this.plugins.get(parentInstance.pluginId);
+    const screen = parent.screen ?? definition?.startScreen?.(parentInstance) ?? "overview";
+    const restored: PanelFlowSession = { ...parent, screen, ancestors };
+    await this.runtimeState.setPanelSession(panel.id, restored);
+    await this.renderBinding(panel, parentBinding, parentInstance, screen);
+  }
+
+  /** Handles page-level queries and controls owned by an active favorite plugin page. */
+  private async dispatchFavoritePanelEvent(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[], bindings: PanelBinding[]): Promise<boolean> {
+    const prefix = `${panel.nodeName}/event/`;
+    if (!message.topic.startsWith(prefix)) return false;
+    const suffix = message.topic.slice(prefix.length);
+    const levelQuery = /^level\/(\d{1,2})$/.exec(suffix);
+    const levelSet = /^level\/set\/(\d{1,2})$/.exec(suffix);
+    if (!levelQuery && !levelSet) return false;
+
+    const session = this.runtimeState.getPanelSession(panel.id);
+    if (!session) return false;
+    const instance = instances.find((candidate) => candidate.id === session.pluginInstanceId && candidate.enabled);
+    const definition = instance && this.plugins.get(instance.pluginId);
+    const binding = this.resolveSessionBinding(panel, session, bindings);
+    if (!instance || !definition || !binding) return false;
+
+    if (session.favoritePanelPage && definition.handleFavoritePanelEvent) {
+      try {
+        const previousState = this.runtimeState.getPluginState(instance.id);
+        const result = await definition.handleFavoritePanelEvent(instance, panel, binding, message, previousState);
+        if (!result) return Boolean(levelQuery || levelSet);
+        const nextState = result.statePatch ? { ...previousState, ...result.statePatch } : previousState;
+        if (result.statePatch) await this.setPluginState(instance, nextState);
+        for (const command of result.commands ?? []) {
+          if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+        }
+        if (result.statePatch && definition.renderFavoritePanelState) this.publishFavoritePanelState(definition, instance, panel, nextState);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.lastError = detail;
+        this.logger.error("Favorite panel plugin event failed.", {
+          component: "plugin", instance: instance.name, panel: panel.name, phase: "favorite panel event", topic: message.topic, detail
+        });
+      }
+      return true;
+    }
+
+    // A nonzero firmware favorite mode skips event/favorites/N and enters the
+    // level page directly. Firmware offsets favorite rows by four; accept an
+    // unoffset index too for panels whose selectedIndex has already been fixed.
+    if (levelQuery && message.payload.trim().toLowerCase() === "query" && definition.handleMenuPageAction && session.menuPageActive) {
+      const selectedIndex = Number(levelQuery[1]);
+      const menuIndex = selectedIndex >= 4 && selectedIndex <= 15 ? selectedIndex - 4 : selectedIndex;
+      await this.openMenuTarget(panel, session, binding, instance, definition, menuIndex, instances);
+      return true;
+    }
+    return false;
+  }
+
+  /** Opens the configured plugin instance selected from a plugin-owned menu. */
+  private async openMenuTarget(panel: Panel, session: PanelFlowSession, binding: PanelBinding, source: ResolvedPluginInstance, sourceDefinition: PluginDefinition, index: number, instances: ResolvedPluginInstance[]): Promise<void> {
+    if (!Number.isInteger(index) || index < 0 || index > 11 || !sourceDefinition.handleMenuPageAction || (session.ancestors?.length ?? 0) >= 8) return;
+    const result = await sourceDefinition.handleMenuPageAction(source, index, this.createPluginContext(panel, binding, source));
+    const target = result?.targetPluginInstanceId && instances.find((candidate) => candidate.id === result.targetPluginInstanceId && candidate.enabled);
+    const targetDefinition = target && this.plugins.get(target.pluginId);
+    if (!target || !targetDefinition || !targetDefinition.favoriteFlow || targetDefinition.nativePanelPage) return;
+
+    const targetBinding: PanelBinding = {
+      id: randomUUID(), name: target.name, panelId: panel.id,
+      pluginInstanceId: target.id, trigger: binding.trigger
+    };
+    const ancestors = [...(session.ancestors ?? []), {
+      bindingId: session.bindingId,
+      pluginInstanceId: session.pluginInstanceId,
+      screen: session.screen,
+      ...(session.menuPageActive ? { menuPageActive: session.menuPageActive } : {}),
+      ...(session.favoritePanelPage ? { favoritePanelPage: session.favoritePanelPage } : {}),
+      history: session.history ?? [],
+      ...(session.flowBinding ? { flowBinding: session.flowBinding } : {})
+    }];
+    const screen = targetDefinition.startScreen?.(target) ?? "overview";
+    await this.runtimeState.setPanelSession(panel.id, {
+      bindingId: targetBinding.id,
+      pluginInstanceId: target.id,
+      screen,
+      ...(targetDefinition.renderMenuPage ? { menuPageActive: true } : {}),
+      ...(targetDefinition.favoritePanelPage ? { favoritePanelPage: targetDefinition.favoritePanelPage } : {}),
+      history: [],
+      flowBinding: targetBinding,
+      ancestors
+    });
+    await this.renderBinding(panel, targetBinding, target, screen);
+  }
+
+  /** Sends a favorite native page's normalized state only while that flow is active. */
+  private publishFavoritePanelState(definition: PluginDefinition, instance: ResolvedPluginInstance, panel: Panel, state: PluginState): void {
+    if (!definition.renderFavoritePanelState) return;
+    try {
+      for (const command of definition.renderFavoritePanelState(instance, panel, state)) {
+        if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error("Favorite panel plugin state update failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "favorite panel render", detail
+      });
+    }
+  }
+
+  /** Identifies a visible firmware-native menu owned by a configured flow plugin. */
+  private isMenuFlow(session: PanelFlowSession, instances: ResolvedPluginInstance[]): boolean {
+    const instance = instances.find((candidate) => candidate.id === session.pluginInstanceId && candidate.enabled);
+    return Boolean(instance && this.plugins.get(instance.pluginId)?.renderMenuPage);
   }
 
   private async handlePanelInput(panel: Panel, event: PanelInputEvent, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<void> {
     if (event.type === "favorite") {
+      const activeMenu = this.runtimeState.getPanelSession(panel.id);
+      const menuInstance = activeMenu?.menuPageActive ? instances.find((item) => item.id === activeMenu.pluginInstanceId && item.enabled) : undefined;
+      const menuDefinition = menuInstance ? this.plugins.get(menuInstance.pluginId) : undefined;
+      const menuBinding = activeMenu && this.resolveSessionBinding(panel, activeMenu, bindings);
+      if (activeMenu?.menuPageActive && menuInstance && menuDefinition?.renderMenuPage && menuDefinition.handleMenuPageAction && menuBinding) {
+        await this.openMenuTarget(panel, activeMenu, menuBinding, menuInstance, menuDefinition, event.index, instances);
+        return;
+      }
+
       const binding = bindings.find((item) => item.panelId === panel.id && item.trigger.type === "favorite" && item.trigger.index === event.index);
       const instance = binding && instances.find((item) => item.id === binding.pluginInstanceId && item.enabled);
       const definition = instance && this.plugins.get(instance.pluginId);
       if (!binding || !instance || !definition) return;
       const startScreen = definition.startScreen?.(instance) ?? "overview";
-      await this.runtimeState.setPanelSession(panel.id, { bindingId: binding.id, pluginInstanceId: instance.id, screen: startScreen, history: [] });
+      await this.runtimeState.setPanelSession(panel.id, {
+        bindingId: binding.id,
+        pluginInstanceId: instance.id,
+        screen: startScreen,
+        ...(definition.renderMenuPage ? { menuPageActive: true } : {}),
+        ...(definition.favoritePanelPage ? { favoritePanelPage: definition.favoritePanelPage } : {}),
+        history: []
+      });
       await this.renderBinding(panel, binding, instance, startScreen);
       return;
     }
 
     const session = this.runtimeState.getPanelSession(panel.id);
+    if (event.type === "favorite-menu-button" && session?.menuPageActive && session.bindingId === event.bindingId) {
+      const menuBinding = this.resolveSessionBinding(panel, session, bindings);
+      const menuInstance = instances.find((item) => item.id === session.pluginInstanceId && item.enabled);
+      const menuDefinition = menuInstance && this.plugins.get(menuInstance.pluginId);
+      if (menuBinding && menuInstance && menuDefinition?.renderMenuPage) {
+        await this.openMenuTarget(panel, session, menuBinding, menuInstance, menuDefinition, event.index, instances);
+      }
+      return;
+    }
     if (!session?.screen || session.bindingId !== event.bindingId) return;
-    const binding = bindings.find((item) => item.id === session.bindingId && item.panelId === panel.id);
+    const binding = this.resolveSessionBinding(panel, session, bindings);
     const instance = instances.find((item) => item.id === session.pluginInstanceId && item.enabled);
     const definition = instance && this.plugins.get(instance.pluginId);
     if (!binding || !instance || !definition) {
@@ -735,6 +968,20 @@ export class MqttRuntime {
         const screen = history.pop() ?? startScreen;
         await this.runtimeState.setPanelSession(panel.id, { ...session, screen, history });
         await this.renderBinding(panel, binding, instance, screen);
+      } else if (session.ancestors?.length) {
+        const ancestors = [...session.ancestors];
+        const parent = ancestors.pop()!;
+        const parentInstance = instances.find((candidate) => candidate.id === parent.pluginInstanceId && candidate.enabled);
+        const parentBinding = this.resolveSessionBinding(panel, parent, bindings);
+        if (!parentInstance || !parentBinding) {
+          await this.runtimeState.setPanelSession(panel.id);
+          this.panelProtocol.exitToHome(panel);
+          return;
+        }
+        const restored = { ...parent, ancestors };
+        const parentScreen = parent.screen ?? (this.plugins.get(parentInstance.pluginId)?.startScreen?.(parentInstance) ?? "overview");
+        await this.runtimeState.setPanelSession(panel.id, restored);
+        await this.renderBinding(panel, parentBinding, parentInstance, parentScreen);
       } else {
         await this.runtimeState.setPanelSession(panel.id);
         this.panelProtocol.exitToHome(panel);
@@ -747,7 +994,7 @@ export class MqttRuntime {
     const context = this.createPluginContext(panel, binding, instance);
     const result = await definition.handleAction(instance, previousState, event.action, context);
     const nextState = result.statePatch ? { ...previousState, ...result.statePatch } : previousState;
-    if (result.statePatch) await this.runtimeState.setPluginState(instance.id, nextState);
+    if (result.statePatch) await this.setPluginState(instance, nextState);
     for (const command of result.commands ?? []) {
       if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
     }
@@ -765,7 +1012,7 @@ export class MqttRuntime {
   private async restorePanelSession(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<void> {
     const session = this.runtimeState.getPanelSession(panel.id);
     if (!session) return;
-    const binding = bindings.find((item) => item.id === session.bindingId && item.panelId === panel.id);
+    const binding = this.resolveSessionBinding(panel, session, bindings);
     const instance = instances.find((item) => item.id === session.pluginInstanceId && item.enabled);
     if (!binding || !instance || !this.plugins.get(instance.pluginId)) {
       await this.runtimeState.setPanelSession(panel.id);
@@ -799,6 +1046,38 @@ export class MqttRuntime {
     };
     if (!definition || !isCurrentSession()) return;
     const context = this.createPluginContext(panel, binding, instance);
+    if (definition.favoritePanelPage && definition.openFavoritePanelPage) {
+      try {
+        const result = await definition.openFavoritePanelPage(instance, panel, binding, state);
+        if (!isCurrentSession()) return;
+        if (result.statePatch) {
+          await this.setPluginState(instance, { ...state, ...result.statePatch });
+        }
+        for (const command of result.commands ?? []) {
+          if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.lastError = detail;
+        this.logger.error("Favorite panel page failed to open.", {
+          component: "plugin", instance: instance.name, panel: panel.name, page: screen, phase: "favorite panel open", detail
+        });
+      }
+      return;
+    }
+    if (definition.renderMenuPage) {
+      try {
+        const menu = await definition.renderMenuPage(instance, context);
+        if (menu && isCurrentSession()) this.panelProtocol.showMenuPage(panel, menu);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.lastError = detail;
+        this.logger.error("Plugin menu render failed.", {
+          component: "plugin", instance: instance.name, panel: panel.name, page: screen, phase: "render", detail
+        });
+      }
+      return;
+    }
     let view: Awaited<ReturnType<PluginDefinition["renderScreen"]>>;
     try {
       view = await definition.renderScreen(instance, state, screen, context);
@@ -822,6 +1101,13 @@ export class MqttRuntime {
     // Rendering can yield to MQTT sleep/navigation events. Recheck so late
     // telemetry cannot wake the panel or overwrite a newer page.
     if (view && isCurrentSession()) this.panelProtocol.showScreen(panel, binding, view);
+  }
+
+  /** Resolves either the saved favorite binding or a synthetic nested-flow binding. */
+  private resolveSessionBinding(panel: Panel, session: { bindingId: string; flowBinding?: PanelBinding }, bindings: PanelBinding[]): PanelBinding | undefined {
+    const configured = bindings.find((item) => item.id === session.bindingId && item.panelId === panel.id);
+    if (configured) return configured;
+    return session.flowBinding?.id === session.bindingId && session.flowBinding.panelId === panel.id ? session.flowBinding : undefined;
   }
 
   private createPluginContext(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance): PluginRuntimeContext {

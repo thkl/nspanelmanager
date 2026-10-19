@@ -212,6 +212,9 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     if (pluginRegistered.nativePanelPage) {
       return response.status(400).json({ error: `This plugin uses the panel's native '${pluginRegistered.nativePanelPage}' page. Assign its instance in the panel settings.` });
     }
+    if (!pluginRegistered.favoriteFlow) {
+      return response.status(400).json({ error: "This plugin does not provide a page that can be opened from a favorite shortcut." });
+    }
     if (config.panelBindings.some((binding) => binding.panelId === panelId && binding.trigger.type === "favorite" && binding.trigger.index === index)) {
       return response.status(409).json({ error: "That favorite slot is already bound." });
     }

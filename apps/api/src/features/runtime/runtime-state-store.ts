@@ -15,8 +15,29 @@ export interface PanelFlowSession {
   pluginInstanceId: string;
   /** Undefined while the panel is showing a firmware-managed page. */
   screen?: string;
+  /** Marks a visible firmware-native Favorites menu while its script screen is unset. */
+  menuPageActive?: boolean;
+  /** Firmware page currently owned by a favorite flow after navigation leaves its script screen. */
+  favoritePanelPage?: "level";
   /** Parent pages used to implement the firmware Back action for nested pages. */
   history?: string[];
+  /** Synthetic binding used when a menu opens a plugin instance not directly bound to a favorite. */
+  flowBinding?: import("../../types.js").PanelBinding;
+  /** Plugin flow destinations to restore when the current child flow is exited. */
+  ancestors?: PanelFlowFrame[];
+}
+
+/** One saved parent destination for a menu-launched plugin flow. */
+export interface PanelFlowFrame {
+  bindingId: string;
+  pluginInstanceId: string;
+  screen?: string;
+  /** Restores a menu page after returning from a nested plugin flow. */
+  menuPageActive?: boolean;
+  /** Firmware page to reopen when restoring a native favorite-flow parent. */
+  favoritePanelPage?: "level";
+  history?: string[];
+  flowBinding?: import("../../types.js").PanelBinding;
 }
 
 interface RuntimeSnapshot {

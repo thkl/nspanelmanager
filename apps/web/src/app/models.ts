@@ -66,6 +66,7 @@ export interface PluginConfigColumn {
   label: string;
   multiline?: boolean;
   options?: string[];
+  optionSource?: "plugin-instances";
 }
 
 export interface PluginDefinition {
@@ -74,6 +75,9 @@ export interface PluginDefinition {
   version: number;
   description: string;
   capabilities: string[];
+  favoriteFlow?: boolean;
+  favoritePanelPage?: "level";
+  aliases?: string[];
   nativePanelPage?: string;
   homeTileType?: "light" | "cover";
   configSchema: PluginConfigField[];

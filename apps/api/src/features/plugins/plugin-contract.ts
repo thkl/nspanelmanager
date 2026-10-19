@@ -24,6 +24,26 @@ export interface PluginConfigColumn {
   label: string;
   multiline?: boolean;
   options?: readonly string[];
+  /** Supplies dropdown values from configured plugin instances in the web editor. */
+  optionSource?: "plugin-instances";
+}
+
+/** Firmware-native 12-button menu page shown by a plugin favorite. */
+export interface PluginMenuPage {
+  title: string;
+  buttons: Array<{ label: string }>;
+}
+
+/** Selection from a plugin-owned menu page. */
+export interface PluginMenuPageAction {
+  /** Opens an enabled flow plugin instance, preserving the menu as the Back destination. */
+  targetPluginInstanceId?: string;
+}
+
+/** Commands that open and refresh a firmware-native page launched as a favorite flow. */
+export interface PluginFavoritePanelPageResult {
+  commands?: PluginCommand[];
+  statePatch?: PluginState;
 }
 
 /** Ephemeral in-memory state normalized from plugin messages; scripts persist selected values through scoped storage. */
@@ -151,6 +171,10 @@ export interface PluginDefinition {
   readonly version: number;
   readonly description: string;
   readonly capabilities: readonly string[];
+  /** Whether the integration can be opened from a panel favorite or menu shortcut. */
+  readonly favoriteFlow?: boolean;
+  /** Firmware-native detail page used by this favorite flow, when applicable. */
+  readonly favoritePanelPage?: "level";
   /** Native firmware page ID this integration can serve, such as `thermostat`. */
   readonly nativePanelPage?: string;
   /** Device capability exposed to the four configurable panel home tiles. */
@@ -173,6 +197,18 @@ export interface PluginDefinition {
   startScreen?(instance: ResolvedPluginInstance): string;
   /** Builds a display model for the requested flow screen. */
   renderScreen(instance: ResolvedPluginInstance, state: PluginState, screen: string, context: PluginRuntimeContext): PluginScreen | void | Promise<PluginScreen | void>;
+  /** Builds a firmware-native 12-button menu page for the active favorite flow. */
+  renderMenuPage?(instance: ResolvedPluginInstance, context: PluginRuntimeContext): PluginMenuPage | void | Promise<PluginMenuPage | void>;
+  /** Reports whether a directly assigned favorite should show its active indicator. */
+  favoriteStateActive?(instance: ResolvedPluginInstance, state: PluginState, context: PluginRuntimeContext): boolean | undefined | Promise<boolean | undefined>;
+  /** Maps a native menu selection to a configured plugin instance to open. */
+  handleMenuPageAction?(instance: ResolvedPluginInstance, index: number, context: PluginRuntimeContext): PluginMenuPageAction | void | Promise<PluginMenuPageAction | void>;
+  /** Opens a native favorite page, including its page navigation and initial configuration. */
+  openFavoritePanelPage?(instance: ResolvedPluginInstance, panel: Panel, binding: PanelBinding, state: PluginState): PluginFavoritePanelPageResult | Promise<PluginFavoritePanelPageResult>;
+  /** Handles query and control messages from a native favorite page. */
+  handleFavoritePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, binding: PanelBinding, message: MqttMessageEnvelope, state: PluginState): PluginFavoritePanelPageResult | void | Promise<PluginFavoritePanelPageResult | void>;
+  /** Refreshes a native favorite page with changed device state while it is visible. */
+  renderFavoritePanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState): readonly PluginCommand[];
   /** Maps a panel action to commands and an optional optimistic state update. */
   handleAction(instance: ResolvedPluginInstance, state: PluginState, action: string, context: PluginRuntimeContext): PluginActionResult | Promise<PluginActionResult>;
   /** Reports whether one panel MQTT event opens or closes this native page. */

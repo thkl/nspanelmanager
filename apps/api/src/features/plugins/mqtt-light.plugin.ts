@@ -77,6 +77,13 @@ export class MqttLightPlugin implements PluginDefinition {
     return Object.keys(patch).length ? patch : undefined;
   }
 
+  /** Shows the favorite indicator when the light reports power on or nonzero brightness. */
+  favoriteStateActive(_instance: ResolvedPluginInstance, state: PluginState): boolean | undefined {
+    if (typeof state.power === "boolean") return state.power;
+    const brightness = scalarNumber(state.brightness);
+    return brightness === undefined ? undefined : brightness > 0;
+  }
+
   /** Home tiles launch from their configured tile and do not use universal favorites. */
   startScreen(_instance: ResolvedPluginInstance): string { return "overview"; }
 

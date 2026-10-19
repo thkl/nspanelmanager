@@ -351,15 +351,32 @@ export class PluginsPageComponent implements OnInit {
     this.removeTableRow(field, rowIndex);
   }
 
-  /** Resolves fixed or page/function-specific dropdown values for a table cell. */
+  /** Resolves fixed, linked, or configured plugin-instance values for a table cell. */
   tableColumnOptions(field: PluginConfigField, columnKey: string, row: Record<string, string>): string[] | undefined {
-    if (field.columns?.find((column) => column.key === columnKey)?.options?.length) {
-      return [...field.columns.find((column) => column.key === columnKey)!.options!];
+    const column = field.columns?.find((candidate) => candidate.key === columnKey);
+    if (column?.options?.length) return [...column.options];
+    if (column?.optionSource === "plugin-instances") {
+      const configuredIds = this.manager.config().pluginInstances
+        .filter((instance) => instance.enabled)
+        .filter((instance) => {
+          const profile = this.manager.config().pluginProfiles.find((item) => item.id === instance.pluginProfileId);
+          return this.definitions().some((definition) => definition.favoriteFlow && [definition.id, ...(definition.aliases ?? [])].includes(profile?.pluginId ?? ""));
+        })
+        .map((instance) => instance.id);
+      const selectedId = row[columnKey];
+      return selectedId && !configuredIds.includes(selectedId) ? [...configuredIds, selectedId] : configuredIds;
     }
     if (field.key !== "buttonActions") return undefined;
     if (columnKey === "pageId" || columnKey === "target" && row["type"] === "page") return this.configRowIds("pages");
     if (columnKey === "target" && row["type"] === "function") return this.configRowIds("functions");
     return undefined;
+  }
+
+  /** Shows a readable instance name while preserving its stable ID as the saved dropdown value. */
+  tableColumnOptionLabel(field: PluginConfigField, columnKey: string, option: string): string {
+    if (field.columns?.find((column) => column.key === columnKey)?.optionSource !== "plugin-instances") return option;
+    const instance = this.manager.config().pluginInstances.find((candidate) => candidate.id === option);
+    return instance?.name ?? `Unavailable instance (${option})`;
   }
 
   /** Updates a single cell in a schema-defined table and serializes the rows. */

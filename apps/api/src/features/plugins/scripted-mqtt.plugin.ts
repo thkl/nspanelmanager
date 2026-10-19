@@ -47,9 +47,10 @@ export class ScriptedMqttPlugin implements PluginDefinition {
   /** Stable public identifier used for new instances and API discovery. */
   readonly id = "mqtt-scripted";
   readonly name = "Scripted MQTT plugin";
-  readonly version = 8;
+  readonly version = 9;
   readonly description = "Turn MQTT messages into configurable panel pages, button actions, and startup subscriptions using JavaScript.";
   readonly capabilities = ["mqtt", "panel-pages", "javascript"];
+  readonly favoriteFlow = true;
   readonly configSchema: readonly PluginConfigField[] = [
     {
       key: "topicFilters",
@@ -99,6 +100,13 @@ export class ScriptedMqttPlugin implements PluginDefinition {
       addRowLabel: "Add function"
     },
     {
+      key: "favoriteStateFunctionId",
+      label: "Favorite active state function ID (optional)",
+      type: "text",
+      defaultValue: "",
+      help: "Optional named function that returns true when this device should show as active on its favorite button. It receives the latest MQTT message as its first argument and runs when device state changes or the Favorites page opens. Example: create an isOn function returning message.payload.state === \"ON\", then enter isOn here."
+    },
+    {
       key: "buttonActions",
       label: "Button actions",
       type: "table",
@@ -146,6 +154,8 @@ export class ScriptedMqttPlugin implements PluginDefinition {
       functionIds.add(fn.id);
     }
     if (functionSourceLength > 32_000) return "Keep the combined named function bodies under 32,000 characters.";
+    const favoriteStateFunctionId = typeof config.favoriteStateFunctionId === "string" ? config.favoriteStateFunctionId.trim() : "";
+    if (favoriteStateFunctionId && !functionIds.has(favoriteStateFunctionId)) return "Favorite active state function ID must match a configured named function.";
 
     const actions = parseRows<ScriptButtonAction>(config.buttonActions, ["pageId", "slot", "type", "target", "topic", "payload"]);
     if (!actions || actions.length > 128) return "Button actions must be a valid table with at most 128 rows.";
@@ -213,6 +223,20 @@ export class ScriptedMqttPlugin implements PluginDefinition {
   /** Keeps the complete latest MQTT envelope for page rendering and actions. */
   decodeMessage(_instance: ResolvedPluginInstance, message: MqttMessageEnvelope): PluginState | undefined {
     return { lastMessage: message };
+  }
+
+  /** Calls the optional configured helper to determine whether the favorite indicator is active. */
+  async favoriteStateActive(instance: ResolvedPluginInstance, state: PluginState, context: PluginRuntimeContext): Promise<boolean | undefined> {
+    const functionId = typeof instance.config.favoriteStateFunctionId === "string" ? instance.config.favoriteStateFunctionId.trim() : "";
+    const message = readMessage(state.lastMessage);
+    if (!functionId || !message) return undefined;
+    const execution = await runScriptFunction(`return fnct[${JSON.stringify(functionId)}](message);`, message, state, context, {
+      publish: false,
+      writeStorage: false,
+      namedFunctions: getFunctions(instance)
+    });
+    applyScriptDebugLogs(execution.effects, context);
+    return typeof execution.value === "boolean" ? execution.value : undefined;
   }
 
   /** Returns the configured page used when a favorite opens this instance. */

@@ -14,7 +14,7 @@
         </label>
         @if (selectedDefinition; as definition) {
           <div class="plugin-description"><b>{{ definition.name }}</b><span>{{ definition.description }}</span><small>Capabilities: {{ definition.capabilities.join(', ') }}</small></div>
-          <label>Plugin name<input [ngModel]="profileName()" (ngModelChange)="profileName.set($event)" placeholder="Dyson"></label>
+          <label>Plugin name<input [ngModel]="profileName()" (ngModelChange)="profileName.set($event)" placeholder=""></label>
           <div class="config-grid">
             @for (field of definition.configSchema; track field.key) {
               @if (field.type === 'table' && isTabbedPageField(field)) {
@@ -169,7 +169,7 @@
                                   @if (tableColumnOptions(field, column.key, row); as options) {
                                     <select [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
                                       <option value="">Choose…</option>
-                                      @for (option of options; track option) { <option [value]="option">{{ option }}</option> }
+                                      @for (option of options; track option) { <option [value]="option">{{ tableColumnOptionLabel(field, column.key, option) }}</option> }
                                     </select>
                                   } @else {
                                     <input [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
