@@ -37,7 +37,9 @@ export class UserStore {
   /** Loads accounts and sessions, creating an empty private store on first run. */
   async load(): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-    await chmod(path.dirname(this.filePath), 0o700);
+    try { // wrap this in try cat cause it may fail on a nas .. 
+      await chmod(path.dirname(this.filePath), 0o700);
+    } catch {}
     try {
       const stored = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<UserStoreSnapshot>;
       if (stored.version !== 1 || !Array.isArray(stored.users) || !Array.isArray(stored.sessions) ||
