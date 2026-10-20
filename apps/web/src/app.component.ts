@@ -26,6 +26,7 @@ type WorkspaceView = "panels" | "plugins" | "routes" | "broker" | "users" | "log
 })
 export class AppComponent implements OnInit, OnDestroy {
   readonly view = signal<WorkspaceView>("panels");
+  readonly theme = signal<"light" | "dark">("light");
   readonly settingsExpanded = signal(false);
   readonly panelPage = viewChild(PanelPageComponent);
   readonly pluginsPage = viewChild(PluginsPageComponent);
@@ -37,8 +38,37 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly authError = signal(false);
   private healthTimer?: ReturnType<typeof setInterval>;
 
-  /** Receives shared manager state and starts the API connection poll. */
-  constructor(readonly manager: ManagerStore) {}
+  /** Receives shared manager state and restores the saved or system color theme. */
+  constructor(readonly manager: ManagerStore) {
+    let theme: "light" | "dark" = "light";
+    if (typeof window !== "undefined") {
+      try {
+        const saved = window.localStorage.getItem("nspanel-manager-theme");
+        theme = saved === "light" || saved === "dark"
+          ? saved
+          : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      } catch {
+        theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+    }
+    this.setTheme(theme, false);
+  }
+
+  /** Switches between light and dark palettes and remembers the user's choice. */
+  toggleTheme(): void {
+    this.setTheme(this.theme() === "dark" ? "light" : "dark", true);
+  }
+
+  /** Applies a theme to the document and optionally persists an explicit choice. */
+  private setTheme(theme: "light" | "dark", persist: boolean): void {
+    this.theme.set(theme);
+    if (typeof document === "undefined") return;
+    document.documentElement.dataset["theme"] = theme;
+    const canvasColor = document.defaultView?.getComputedStyle(document.documentElement).getPropertyValue("--canvas").trim();
+    if (canvasColor) document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", canvasColor);
+    if (!persist || typeof window === "undefined") return;
+    try { window.localStorage.setItem("nspanel-manager-theme", theme); } catch { /* Theme remains active for this page view. */ }
+  }
 
   /** Loads authentication state before revealing manager controls and polls status while signed in. */
   ngOnInit(): void {

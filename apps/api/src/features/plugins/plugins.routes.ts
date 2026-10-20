@@ -91,6 +91,7 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
   router.put("/profiles/:id", async (request, response) => {
     const current = store.get().pluginProfiles.find((item) => item.id === request.params.id);
     if (!current) return response.status(404).json({ error: "Plugin not found." });
+    const previousDefinition = registry.get(current.pluginId);
     const name = stringValue(request.body?.name).trim();
     const definition = registry.get(stringValue(request.body?.pluginId));
     if (!name || !definition) return response.status(400).json({ error: "A name and registered plugin type are required." });
@@ -108,6 +109,7 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
       managerConfig.pluginProfiles = managerConfig.pluginProfiles.map((item) => item.id === profile.id ? profile : item);
     });
     await runtime.refreshPluginInstances();
+    if (previousDefinition?.nativePanelSharedInstances || definition.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
     response.json({ profile });
   });
 
@@ -133,8 +135,11 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const definition = registry.get(profile.pluginId);
     const instanceError = definition?.validateInstance?.({ ...instance, pluginId: definition.id, config: profile.config });
     if (instanceError) return response.status(400).json({ error: instanceError });
+    const identityError = validateSharedNativePageInstance(instance, definition, store.get().pluginInstances, store.get().pluginProfiles, registry);
+    if (identityError) return response.status(400).json({ error: identityError });
     await store.update((current) => { current.pluginInstances.push(instance); });
     await runtime.refreshPluginInstances();
+    if (definition?.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
     response.status(201).json({ instance });
   });
 
@@ -155,15 +160,21 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const definition = registry.get(profile.pluginId);
     const instanceError = definition?.validateInstance?.({ ...instance, pluginId: definition.id, config: profile.config });
     if (instanceError) return response.status(400).json({ error: instanceError });
+    const identityError = validateSharedNativePageInstance(instance, definition, store.get().pluginInstances, store.get().pluginProfiles, registry);
+    if (identityError) return response.status(400).json({ error: identityError });
     await store.update((config) => { config.pluginInstances = config.pluginInstances.map((item) => item.id === instance.id ? instance : item); });
     await runtime.refreshPluginInstances();
+    if (definition?.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
     response.json({ instance });
   });
 
   router.delete("/instances/:id", async (request, response) => {
     const id = request.params.id;
     const config = store.get();
-    if (!config.pluginInstances.some((item) => item.id === id)) return response.status(404).json({ error: "Plugin instance not found." });
+    const removedInstance = config.pluginInstances.find((item) => item.id === id);
+    if (!removedInstance) return response.status(404).json({ error: "Plugin instance not found." });
+    const removedProfile = config.pluginProfiles.find((item) => item.id === removedInstance.pluginProfileId);
+    const removedDefinition = removedProfile && registry.get(removedProfile.pluginId);
     const removedBindings = config.panelBindings.filter((binding) => binding.pluginInstanceId === id);
     const panelsUsingInstance = new Set(config.panels.filter((panel) =>
       panel.settings.buttons.some((button) => button.pluginInstanceId === id) ||
@@ -193,6 +204,7 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
       runtime.publishPanelSettings(panel);
     }
     await runtime.refreshPluginInstances();
+    if (removedDefinition?.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
     response.status(204).end();
   });
 
@@ -263,6 +275,47 @@ function normalizePluginConfig(definition: PluginDefinition, input: unknown): Re
 function normalizePluginVariables(input: unknown): Record<string, string> {
   if (!isRecord(input)) return {};
   return Object.fromEntries(Object.entries(input).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
+/** Ensures shared native-page instances cannot claim the same firmware slot or room name. */
+function validateSharedNativePageInstance(
+  instance: PluginInstance,
+  definition: PluginDefinition | undefined,
+  instances: PluginInstance[],
+  profiles: PluginProfile[],
+  registry: PluginRegistry
+): string | undefined {
+  if (!definition?.nativePanelSharedInstances) return undefined;
+  const instanceName = instance.name.trim();
+  const playerName = instance.variables.playerName?.trim();
+  const playerId = Number(instance.variables.playerId);
+  if (instance.enabled) {
+    const activePeers = instances.filter((candidate) => candidate.enabled && candidate.id !== instance.id).filter((candidate) => {
+      const profile = profiles.find((item) => item.id === candidate.pluginProfileId);
+      return Boolean(profile && registry.get(profile.pluginId)?.id === definition.id);
+    });
+    if (activePeers.length >= 8) return "The panel music page supports up to eight configured players.";
+  }
+  for (const candidate of instances) {
+    if (candidate.id === instance.id) continue;
+    const profile = profiles.find((item) => item.id === candidate.pluginProfileId);
+    if (!profile || registry.get(profile.pluginId)?.id !== definition.id) continue;
+    if (instanceName && candidate.name.trim() === instanceName) {
+      return `Instance name '${instanceName}' is already used by another ${definition.name} instance.`;
+    }
+    if (playerName && candidate.variables.playerName?.trim() === playerName) {
+      return `Player name '${playerName}' is already used by another ${definition.name} instance.`;
+    }
+    if (Number.isInteger(playerId) && Number(candidate.variables.playerId) === playerId) {
+      return `Music player ID ${playerId} is already used by another ${definition.name} instance.`;
+    }
+  }
+  return undefined;
+}
+
+/** Refreshes firmware settings on every panel after shared page player slots change. */
+function publishSharedNativePageSettings(store: ConfigStore, runtime: MqttRuntime): void {
+  for (const panel of store.get().panels) runtime.publishPanelSettings(panel);
 }
 
 function validatePluginVariables(input: unknown): string | undefined {

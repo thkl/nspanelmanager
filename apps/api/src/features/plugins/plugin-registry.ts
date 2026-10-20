@@ -29,13 +29,15 @@ export class PluginRegistry {
   canonicalId(pluginId: string): string { return this.aliases.get(pluginId) ?? pluginId; }
 
   /** Returns public plugin metadata and schemas without runtime implementation functions. */
-  list(): Array<Pick<PluginDefinition, "id" | "name" | "version" | "description" | "capabilities" | "configSchema" | "nativePanelPage" | "homeTileType" | "favoriteFlow" | "favoritePanelPage"> & { aliases: string[] }> {
-    return [...this.definitions.values()].map(({ id, name, version, description, capabilities, configSchema, nativePanelPage, homeTileType, favoriteFlow, favoritePanelPage }) => ({
+  list(): Array<Pick<PluginDefinition, "id" | "name" | "version" | "description" | "capabilities" | "configSchema" | "nativePanelPage" | "nativePanelSharedInstances" | "instanceVariableFields" | "homeTileType" | "favoriteFlow" | "favoritePanelPage"> & { aliases: string[] }> {
+    return [...this.definitions.values()].map(({ id, name, version, description, capabilities, configSchema, nativePanelPage, nativePanelSharedInstances, instanceVariableFields, homeTileType, favoriteFlow, favoritePanelPage }) => ({
       id, name, version, description, capabilities, configSchema,
       aliases: [...this.aliases.keys()].filter((alias) => this.canonicalId(alias) === id),
       ...(favoriteFlow ? { favoriteFlow } : {}),
       ...(favoritePanelPage ? { favoritePanelPage } : {}),
       ...(nativePanelPage ? { nativePanelPage } : {}),
+      ...(nativePanelSharedInstances ? { nativePanelSharedInstances } : {}),
+      ...(instanceVariableFields ? { instanceVariableFields } : {}),
       ...(homeTileType ? { homeTileType } : {})
     }));
   }

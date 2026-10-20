@@ -21,6 +21,7 @@ export interface PanelSettings {
   buttons: MainButton[];
   favorites: { name: string; buttons: FavoriteButton[] };
   hwbuttons: { "0": number; "1": number };
+  music?: Array<{ id: string; name: string; sonos?: string; player?: string; currentSong?: string }>;
 }
 
 export interface Panel {
@@ -79,6 +80,8 @@ export interface PluginDefinition {
   favoritePanelPage?: "level";
   aliases?: string[];
   nativePanelPage?: string;
+  nativePanelSharedInstances?: boolean;
+  instanceVariableFields?: Array<{ key: string; label: string; required?: boolean; help?: string }>;
   homeTileType?: "light" | "cover";
   configSchema: PluginConfigField[];
 }

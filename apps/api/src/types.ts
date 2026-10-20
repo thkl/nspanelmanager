@@ -23,7 +23,7 @@ export interface PanelSettings {
   buttons: MainButton[];
   favorites: { name: string; buttons: FavoriteButton[] };
   hwbuttons: { "0": number; "1": number };
-  music?: Array<{ name: string; id: number }>;
+  music?: Array<{ id: string; name: string; sonos?: string; player?: string; currentSong?: string }>;
 }
 
 export interface Panel {

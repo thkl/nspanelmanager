@@ -11,7 +11,7 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-card);
     background: var(--paper);
-    box-shadow: 0 2px 8px #172b2510;
+    box-shadow: 0 2px 8px var(--shadow-soft);
 }
 
 .plugin-editor {
@@ -101,7 +101,7 @@ textarea {
     padding: 9px 11px;
     border: 1px solid var(--line-strong);
     border-radius: 8px;
-    background: white;
+    background: var(--paper);
     color: var(--ink);
     font-size: 13px;
 }
@@ -109,8 +109,8 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-    border-color: #83b8a8;
-    outline: 3px solid #72b9a822;
+    border-color: var(--green-line);
+    outline: 3px solid var(--focus);
 }
 
 textarea {
@@ -129,9 +129,9 @@ label small {
     display: grid;
     gap: 4px;
     padding: 12px 14px;
-    border: 1px solid #dcece5;
+    border: 1px solid var(--line);
     border-radius: 9px;
-    background: #f5faf7;
+    background: var(--paper);
 }
 
 .plugin-description b {
@@ -151,7 +151,7 @@ label small {
     padding: 13px;
     border: 1px solid var(--line);
     border-radius: 9px;
-    background: #fcfdfc;
+    background: var(--paper);
 }
 
 .instance-variables .field-heading {
@@ -173,8 +173,8 @@ label small {
 .instance-variables code {
     padding: 1px 4px;
     border-radius: 4px;
-    background: #edf3f0;
-    color: #355d50;
+    background: var(--surface-subtle);
+    color: var(--green-text);
 }
 
 .variable-row {
@@ -183,7 +183,7 @@ label small {
     align-items: start;
     gap: 10px;
     padding-top: 10px;
-    border-top: 1px solid #edf1ef;
+    border-top: 1px solid var(--line);
 }
 
 .variable-row textarea {
@@ -249,7 +249,7 @@ label small {
 .page-count {
     flex: 0 0 auto;
     padding: 4px 8px;
-    border: 1px solid #dce7e2;
+    border: 1px solid var(--line);
     border-radius: 99px;
     color: var(--ink-soft);
     font-size: 10px;
@@ -289,7 +289,7 @@ label small {
 }
 
 .page-tab:hover {
-    background: #f5f8f6;
+    background: var(--paper);
     color: var(--ink);
 }
 
@@ -297,7 +297,7 @@ label small {
     position: relative;
     margin-bottom: -1px;
     border-color: var(--line);
-    background: white;
+    background: var(--paper);
     color: var(--green-dark);
 }
 
@@ -313,7 +313,7 @@ label small {
     border: 1px solid var(--line);
     border-top: 0;
     border-radius: 0 0 9px 9px;
-    background: #fcfdfc;
+    background: var(--paper);
 }
 
 .page-panel-heading {
@@ -340,7 +340,7 @@ label small {
     display: grid;
     gap: 10px;
     padding-top: 14px;
-    border-top: 1px solid #e6ece9;
+    border-top: 1px solid var(--line);
 }
 
 .page-buttons-heading {
@@ -363,7 +363,7 @@ label small {
 
 .page-buttons-toggle:focus-visible {
     border-radius: 6px;
-    outline: 3px solid #72b9a855;
+    outline: 3px solid var(--focus);
     outline-offset: 3px;
 }
 
@@ -435,9 +435,9 @@ label small {
     align-items: start;
     gap: 10px;
     padding: 12px;
-    border: 1px solid #e2eae6;
+    border: 1px solid var(--line);
     border-radius: 8px;
-    background: white;
+    background: var(--paper);
 }
 
 .page-action-fields {
@@ -525,7 +525,7 @@ label small {
 .config-table th,
 .config-table td {
     padding: 7px;
-    border-bottom: 1px solid #edf1ef;
+    border-bottom: 1px solid var(--line);
     text-align: left;
     vertical-align: top;
 }
@@ -564,7 +564,7 @@ label small {
 
 .config-table .table-detail-row>td {
     padding: 12px 9px 15px;
-    background: #f8faf9;
+    background: var(--paper);
 }
 
 .multiline-editors {
@@ -608,7 +608,7 @@ label small {
 }
 
 .syntax-result.valid {
-    color: #24744d;
+    color: var(--green-text);
 }
 
 .syntax-result.invalid {
@@ -623,9 +623,9 @@ label small {
     display: grid;
     gap: 12px;
     padding: 16px;
-    border: 1px solid #dce7e2;
+    border: 1px solid var(--line);
     border-radius: 10px;
-    background: #f8fbf9;
+    background: var(--paper);
 }
 
 .page-test-heading {
@@ -655,7 +655,7 @@ label small {
     flex: 0 0 auto;
     place-items: center;
     border-radius: 8px;
-    background: #e6f0eb;
+    background: var(--surface-subtle);
     color: var(--green-dark);
     font-size: 10px;
     font-weight: 800;
@@ -679,8 +679,8 @@ label small {
 .preview-help code {
     padding: 1px 4px;
     border-radius: 4px;
-    background: #edf3f0;
-    color: #355d50;
+    background: var(--surface-subtle);
+    color: var(--green-text);
 }
 
 .page-test>.button {
@@ -697,10 +697,10 @@ label small {
     display: grid;
     gap: 12px;
     padding: 15px;
-    border: 1px solid #cfd9d5;
+    border: 1px solid var(--preview-screen-border);
     border-radius: 9px;
-    background: #172b25;
-    color: #f5faf7;
+    background: var(--preview-screen-bg);
+    color: var(--preview-screen-ink);
 }
 
 .preview-screen-title {
@@ -713,7 +713,7 @@ label small {
 }
 
 .preview-screen-title small {
-    color: #a7c4b8;
+    color: var(--preview-screen-muted);
     font-size: 10px;
     font-weight: 500;
 }
@@ -721,7 +721,7 @@ label small {
 .page-preview>p {
     min-height: 42px;
     margin: 0;
-    color: #dce9e3;
+    color: var(--preview-screen-soft);
     font-size: 13px;
     line-height: 1.5;
     white-space: pre-wrap;
@@ -730,19 +730,19 @@ label small {
 
 .page-preview>.preview-no-page {
     min-height: 0;
-    color: #dce9e3;
+    color: var(--preview-screen-soft);
 }
 
 .preview-debug {
     display: grid;
     gap: 6px;
     padding-top: 10px;
-    border-top: 1px solid #466459;
+    border-top: 1px solid var(--preview-screen-border);
 }
 
 .preview-debug h4 {
     margin: 0;
-    color: #a7c4b8;
+    color: var(--preview-screen-muted);
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: .06em;
@@ -750,7 +750,7 @@ label small {
 
 .preview-debug p {
     margin: 0;
-    color: #9bb0a6;
+    color: var(--preview-screen-muted);
     font-size: 11px;
 }
 
@@ -759,13 +759,13 @@ label small {
     gap: 4px;
     margin: 0;
     padding-left: 22px;
-    color: #9fc9b6;
+    color: var(--preview-screen-accent);
     font-size: 10px;
 }
 
 .preview-debug code {
     display: block;
-    color: #e5f0eb;
+    color: var(--preview-screen-soft);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
@@ -782,21 +782,21 @@ label small {
     align-items: center;
     gap: 6px;
     padding: 5px 7px;
-    border: 1px solid #466459;
+    border: 1px solid var(--preview-screen-border);
     border-radius: 6px;
-    background: #29443a;
+    background: var(--preview-button-bg);
     font-size: 10px;
     overflow-wrap: anywhere;
 }
 
 .preview-button b {
-    color: #9fc9b6;
+    color: var(--preview-screen-accent);
     font-size: 9px;
 }
 
 .preview-button.empty {
-    color: #8da49a;
-    background: #1e352c;
+    color: var(--preview-screen-muted);
+    background: var(--preview-button-empty);
 }
 
 .form-actions,
@@ -830,7 +830,7 @@ label small {
 
 .button.primary {
     background: var(--green);
-    color: white;
+    color: var(--on-brand);
 }
 
 .button.primary:hover:not(:disabled) {
@@ -839,7 +839,7 @@ label small {
 
 .button.secondary {
     border-color: var(--line-strong);
-    background: white;
+    background: var(--paper);
     color: var(--ink-soft);
 }
 
@@ -854,7 +854,7 @@ label small {
     height: 26px;
     place-items: center;
     padding: 0 7px;
-    border: 1px solid #dce7e2;
+    border: 1px solid var(--line);
     border-radius: 99px;
     background: var(--canvas-soft);
     color: var(--ink-soft);
@@ -872,7 +872,7 @@ label small {
     align-items: center;
     gap: 12px;
     padding: 13px 0;
-    border-top: 1px solid #edf1ef;
+    border-top: 1px solid var(--line);
 }
 
 .instance-row:first-child {
@@ -886,7 +886,7 @@ label small {
     flex: 0 0 auto;
     place-items: center;
     border-radius: 10px;
-    background: #f1f6f3;
+    background: var(--surface-subtle);
     color: var(--green);
     font-size: 18px;
 }
@@ -909,7 +909,7 @@ label small {
 
 .instance-details code {
     overflow: hidden;
-    color: #648078;
+    color: var(--ink-soft);
     font-size: 10px;
     text-overflow: ellipsis;
     white-space: nowrap;

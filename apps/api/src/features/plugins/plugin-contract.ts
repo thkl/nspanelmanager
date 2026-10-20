@@ -28,6 +28,14 @@ export interface PluginConfigColumn {
   optionSource?: "plugin-instances";
 }
 
+/** Describes a value that belongs to one configured device instance. */
+export interface PluginInstanceVariableField {
+  key: string;
+  label: string;
+  required?: boolean;
+  help?: string;
+}
+
 /** Firmware-native 12-button menu page shown by a plugin favorite. */
 export interface PluginMenuPage {
   title: string;
@@ -114,6 +122,12 @@ export interface PluginNativePanelResult {
   statePatch?: PluginState;
 }
 
+/** One related plugin instance and its latest in-memory device state. */
+export interface PluginNativePanelInstanceState {
+  instance: ResolvedPluginInstance;
+  state: PluginState;
+}
+
 /** Result of processing one home-tile action or one of its built-in detail-page events. */
 export interface PluginHomeTileResult {
   commands?: PluginCommand[];
@@ -177,6 +191,12 @@ export interface PluginDefinition {
   readonly favoritePanelPage?: "level";
   /** Native firmware page ID this integration can serve, such as `thermostat`. */
   readonly nativePanelPage?: string;
+  /** Allows same-type instances to share one native page and receive its events. */
+  readonly nativePanelSharedInstances?: boolean;
+  /** Allows a native page integration to publish state while its page is closed. */
+  readonly nativePanelStateUpdatesWhenClosed?: boolean;
+  /** Per-instance fields shown in the reusable instance editor. */
+  readonly instanceVariableFields?: readonly PluginInstanceVariableField[];
   /** Device capability exposed to the four configurable panel home tiles. */
   readonly homeTileType?: "light" | "cover";
   readonly configSchema: readonly PluginConfigField[];
@@ -216,7 +236,7 @@ export interface PluginDefinition {
   /** Handles one native page event, such as a thermostat setpoint or mode button. */
   handleNativePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope, state: PluginState): PluginNativePanelResult | void | Promise<PluginNativePanelResult | void>;
   /** Converts normalized device state to firmware commands while its native page is open. */
-  renderNativePanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState): readonly PluginCommand[];
+  renderNativePanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, relatedInstances?: readonly PluginNativePanelInstanceState[]): readonly PluginCommand[];
   /** Converts changed plugin state to panel commands that remain useful off-page, such as a home-screen temperature. */
   renderPanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, previousState: PluginState, change: PluginState): readonly PluginCommand[];
   /** Handles a bound home tile, the built-in light page, or the level page's MQTT events. */

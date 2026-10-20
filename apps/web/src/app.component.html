@@ -52,6 +52,9 @@
       <div class="top-actions">
         <span class="connection-pill" [class.is-connected]="manager.mqtt().connected"><i></i>{{ manager.mqtt().connected ? 'MQTT online' : 'MQTT offline' }}</span>
         <span class="signed-in-user">{{ manager.authUser()?.email }}</span>
+        <button class="theme-button" type="button" (click)="toggleTheme()" [attr.aria-label]="theme() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'" [title]="theme() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'">
+          <span aria-hidden="true">{{ theme() === 'dark' ? '☀' : '☾' }}</span><span class="theme-label">{{ theme() === 'dark' ? 'Light' : 'Dark' }}</span>
+        </button>
         <button class="signout-button" type="button" (click)="signOut()">Sign out</button>
         @if (view() !== 'backups') {
           <button class="icon-button" aria-label="Refresh current page" (click)="refreshCurrent()">↻</button>

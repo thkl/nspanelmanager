@@ -51,13 +51,13 @@ export class ScriptEditorComponent implements ControlValueAccessor, AfterViewIni
             this.onChange(this.value);
           }),
           EditorView.theme({
-            "&": { border: "1px solid #d3ddda", borderRadius: "8px", backgroundColor: "#fff", fontSize: "12px" },
-            "&.cm-focused": { outline: "3px solid #72b9a822", borderColor: "#83b8a8" },
+            "&": { border: "1px solid var(--line-strong)", borderRadius: "8px", backgroundColor: "var(--code-bg)", color: "var(--ink)", fontSize: "12px" },
+            "&.cm-focused": { outline: "3px solid var(--focus-ring)", borderColor: "var(--focus)" },
             ".cm-content": { minHeight: "420px", padding: "9px 0", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
-            ".cm-gutters": { borderRight: "1px solid #edf1ef", backgroundColor: "#f8faf9", color: "#87928f" },
+            ".cm-gutters": { borderRight: "1px solid var(--code-gutter-line)", backgroundColor: "var(--code-gutter-bg)", color: "var(--code-gutter-ink)" },
             ".cm-line": { padding: "0 10px" },
-            ".cm-matchingBracket": { backgroundColor: "#d7f0e3", outline: "1px solid #5b9a79", color: "inherit" },
-            ".cm-nonmatchingBracket": { backgroundColor: "#ffe0df", outline: "1px solid #c75b55", color: "inherit" }
+            ".cm-matchingBracket": { backgroundColor: "var(--code-match-bg)", outline: "1px solid var(--code-match-line)", color: "inherit" },
+            ".cm-nonmatchingBracket": { backgroundColor: "var(--code-mismatch-bg)", outline: "1px solid var(--code-mismatch-line)", color: "inherit" }
           })
         ]
       }),

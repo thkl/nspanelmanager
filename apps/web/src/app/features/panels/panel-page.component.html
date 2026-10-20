@@ -65,6 +65,9 @@
                   @for (instance of nativePageInstances(pageId); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }
                 </select>
               </label>
+              @if (plugin.nativePanelSharedInstances) {
+                <p class="field-help">All {{ plugin.name }} instances share this page. Their player names and IDs are sent to the panel from the instance settings.</p>
+              }
               @if (nativePageInstances(pageId).length === 0) {
                 <p class="field-help">Create a {{ plugin.name }} profile and instance in Plugins first.</p>
               }

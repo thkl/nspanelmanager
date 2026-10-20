@@ -83,7 +83,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
   router.post("/:id/apply", (request, response) => {
     const panel = store.get().panels.find((item) => item.id === request.params.id);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
-    if (!mqttRuntime.publishPanelSettings(panel)) return response.status(503).json({ error: "The MQTT broker is not connected." });
+    if (!mqttRuntime.publishPanelSettings(panel, true)) return response.status(503).json({ error: "The MQTT broker is not connected." });
     response.json({ published: true, topic: `${panel.nodeName}/cmnd/settings` });
   });
 

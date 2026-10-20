@@ -339,14 +339,14 @@
         </div>
         @for (entry of variableEntries(); track $index; let variableIndex = $index) {
           <div class="variable-row">
-            <label>Variable name<input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" placeholder="room" autocomplete="off"></label>
-            <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" placeholder="livingroom"></textarea></label>
-            <button type="button" class="text-danger" (click)="removeVariable(entry.name)">Remove</button>
+            <label>{{ variableLabel(entry.name) }}<input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" [placeholder]="isFixedVariable(entry.name) ? entry.name : 'room'" [disabled]="isFixedVariable(entry.name)" autocomplete="off"></label>
+            <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" [placeholder]="isFixedVariable(entry.name) ? 'Required value' : 'livingroom'"></textarea>@if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }</label>
+            <button type="button" class="text-danger" (click)="removeVariable(entry.name)" [disabled]="isFixedVariable(entry.name)">Remove</button>
           </div>
         } @empty {
           <p class="no-variables">For example, set <code>room = livingroom</code> on one instance and <code>room = bedroom</code> on another.</p>
         }
-        @if (!variablesValid()) { <small class="variable-error">Use unique names with letters, numbers, or underscores (up to 64 characters), and values under 4,096 characters.</small> }
+        @if (!variablesValid()) { <small class="variable-error">{{ hasMissingRequiredVariables() ? 'Complete the required fields for this plugin.' : 'Use unique names with letters, numbers, or underscores (up to 64 characters), and values under 4,096 characters.' }}</small> }
       </section>
       <div class="form-actions">
         <button class="button primary" [disabled]="savingInstance() || !instanceName().trim() || !selectedPluginProfileId() || !variablesValid()" (click)="saveInstance()">{{ savingInstance() ? 'Saving…' : editingInstanceId() ? 'Save instance' : 'Create instance' }} <span>＋</span></button>

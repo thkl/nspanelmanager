@@ -5,6 +5,7 @@ import { OpenMeteoWeatherPlugin } from "./open-meteo-weather.plugin.js";
 import { MqttLightPlugin } from "./mqtt-light.plugin.js";
 import { MqttCoverPlugin } from "./mqtt-cover.plugin.js";
 import { FavoritesPagePlugin } from "./favorites-page.plugin.js";
+import { MqttSonosPlugin } from "./mqtt-sonos.plugin.js";
 
 /** Creates the built-in integration registry for one manager process. */
 export function createDefaultPluginRegistry(): PluginRegistry {
@@ -15,6 +16,7 @@ export function createDefaultPluginRegistry(): PluginRegistry {
   registry.register(new MqttLightPlugin());
   registry.register(new MqttCoverPlugin());
   registry.register(new FavoritesPagePlugin());
+  registry.register(new MqttSonosPlugin());
   registry.registerAlias("mqtt-fan", "mqtt-scripted");
   return registry;
 }

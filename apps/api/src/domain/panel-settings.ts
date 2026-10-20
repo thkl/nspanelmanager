@@ -25,7 +25,16 @@ export function normalizePanelSettings(input: unknown, fallbackName: string): Pa
   const music = Array.isArray(settings.music) ? settings.music.slice(0, 8).flatMap((item) => {
     if (!item || typeof item !== "object") return [];
     const player = item as Record<string, unknown>;
-    return typeof player.name === "string" && typeof player.id === "number" && Number.isFinite(player.id) ? [{ name: player.name, id: player.id }] : [];
+    const id = typeof player.id === "string"
+      ? player.id
+      : typeof player.id === "number" && Number.isFinite(player.id) ? String(player.id) : undefined;
+    return typeof player.name === "string" && id !== undefined ? [{
+      id,
+      name: player.name,
+      ...(typeof player.sonos === "string" ? { sonos: player.sonos } : {}),
+      ...(typeof player.player === "string" ? { player: player.player } : {}),
+      ...(typeof player.currentSong === "string" ? { currentSong: player.currentSong } : {})
+    }] : [];
   }) : undefined;
   return {
     panelname: stringValue(settings.panelname) || fallbackName,

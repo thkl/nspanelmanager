@@ -63,13 +63,14 @@ export class PluginsPageComponent implements OnInit {
     this.manager.refresh().subscribe({
       next: () => {
         const firstProfile = this.manager.config().pluginProfiles[0];
-        if (!this.selectedPluginProfileId() && firstProfile) this.selectedPluginProfileId.set(firstProfile.id);
+        if (!this.selectedPluginProfileId() && firstProfile) this.setInstanceProfile(firstProfile.id);
       },
       error: () => this.manager.inform("Could not load plugin configuration.", "error")
     });
     this.manager.loadPlugins().subscribe({
       next: ({ plugins }) => {
         this.definitions.set(plugins);
+        if (this.selectedPluginProfileId()) this.setInstanceProfile(this.selectedPluginProfileId());
         if (!plugins.some((plugin) => plugin.id === this.selectedPluginId())) this.selectPlugin(plugins[0]?.id ?? "");
       },
       error: () => this.manager.inform("Could not load registered plugins.", "error")
@@ -576,7 +577,7 @@ export class PluginsPageComponent implements OnInit {
         this.editingInstanceId.set(instance.id);
         this.instanceName.set(instance.name);
         this.selectedPluginProfileId.set(instance.pluginProfileId);
-        this.instanceVariables.set({ ...(instance.variables ?? {}) });
+        this.instanceVariables.set(this.withProfileVariableDefaults(instance.pluginProfileId, instance.variables ?? {}));
         this.clearPagePreview();
         this.manager.inform("Plugin instance saved.");
       },
@@ -592,7 +593,7 @@ export class PluginsPageComponent implements OnInit {
     this.editingInstanceId.set(instance.id);
     this.instanceName.set(instance.name);
     this.selectedPluginProfileId.set(instance.pluginProfileId);
-    this.instanceVariables.set({ ...(instance.variables ?? {}) });
+    this.instanceVariables.set(this.withProfileVariableDefaults(instance.pluginProfileId, instance.variables ?? {}));
     this.clearPagePreview();
   }
 
@@ -604,7 +605,11 @@ export class PluginsPageComponent implements OnInit {
   }
 
   /** Selects a reusable plugin for the instance draft. */
-  setInstanceProfile(pluginProfileId: string): void { this.selectedPluginProfileId.set(pluginProfileId); }
+  setInstanceProfile(pluginProfileId: string): void {
+    this.selectedPluginProfileId.set(pluginProfileId);
+    this.instanceVariables.set(this.withProfileVariableDefaults(pluginProfileId, this.instanceVariables()));
+    this.clearPagePreview();
+  }
 
   /** Removes an unused or retired plugin instance and its attached bindings. */
   removeInstance(instance: PluginInstance): void {
@@ -633,6 +638,7 @@ export class PluginsPageComponent implements OnInit {
   setVariableName(index: number, name: string): void {
     const entries = Object.entries(this.instanceVariables());
     if (!entries[index] || entries.some(([existing], rowIndex) => rowIndex !== index && existing === name)) return;
+    if (this.isFixedVariable(entries[index][0])) return;
     entries[index] = [name, entries[index][1]];
     this.instanceVariables.set(Object.fromEntries(entries));
     this.clearPagePreview();
@@ -647,6 +653,7 @@ export class PluginsPageComponent implements OnInit {
 
   /** Removes one value from this instance's variable map. */
   removeVariable(name: string): void {
+    if (this.isFixedVariable(name)) return;
     this.instanceVariables.update((variables) => {
       const next = { ...variables };
       delete next[name];
@@ -658,11 +665,19 @@ export class PluginsPageComponent implements OnInit {
   /** Validates the bounded variable map before enabling an instance save. */
   variablesValid(): boolean {
     const entries = Object.entries(this.instanceVariables());
-    return entries.length <= 64 && entries.every(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name) && value.length <= 4096);
+    const validEntries = entries.length <= 64 && entries.every(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name) && value.length <= 4096);
+    return validEntries && !this.hasMissingRequiredVariables();
   }
 
-  /** Shows required per-location fields for the selected built-in weather provider. */
+  /** Checks required values declared by the selected plugin instance schema. */
+  hasMissingRequiredVariables(): boolean {
+    const requiredFields = this.selectedProfileDefinition?.instanceVariableFields?.filter((field) => field.required) ?? [];
+    return requiredFields.some((field) => !this.instanceVariables()[field.key]?.trim());
+  }
+
+  /** Shows guidance for the currently selected plugin's instance-specific settings. */
   instanceVariableHelp(): string {
+    if (this.selectedProfileDefinition?.instanceVariableFields?.length) return "Configure the fields required by this plugin. Additional variables remain available for templates and scripts.";
     const profile = this.manager.config().pluginProfiles.find((item) => item.id === this.selectedPluginProfileId());
     if (profile?.pluginId === "open-meteo-weather") {
       return "Add latitude and longitude for this location. Optionally add timezone (for example Europe/Berlin); leave it blank to use automatic timezone detection.";
@@ -673,6 +688,20 @@ export class PluginsPageComponent implements OnInit {
     return "These values belong to this device. Use {{name}} in scripts and MQTT actions, or read variables.name in JavaScript.";
   }
 
+  /** Returns metadata for the selected reusable profile's instance variables. */
+  variableField(name: string) {
+    return this.selectedProfileDefinition?.instanceVariableFields?.find((field) => field.key === name);
+  }
+
+  /** Uses the plugin's descriptive label for built-in fields and a generic label for custom values. */
+  variableLabel(name: string): string { return this.variableField(name)?.label ?? "Variable name"; }
+
+  /** Returns concise field guidance from the plugin schema. */
+  variableHelp(name: string): string { return this.variableField(name)?.help ?? ""; }
+
+  /** Reports whether a variable name is defined by the plugin and must stay fixed. */
+  isFixedVariable(name: string): boolean { return Boolean(this.variableField(name)); }
+
   /** Resolves plugin metadata for a saved instance row. */
   pluginName(pluginId: string): string { return this.definitions().find((item) => item.id === pluginId)?.name ?? pluginId; }
   /** Resolves the reusable plugin name referenced by one device instance. */
@@ -682,12 +711,33 @@ export class PluginsPageComponent implements OnInit {
   /** Returns a compact view of the configured incoming topic for an instance. */
   primaryTopic(instance: PluginInstance): string {
     const profile = this.manager.config().pluginProfiles.find((candidate) => candidate.id === instance.pluginProfileId);
+    if (profile?.pluginId === "mqtt-sonos-player") {
+      return `sonos/${instance.variables.playerName || "<playerName>"}/state · ID ${instance.variables.playerId || "?"}`;
+    }
     const value = profile?.config["topicFilters"] ?? profile?.config["stateTopic"];
     return typeof value === "string" ? value.split(/\r?\n/)[0] || "Configured plugin" : "Configured plugin";
   }
 
   /** Reports whether the selected generic plugin supports JavaScript page preview. */
   get canPreviewPage(): boolean { return this.selectedDefinition?.id === SCRIPTED_PLUGIN_ID; }
+
+  /** Resolves the plugin definition for the currently selected saved instance profile. */
+  private get selectedProfileDefinition(): PluginDefinition | undefined {
+    const profile = this.manager.config().pluginProfiles.find((item) => item.id === this.selectedPluginProfileId());
+    return this.definitions().find((definition) => definition.id === profile?.pluginId);
+  }
+
+  /** Adds blank values for schema-defined instance fields while retaining saved custom variables. */
+  private withProfileVariableDefaults(pluginProfileId: string, variables: Record<string, string>): Record<string, string> {
+    const profile = this.manager.config().pluginProfiles.find((item) => item.id === pluginProfileId);
+    const definition = this.definitions().find((item) => item.id === profile?.pluginId);
+    return Object.fromEntries([
+      ...Object.entries(variables),
+      ...(definition?.instanceVariableFields ?? [])
+        .filter((field) => !Object.hasOwn(variables, field.key))
+        .map((field) => [field.key, ""] as const)
+    ]);
+  }
 
   /** Returns configured pages for the preview selector, omitting unfinished rows. */
   previewPages(): Array<{ id: string; name: string }> {

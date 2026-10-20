@@ -4,7 +4,7 @@ import type { ConfigStore } from "./config-store.js";
 import type { ManagerConfig, MqttRoute, Panel, PanelBinding, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
 import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
-import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
+import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 import { Logger } from "./logger.js";
 
@@ -25,6 +25,8 @@ export class MqttRuntime {
   private readonly pendingMessages = new Set<Promise<void>>();
   private readonly nativePanelPages = new Map<string, string>();
   private readonly panelHomeTilePages = new Map<string, { page: "home" | "light" | "level"; index?: number }>();
+  private readonly publishedPanelSettings = new Map<string, string>();
+  private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
 
@@ -223,13 +225,48 @@ export class MqttRuntime {
     this.activeTopics = desiredTopics;
   }
 
-  /** Publishes a profile as JSON to the panel's existing settings command topic. */
-  publishPanelSettings(panel: Panel): boolean {
+  /** Publishes changed settings, or always publishes when boot/apply explicitly requests a refresh. */
+  publishPanelSettings(panel: Panel, force = false): boolean {
+    const configuredPlayers = this.configuredNativePagePlayers("music");
     const settings = {
       ...panel.settings,
+      music: configuredPlayers,
       buttons: panel.settings.buttons.map(({ label, image, mode }) => ({ label, image, mode }))
     };
-    return this.publish(`${panel.nodeName}/cmnd/settings`, JSON.stringify(settings));
+    const configFingerprint = JSON.stringify({
+      nodeName: panel.nodeName,
+      settings: {
+        ...settings,
+        music: configuredPlayers.map(({ id, name, sonos, player }) => ({ id, name, sonos, player }))
+      }
+    });
+    if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) return true;
+    const published = this.publish(`${panel.nodeName}/cmnd/settings`, JSON.stringify(settings));
+    if (published) this.publishedPanelSettings.set(panel.id, configFingerprint);
+    return published;
+  }
+
+  /** Builds the firmware's player-slot configuration from active shared music-page instances. */
+  private configuredNativePagePlayers(pageId: string): Array<{ id: string; name: string; sonos: string; player: string; currentSong?: string }> {
+    return this.resolvePluginInstances()
+      .filter((instance) => instance.enabled && this.plugins.get(instance.pluginId)?.nativePanelPage === pageId && this.plugins.get(instance.pluginId)?.nativePanelSharedInstances)
+      .flatMap((instance) => {
+        const topicPlayerName = instance.variables.playerName?.trim();
+        const sonosName = instance.variables.sonosName?.trim() || topicPlayerName;
+        const id = Number(instance.variables.playerId);
+        if (!topicPlayerName || !sonosName || !instance.name.trim() || !Number.isInteger(id) || id < 0 || id > 10) return [];
+        const state = this.runtimeState.getPluginState(instance.id);
+        const currentSong = currentSonosSong(state);
+        return [{
+          id: String(id),
+          name: firmwareSafeText(instance.name),
+          sonos: firmwareSafeText(sonosName),
+          player: `sonos/${topicPlayerName}`,
+          ...(currentSong ? { currentSong } : {})
+        }];
+      })
+      .sort((left, right) => Number(left.id) - Number(right.id))
+      .slice(0, 8);
   }
 
   /** Publishes the firmware's 12 favorite indicator bits from directly bound devices. */
@@ -255,7 +292,11 @@ export class MqttRuntime {
         });
       }
     }
-    return this.publish(`${panel.nodeName}/cmnd/favstate`, String(mask));
+    const payload = String(mask);
+    if (this.publishedPanelFavoriteStates.get(panel.id) === payload) return true;
+    const published = this.publish(`${panel.nodeName}/cmnd/favstate`, payload);
+    if (published) this.publishedPanelFavoriteStates.set(panel.id, payload);
+    return published;
   }
 
   /** Publishes only the Favorites configuration used by the firmware's Favorites page. */
@@ -304,6 +345,8 @@ export class MqttRuntime {
   async removePanelRuntimeState(panelId: string): Promise<void> {
     this.nativePanelPages.delete(panelId);
     this.panelHomeTilePages.delete(panelId);
+    this.publishedPanelSettings.delete(panelId);
+    this.publishedPanelFavoriteStates.delete(panelId);
     await this.runtimeState.removePanel(panelId);
   }
 
@@ -372,6 +415,7 @@ export class MqttRuntime {
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && (payload === "booted" || payload === "sleep")) {
       this.nativePanelPages.delete(eventPanel.id);
       this.panelHomeTilePages.delete(eventPanel.id);
+      if (payload === "booted") this.publishedPanelFavoriteStates.delete(eventPanel.id);
     }
 
     await this.dispatchPluginMessage(instances, message);
@@ -381,7 +425,7 @@ export class MqttRuntime {
     if (eventPanel && !favoritePageHandled) await this.dispatchHomeTileEvent(eventPanel, message, instances);
 
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
-      this.publishPanelSettings(eventPanel);
+      this.publishPanelSettings(eventPanel, true);
       await this.refreshNativePanel(eventPanel);
       this.panelHomeTilePages.set(eventPanel.id, { page: "home" });
       await this.refreshAllHomeTiles(eventPanel);
@@ -472,11 +516,11 @@ export class MqttRuntime {
   /** Runs the configured plugin integration for one firmware-native panel event. */
   private async dispatchNativePanelEvent(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[]): Promise<void> {
     for (const [pageId, instanceId] of Object.entries(panel.nativePluginInstances ?? {})) {
-      const instance = instances.find((candidate) => candidate.id === instanceId && candidate.enabled);
-      const definition = instance && this.plugins.get(instance.pluginId);
-      if (!instance || !definition || definition.nativePanelPage !== pageId) continue;
+      const owner = instances.find((candidate) => candidate.id === instanceId && candidate.enabled);
+      const definition = owner && this.plugins.get(owner.pluginId);
+      if (!owner || !definition || definition.nativePanelPage !== pageId) continue;
 
-      const transition = definition.nativePanelTransition?.(instance, panel, message);
+      const transition = definition.nativePanelTransition?.(owner, panel, message);
       if (transition === "open") this.nativePanelPages.set(panel.id, pageId);
       else if (transition === "close") {
         if (this.nativePanelPages.get(panel.id) === pageId) this.nativePanelPages.delete(panel.id);
@@ -484,24 +528,35 @@ export class MqttRuntime {
       }
       if (this.nativePanelPages.get(panel.id) !== pageId) continue;
 
-      try {
-        const previousState = this.runtimeState.getPluginState(instance.id);
-        const result = definition.handleNativePanelEvent
-          ? await definition.handleNativePanelEvent(instance, panel, message, previousState)
-          : undefined;
-        const nextState = result?.statePatch ? { ...previousState, ...result.statePatch } : previousState;
-        if (result?.statePatch) await this.setPluginState(instance, nextState);
-        for (const command of result?.commands ?? []) {
-          if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+      const eventInstances = definition.nativePanelSharedInstances
+        ? instances.filter((candidate) => candidate.enabled && candidate.pluginId === owner.pluginId)
+        : [owner];
+      let ownerState = this.runtimeState.getPluginState(owner.id);
+      let ownerStateChanged = false;
+      for (const instance of eventInstances) {
+        const instanceDefinition = this.plugins.get(instance.pluginId);
+        if (!instanceDefinition?.handleNativePanelEvent) continue;
+        try {
+          const previousState = this.runtimeState.getPluginState(instance.id);
+          const result = await instanceDefinition.handleNativePanelEvent(instance, panel, message, previousState);
+          const nextState = result?.statePatch ? { ...previousState, ...result.statePatch } : previousState;
+          if (result?.statePatch) await this.setPluginState(instance, nextState);
+          if (instance.id === owner.id && result?.statePatch) {
+            ownerState = nextState;
+            ownerStateChanged = true;
+          }
+          for (const command of result?.commands ?? []) {
+            if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          this.lastError = detail;
+          this.logger.error("Native panel plugin event failed.", {
+            component: "plugin", instance: instance.name, panel: panel.name, phase: "native panel event", topic: message.topic, detail
+          });
         }
-        if (transition === "open" || result?.statePatch) await this.publishNativePanelState(definition, instance, panel, nextState);
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        this.lastError = detail;
-        this.logger.error("Native panel plugin event failed.", {
-          component: "plugin", instance: instance.name, panel: panel.name, phase: "native panel event", topic: message.topic, detail
-        });
       }
+      if (transition === "open" || ownerStateChanged) await this.publishNativePanelState(definition, owner, panel, ownerState);
     }
   }
 
@@ -650,14 +705,22 @@ export class MqttRuntime {
     }
   }
 
-  /** Pushes normalized plugin state only to panels whose native page is currently open. */
+  /** Pushes native-page state to the active page, including integrations that opt into background updates. */
   private async refreshNativePanelStates(instance: ResolvedPluginInstance, state: PluginState): Promise<void> {
-    const config = this.store.get();
-    const definition = this.plugins.get(instance.pluginId);
-    if (!definition?.nativePanelPage || !definition.renderNativePanelState) return;
-    for (const panel of config.panels) {
-      if (panel.nativePluginInstances?.[definition.nativePanelPage] !== instance.id || this.nativePanelPages.get(panel.id) !== definition.nativePanelPage) continue;
-      await this.publishNativePanelState(definition, instance, panel, state);
+    const changedDefinition = this.plugins.get(instance.pluginId);
+    const pageId = changedDefinition?.nativePanelPage;
+    if (!changedDefinition?.renderNativePanelState || !pageId) return;
+    const instances = this.resolvePluginInstances();
+    for (const panel of this.store.get().panels) {
+      const assignedId: string | undefined = panel.nativePluginInstances?.[pageId];
+      const assigned: ResolvedPluginInstance | undefined = instances.find((candidate) => candidate.id === assignedId && candidate.enabled);
+      const definition: PluginDefinition | undefined = assigned ? this.plugins.get(assigned.pluginId) : undefined;
+      if (!assigned || !definition?.renderNativePanelState || definition.nativePanelPage !== pageId) continue;
+      const contributesToSharedPage = definition.nativePanelSharedInstances && assigned.pluginId === instance.pluginId;
+      const pageIsOpen = this.nativePanelPages.get(panel.id) === pageId;
+      if ((!contributesToSharedPage && assigned.id !== instance.id) || (!pageIsOpen && !definition.nativePanelStateUpdatesWhenClosed)) continue;
+      const assignedState = assigned.id === instance.id ? state : this.runtimeState.getPluginState(assigned.id);
+      await this.publishNativePanelState(definition, assigned, panel, assignedState);
     }
   }
 
@@ -691,7 +754,13 @@ export class MqttRuntime {
   private async publishNativePanelState(definition: PluginDefinition, instance: ResolvedPluginInstance, panel: Panel, state: PluginState): Promise<void> {
     if (!definition.renderNativePanelState) return;
     try {
-      for (const command of definition.renderNativePanelState(instance, panel, state)) {
+      const relatedInstances: readonly PluginNativePanelInstanceState[] | undefined = definition.nativePanelSharedInstances
+        ? this.resolvePluginInstances().filter((candidate) => candidate.enabled && candidate.pluginId === instance.pluginId).map((candidate) => ({
+            instance: candidate,
+            state: candidate.id === instance.id ? state : this.runtimeState.getPluginState(candidate.id)
+          }))
+        : undefined;
+      for (const command of definition.renderNativePanelState(instance, panel, state, relatedInstances)) {
         if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
       }
     } catch (error) {
@@ -1209,6 +1278,20 @@ export class MqttRuntime {
 }
 
 function isPublishableTopic(topic: string): boolean { return Boolean(topic.trim()) && !/[+#\u0000]/.test(topic); }
+
+/** Builds an HMI-safe initial song label from the cached Sonos state. */
+function currentSonosSong(state: PluginState): string | undefined {
+  if (state["playbackState"] === "stopped") return undefined;
+  const title = firmwareSafeText(typeof state["title"] === "string" ? state["title"] : "");
+  const artist = firmwareSafeText(typeof state["artist"] === "string" ? state["artist"] : "");
+  if (!title && !artist) return undefined;
+  return artist && title ? artist + "|" + title : artist || title;
+}
+
+/** Removes HMI command delimiters and control characters from firmware text fields. */
+function firmwareSafeText(value: string): string {
+  return value.replaceAll('"', "'").replaceAll("\\", " ").replace(/[\r\n\u0000-\u001f]/g, " ").trim();
+}
 
 function isPanelPageEvent(panel: Panel, topic: string): boolean {
   const pageTopic = `${panel.nodeName}/event/page`;

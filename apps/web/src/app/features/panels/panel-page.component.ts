@@ -123,7 +123,7 @@ export class PanelPageComponent implements OnInit {
     const profileIds = new Set(this.manager.config().pluginProfiles
       .filter((profile) => pluginIds.has(profile.pluginId))
       .map((profile) => profile.id));
-    return this.manager.config().pluginInstances.filter((instance) => profileIds.has(instance.pluginProfileId));
+    return this.manager.config().pluginInstances.filter((instance) => instance.enabled && profileIds.has(instance.pluginProfileId));
   }
 
   /** Lists enabled instances that expose a favorite flow, including firmware-native pages. */
@@ -150,6 +150,7 @@ export class PanelPageComponent implements OnInit {
   nativePageLabel(pageId: string): string {
     if (pageId === "thermostat") return "Thermostat page";
     if (pageId === "weather") return "Weather screen";
+    if (pageId === "music") return "Music page";
     return `${pageId} page`;
   }
 
