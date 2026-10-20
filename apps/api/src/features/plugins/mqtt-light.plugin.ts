@@ -2,28 +2,36 @@ import type { Panel, PluginConfigValue, ResolvedPluginInstance } from "../../typ
 import type { MqttMessageEnvelope, PluginActionResult, PluginConfigField, PluginDefinition, PluginHomeTileResult, PluginRuntimeContext, PluginScreen, PluginState } from "./plugin-contract.js";
 import { isTopicTemplateValid, readPayloadValue, scalarNumber, scalarPower, tileCommand, tileConfigNumber, tileConfigString } from "./home-tile-utils.js";
 import { interpolatePluginTemplate } from "./plugin-variables.js";
+import { decodeNextionRgb } from "./nextion-color-wheel.js";
 
 /** Connects a generic MQTT light to the panel tile and its brightness/color screen. */
 export class MqttLightPlugin implements PluginDefinition {
   readonly id = "mqtt-light";
   readonly name = "MQTT light";
-  readonly version = 1;
+  readonly version = 3;
   readonly description = "Control an MQTT light from a panel home tile and the firmware's brightness/color screen.";
   readonly capabilities = ["mqtt", "light", "home-tile", "brightness", "color"];
   readonly homeTileType = "light" as const;
   readonly configSchema: readonly PluginConfigField[] = [
     { key: "statusTopicFilter", label: "Status topic filter", type: "text", required: true, defaultValue: "zigbee2mqtt/{{device}}", help: "MQTT filter that reports the light state. Use instance variables such as {{device}}." },
     { key: "powerValuePath", label: "Power value path", type: "text", defaultValue: "state", help: "Dot path to ON/OFF or true/false. Leave blank when the payload is the value." },
-    { key: "brightnessValuePath", label: "Brightness value path", type: "text", defaultValue: "brightness", help: "Dot path to the MQTT brightness value. Leave blank to ignore brightness status." },
-    { key: "brightnessFactor", label: "Brightness factor", type: "number", defaultValue: 1, help: "Converts MQTT brightness to the panel's 0–100 scale by multiplying. Outgoing MQTT brightness is divided by this factor. For Hue values from 0 to 255, use 0.39215686." },
+    { key: "brightnessValuePath", label: "Brightness value path", type: "text", defaultValue: "brightness", help: "Dot path to the MQTT brightness value. Leave blank to ignore brightness status. Normalized brightness is available to scripts through plugin.get(\"brightness\") as a percentage." },
+    { key: "brightnessMinimum", label: "MQTT brightness minimum", type: "number", defaultValue: 0, help: "Lowest MQTT brightness value. Panel percentages are mapped between this and the maximum (0–255 for Hue/Zigbee2MQTT)." },
+    { key: "brightnessMaximum", label: "MQTT brightness maximum", type: "number", defaultValue: 100, help: "Highest MQTT brightness value. Set this to 255 for Hue/Zigbee2MQTT, or use the range required by your light." },
     { key: "colorValuePath", label: "Color value path", type: "text", defaultValue: "color", help: "Dot path to the color value. Leave blank to ignore color status." },
+    { key: "hueMinimum", label: "Hue minimum", type: "number", defaultValue: 0, help: "Low end of the device's hue range. RGB converts to 0–360 degrees before mapping; Philips Hue uses 0–255." },
+    { key: "hueMaximum", label: "Hue maximum", type: "number", defaultValue: 255, help: "High end of the device's hue range. Use 255 for Philips Hue, or set the range required by your MQTT device." },
+    { key: "saturationMinimum", label: "Saturation minimum", type: "number", defaultValue: 0, help: "Low end of the device's saturation range. RGB converts to 0–100% before mapping; Philips Hue uses 0–255." },
+    { key: "saturationMaximum", label: "Saturation maximum", type: "number", defaultValue: 255, help: "High end of the device's saturation range. Use 255 for Philips Hue, or set the range required by your MQTT device." },
     { key: "requestTopic", label: "Request topic (optional)", type: "text", defaultValue: "", help: "Published when the light controls screen opens." },
     { key: "requestPayloadTemplate", label: "Request payload template", type: "textarea", defaultValue: "{}", help: "Supports instance variables such as {{device}}." },
     { key: "setTopic", label: "Set topic", type: "text", required: true, defaultValue: "zigbee2mqtt/{{device}}/set", help: "Receives all configured light commands. Separate topics can be used in the templates if needed." },
     { key: "powerPayloadTemplate", label: "Power payload template", type: "textarea", defaultValue: "{\"state\":\"{{value}}\"}", help: "{{value}} is ON or OFF." },
-    { key: "brightnessPayloadTemplate", label: "Brightness payload template", type: "textarea", defaultValue: "{\"brightness\":{{value}}}", help: "{{value}} is the MQTT brightness value after converting the panel's 0–100 value with the configured factor." },
-    { key: "colorPayloadTemplate", label: "Color payload template", type: "textarea", defaultValue: "{\"color\":\"{{value}}\"}", help: "{{value}} contains the color string emitted by the firmware color picker." },
-    { key: "scenePayloadTemplate", label: "Color scene payload template", type: "textarea", defaultValue: "{\"scene\":{{button}},\"page\":\"{{page}}\"}", help: "Used by the two scene buttons. Available values: {{button}} and {{page}}." },
+    { key: "brightnessPayloadTemplate", label: "Brightness payload template", type: "textarea", defaultValue: "{\"brightness\":{{value}}}", help: "{{value}} is the MQTT brightness value mapped from the panel's 0–100 percent into the configured MQTT minimum and maximum." },
+    { key: "colorPayloadTemplate", label: "Color payload template", type: "textarea", defaultValue: "{\"color\":\"{{value}}\"}", help: "{{value}} contains a non-wheel color string emitted by the firmware color picker." },
+    { key: "colorWheelDiameter", label: "Preview wheel diameter", type: "number", defaultValue: 200, help: "Used only by the manager's interactive preview to simulate the panel wheel. The panel itself sends RGB values, so the manager does not use this to decode MQTT events." },
+    { key: "colorWheelPayloadTemplate", label: "Color wheel payload template", type: "textarea", defaultValue: "{\"color\":{\"hue\":{{hue}},\"saturation\":{{saturation}}},\"brightness\":{{brightness}},\"transition\":0.5}", help: "Used for the panel's r|g|b color event. {{hue}} and {{saturation}} are converted from RGB into the configured device ranges; {{brightness}} uses the instance's last known brightness. Also available: {{hueDegrees}}, {{hueFraction}}, {{saturationPercent}}, {{saturationFraction}}, {{brightnessPercent}}, {{rgb}}, {{red}}, {{green}}, {{blue}}, and {{value}} (raw r|g|b string)." },
+    { key: "scenePayloadTemplate", label: "Color scene payload template", type: "textarea", defaultValue: "{\"scene\":{{button}},\"page\":\"{{page}}\"}", help: "Fallback for the two scene buttons. Optional instance variables named PSET1 and PSET2 override this template with their raw MQTT payloads; other instance variables can be used inside those payload strings." },
     { key: "brightnessStep", label: "Tile brightness step (%)", type: "number", defaultValue: 10, help: "Brightness change for the home tile's Up and Down controls." },
     { key: "zeroValueLabel", label: "0% value label", type: "text", defaultValue: "Off", help: "Displayed below the icon when brightness is zero." },
     { key: "fullValueLabel", label: "100% value label", type: "text", defaultValue: "On", help: "Displayed below the icon when brightness is 100%." }
@@ -37,11 +45,18 @@ export class MqttLightPlugin implements PluginDefinition {
     if (requestTopic && !isTopicTemplateValid(requestTopic)) return "Enter a valid request topic or leave it blank.";
     const step = numberValue(config, "brightnessStep");
     if (step === undefined || step <= 0 || step > 100) return "Brightness step must be greater than 0 and no more than 100.";
-    const factor = numberValue(config, "brightnessFactor");
-    if (factor === undefined || factor <= 0 || !Number.isFinite(100 / factor)) return "Brightness factor must be a positive number that can convert panel values to MQTT brightness.";
+    const brightnessRange = readRange(config, "brightnessMinimum", "brightnessMaximum", 0, 100);
+    if (!brightnessRange || brightnessRange.minimum < 0) return "MQTT brightness minimum and maximum must be valid numbers, with maximum greater than minimum.";
+    const hueRange = readRange(config, "hueMinimum", "hueMaximum", 0, 255);
+    if (!hueRange) return "Hue minimum and maximum must be valid numbers, with maximum greater than minimum.";
+    const saturationRange = readRange(config, "saturationMinimum", "saturationMaximum", 0, 255);
+    if (!saturationRange) return "Saturation minimum and maximum must be valid numbers, with maximum greater than minimum.";
+    const wheelDiameter = config.colorWheelDiameter === undefined ? 200 : numberValue(config, "colorWheelDiameter");
+    if (wheelDiameter === undefined || wheelDiameter <= 0 || wheelDiameter > 1000) return "Color wheel calculation diameter must be between 1 and 1000.";
     if (!["powerPayloadTemplate", "brightnessPayloadTemplate", "colorPayloadTemplate", "scenePayloadTemplate"].every((key) => stringValue(config, key).trim())) {
       return "Configure power, brightness, color, and scene payload templates.";
     }
+    if (config.colorWheelPayloadTemplate !== undefined && !stringValue(config, "colorWheelPayloadTemplate").trim()) return "Configure the color wheel payload template.";
     return undefined;
   }
 
@@ -69,12 +84,22 @@ export class MqttLightPlugin implements PluginDefinition {
   decodeMessage(instance: ResolvedPluginInstance, message: MqttMessageEnvelope): PluginState | undefined {
     const patch: PluginState = {};
     const power = scalarPower(readPayloadValue(message.payload, tileConfigString(instance, "powerValuePath", "state")));
-    const brightness = scalarNumber(readPayloadValue(message.payload, tileConfigString(instance, "brightnessValuePath", "brightness")));
+    const rawBrightness = scalarNumber(readPayloadValue(message.payload, tileConfigString(instance, "brightnessValuePath", "brightness")));
+    const brightness = rawBrightness === undefined ? undefined : this.toPanelBrightness(instance, rawBrightness);
     const color = readPayloadValue(message.payload, tileConfigString(instance, "colorValuePath", "color"));
     if (power !== undefined) patch.power = power;
-    if (brightness !== undefined) patch.brightness = clampBrightness(brightness * tileConfigNumber(instance, "brightnessFactor", 1));
+    if (brightness !== undefined) {
+      patch.brightness = clampBrightness(brightness);
+      patch.lastBrightness = patch.brightness;
+    }
     if (typeof color === "string") patch.color = color;
     return Object.keys(patch).length ? patch : undefined;
+  }
+
+  /** Mirrors the normalized panel percentage into durable per-instance script storage. */
+  scriptStorageValues(_instance: ResolvedPluginInstance, state: PluginState): Record<string, unknown> {
+    const brightness = scalarNumber(state.lastBrightness) ?? scalarNumber(state.brightness);
+    return brightness === undefined ? {} : { brightness: clampBrightness(brightness) };
   }
 
   /** Shows the favorite indicator when the light reports power on or nonzero brightness. */
@@ -96,7 +121,7 @@ export class MqttLightPlugin implements PluginDefinition {
   }
 
   /** Routes home tile input and built-in color-page events to the configured light topics. */
-  handleHomeTileEvent(instance: ResolvedPluginInstance, panel: Panel, index: number, button: Panel["settings"]["buttons"][number], message: MqttMessageEnvelope, state: PluginState): PluginHomeTileResult | undefined {
+  async handleHomeTileEvent(instance: ResolvedPluginInstance, panel: Panel, index: number, button: Panel["settings"]["buttons"][number], message: MqttMessageEnvelope, state: PluginState, context: PluginRuntimeContext): Promise<PluginHomeTileResult | undefined> {
     const suffix = message.topic.slice(`${panel.nodeName}/event/`.length);
     const tileMatch = new RegExp(`^item/${index}$`).exec(suffix);
     if (tileMatch && message.payload === "longpress") {
@@ -114,24 +139,54 @@ export class MqttLightPlugin implements PluginDefinition {
       return this.publishBrightness(instance, current + delta);
     }
 
-    if (suffix === "colorLamp/set") {
+    if (suffix === "colorLamp" || suffix === "colorLamp/set") {
       const event = recordFromJson(message.payload);
       if (!event) return undefined;
+      const configuredTopic = interpolatePluginTemplate(tileConfigString(instance, "setTopic"), instance.variables);
+      const requestedTopic = typeof event["topic"] === "string" ? event["topic"].trim() : "";
+      if (requestedTopic && requestedTopic !== configuredTopic) return undefined;
+      const commandTopic = requestedTopic || configuredTopic;
       if (Object.hasOwn(event, "brightness")) {
         const raw = String(event["brightness"] ?? "").trim();
         if (raw === "+10" || raw === "-10") {
           const current = scalarNumber(state.brightness) ?? 0;
-          return this.publishBrightness(instance, current + (raw === "+10" ? 10 : -10));
+          return this.publishBrightness(instance, current + (raw === "+10" ? 10 : -10), commandTopic);
         }
         if (raw === "PSET1" || raw === "PSET2") {
-          return this.publishScene(instance, raw === "PSET1" ? 1 : 2, "default");
+          const presetPayload = instance.variables[raw];
+          if (presetPayload?.trim()) return { commands: [{ topic: commandTopic, payload: interpolatePluginTemplate(presetPayload, instance.variables) }] };
+          return this.publishScene(instance, raw === "PSET1" ? 1 : 2, "default", commandTopic);
         }
         const value = scalarNumber(event["brightness"]);
-        return value === undefined ? undefined : this.publishBrightness(instance, value);
+        return value === undefined ? undefined : this.publishBrightness(instance, value, commandTopic);
       }
       if (typeof event["color"] === "string") {
-        const command = tileCommand(instance, tileConfigString(instance, "setTopic"), tileConfigString(instance, "colorPayloadTemplate"), { value: event["color"] });
-        return command ? { commands: [command], statePatch: { color: event["color"] } } : undefined;
+        const rawColor = event["color"];
+        const wheel = decodeNextionRgb(rawColor);
+        if (!wheel) {
+          const legacyCommand = tileCommand(instance, commandTopic, tileConfigString(instance, "colorPayloadTemplate"), { value: rawColor });
+          return legacyCommand ? { commands: [legacyCommand], statePatch: { color: rawColor } } : undefined;
+        }
+        const hueDegrees = wheel.hue;
+        const saturationPercent =wheel.saturation * 100;
+        const savedBrightness = scalarNumber(await context.storage.get("plugin", "brightness"));
+        const brightnessPercent = clampBrightness(scalarNumber(state.lastBrightness) ?? scalarNumber(state.brightness) ?? savedBrightness ?? 100);
+        const hue =  Math.round(mapRange(hueDegrees, 0, 360, tileConfigNumber(instance, "hueMinimum", 0), tileConfigNumber(instance, "hueMaximum", 255)));
+        const saturation =  Math.round(mapRange(saturationPercent, 0, 100, tileConfigNumber(instance, "saturationMinimum", 0), tileConfigNumber(instance, "saturationMaximum", 255)));
+        const brightness = this.toMqttBrightness(instance, brightnessPercent);
+        const values: Record<string, string> = {
+          value: rawColor,
+          rgb: wheel.rgb,
+          red: String(wheel.red), green: String(wheel.green), blue: String(wheel.blue),
+          hue: formatNumber(hue), hueDegrees: formatNumber(hueDegrees), hueFraction: formatNumber(hueDegrees / 360),
+          saturation: formatNumber(saturation), saturationPercent: formatNumber(saturationPercent),
+          saturationFraction: formatNumber(wheel.saturation),
+          brightness: String(brightness), brightnessPercent: String(brightnessPercent)
+        };
+        console.log(values)
+        const template = tileConfigString(instance, "colorWheelPayloadTemplate", '{"color":{"hue":{{hue}},"saturation":{{saturation}}},"brightness":{{brightness}},"transition":0.5}');
+        const command = tileCommand(instance, commandTopic, template, values);
+        return command ? { commands: [command], statePatch: { color: wheel.rgb, hue, saturation } } : undefined;
       }
     }
 
@@ -173,16 +228,32 @@ export class MqttLightPlugin implements PluginDefinition {
     return command ? { commands: [command], statePatch: { power: value === "ON" } } : undefined;
   }
 
-  private publishBrightness(instance: ResolvedPluginInstance, requested: number): PluginHomeTileResult | undefined {
+  private publishBrightness(instance: ResolvedPluginInstance, requested: number, topic = tileConfigString(instance, "setTopic")): PluginHomeTileResult | undefined {
     const value = clampBrightness(requested);
-    const mqttBrightness = Math.round(value / tileConfigNumber(instance, "brightnessFactor", 1));
-    const command = tileCommand(instance, tileConfigString(instance, "setTopic"), tileConfigString(instance, "brightnessPayloadTemplate"), { value: String(mqttBrightness) });
-    return command ? { commands: [command], statePatch: { power: value > 0, brightness: value } } : undefined;
+    const mqttBrightness = this.toMqttBrightness(instance, value);
+    const command = tileCommand(instance, topic, tileConfigString(instance, "brightnessPayloadTemplate"), { value: String(mqttBrightness) });
+    return command ? { commands: [command], statePatch: { power: value > 0, brightness: value, lastBrightness: value } } : undefined;
   }
 
-  private publishScene(instance: ResolvedPluginInstance, button: number, page: string): PluginHomeTileResult | undefined {
-    const command = tileCommand(instance, tileConfigString(instance, "setTopic"), tileConfigString(instance, "scenePayloadTemplate"), { button: String(button), page });
+  private publishScene(instance: ResolvedPluginInstance, button: number, page: string, topic = tileConfigString(instance, "setTopic")): PluginHomeTileResult | undefined {
+    const command = tileCommand(instance, topic, tileConfigString(instance, "scenePayloadTemplate"), { button: String(button), page });
     return command ? { commands: [command] } : undefined;
+  }
+
+  /** Converts the panel's 0–100 percent state to the configured MQTT brightness range. */
+  private toMqttBrightness(instance: ResolvedPluginInstance, percent: number): number {
+    if (hasConfiguredRange(instance.config, "brightnessMinimum", "brightnessMaximum")) {
+      return Math.round(mapRange(percent, 0, 100, tileConfigNumber(instance, "brightnessMinimum", 0), tileConfigNumber(instance, "brightnessMaximum", 100)));
+    }
+    return Math.round(percent / tileConfigNumber(instance, "brightnessFactor", 1));
+  }
+
+  /** Converts an incoming MQTT brightness to the panel's 0–100 percent state. */
+  private toPanelBrightness(instance: ResolvedPluginInstance, mqttValue: number): number {
+    if (hasConfiguredRange(instance.config, "brightnessMinimum", "brightnessMaximum")) {
+      return mapRange(mqttValue, tileConfigNumber(instance, "brightnessMinimum", 0), tileConfigNumber(instance, "brightnessMaximum", 100), 0, 100);
+    }
+    return mqttValue * tileConfigNumber(instance, "brightnessFactor", 1);
   }
 }
 
@@ -194,6 +265,26 @@ function stringValue(config: Record<string, PluginConfigValue>, key: string): st
 function numberValue(config: Record<string, PluginConfigValue>, key: string): number | undefined {
   const value = config[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readRange(config: Record<string, PluginConfigValue>, minimumKey: string, maximumKey: string, defaultMinimum: number, defaultMaximum: number): { minimum: number; maximum: number } | undefined {
+  const minimum = config[minimumKey] === undefined ? defaultMinimum : numberValue(config, minimumKey);
+  const maximum = config[maximumKey] === undefined ? defaultMaximum : numberValue(config, maximumKey);
+  return minimum !== undefined && maximum !== undefined && maximum > minimum ? { minimum, maximum } : undefined;
+}
+
+function hasConfiguredRange(config: Record<string, PluginConfigValue>, minimumKey: string, maximumKey: string): boolean {
+  return typeof config[minimumKey] === "number" && typeof config[maximumKey] === "number";
+}
+
+function mapRange(value: number, sourceMinimum: number, sourceMaximum: number, targetMinimum: number, targetMaximum: number): number {
+  if (sourceMaximum === sourceMinimum) return targetMinimum;
+  const ratio = Math.min(1, Math.max(0, (value - sourceMinimum) / (sourceMaximum - sourceMinimum)));
+  return targetMinimum + ratio * (targetMaximum - targetMinimum);
+}
+
+function formatNumber(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 function clampBrightness(value: number): number { return Math.round(Math.min(100, Math.max(0, value))); }

@@ -3,6 +3,7 @@ import { FormsModule } from "@angular/forms";
 import { concatMap, from, switchMap, toArray, type Observable } from "rxjs";
 import { ManagerStore } from "../../manager-store.service";
 import type { Panel, PanelBinding, PluginDefinition } from "../../models";
+import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
 
 /**
  * Edits the persisted per-panel display profile and favorite-to-plugin bindings.
@@ -15,7 +16,7 @@ import type { Panel, PanelBinding, PluginDefinition } from "../../models";
 @Component({
   selector: "nspanel-panel-page",
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, PanelScreenPreviewComponent],
   templateUrl: "./panel-page.component.html",
   styleUrl: "./panel-page.component.css"
 })

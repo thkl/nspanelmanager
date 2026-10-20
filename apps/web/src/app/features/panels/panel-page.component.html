@@ -26,6 +26,7 @@
     <div class="editor-heading"><div class="device-title"><span class="device-icon">▣</span><div><h2>{{ panel.name }}</h2><p><code>{{ panel.nodeName }}</code> <span class="dot-sep">·</span> NSPanel firmware</p></div></div>
       <div class="editor-actions"><button class="button ghost" (click)="removePanel()">Remove</button><button class="button primary" [disabled]="saving() || !favoritesValid(panel)" (click)="savePanel()">{{ saving() ? 'Saving…' : 'Save changes' }}</button></div></div>
       <div class="settings-scroll">
+        <nspanel-screen-preview [panel]="panel" [config]="manager.config()" [favoriteAssignments]="favoriteInstances()" />
         <div class="section-title"><span class="section-number">01</span><div><h3>Display settings</h3><p>Basic labels and appearance.</p></div></div>
         <div class="form-grid three-col">
           <label>Display title<input [(ngModel)]="panel.settings.panelname" placeholder="Kitchen"></label>

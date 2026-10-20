@@ -180,6 +180,8 @@ export interface PluginPagePreviewInput {
   pageId: string;
   topic: string;
   payload: string;
+  /** Optional one-based button slot to simulate after decoding the sample message. */
+  actionSlot?: number;
 }
 
 export interface PluginPagePreviewResult {
@@ -188,6 +190,8 @@ export interface PluginPagePreviewResult {
   title: string;
   message: string;
   buttons: string[];
+  /** Commands produced by a simulated action; none have been published. */
+  commands?: Array<{ topic: string; payload: string }>;
   debugLogs: string[];
 }
 

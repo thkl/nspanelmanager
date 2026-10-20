@@ -44,10 +44,14 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const configError = definition.validateConfig(config);
     if (configError) return response.status(400).json({ error: configError });
     const pageId = stringValue(request.body?.pageId).trim();
+    const actionSlot = request.body?.actionSlot;
     const topic = stringValue(request.body?.topic).trim();
     const payload = typeof request.body?.payload === "string" ? request.body.payload : undefined;
     if (!pageId) return response.status(400).json({ error: "Choose a page to preview." });
     if (!hasConfiguredPage(config, pageId)) return response.status(400).json({ error: "That page ID is not configured." });
+    if (actionSlot !== undefined && (!Number.isInteger(actionSlot) || actionSlot < 1 || actionSlot > 8)) {
+      return response.status(400).json({ error: "Preview button slot must be between 1 and 8." });
+    }
     if (!isConcreteMqttTopic(topic)) return response.status(400).json({ error: "Enter a concrete MQTT topic without wildcards." });
     if (payload === undefined) return response.status(400).json({ error: "Enter an MQTT payload as text." });
 
@@ -63,10 +67,14 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const state = definition.decodeMessage(instance, message) ?? {};
     const debugLogs: string[] = [];
     try {
-      const screen = await definition.renderScreen(instance, state, pageId, createPreviewContext(instance, debugLogs, runtime));
+      const context = createPreviewContext(instance, debugLogs, runtime);
+      const action = actionSlot === undefined ? undefined : await definition.handleAction(instance, state, `slot:${pageId}:${actionSlot}`, context);
+      const nextPageId = action?.navigation?.screen ?? action?.screen ?? pageId;
+      const commands = action?.commands ?? [];
+      const screen = nextPageId === "exit" ? undefined : await definition.renderScreen(instance, { ...state, ...action?.statePatch }, nextPageId, context);
       response.json(screen
-        ? { pageId, rendered: true, title: screen.title, message: screen.message, buttons: screen.buttons.map((button) => button.label), debugLogs }
-        : { pageId, rendered: false, title: "", message: "", buttons: [], debugLogs });
+        ? { pageId: nextPageId, rendered: true, title: screen.title, message: screen.message, buttons: screen.buttons.map((button) => button.label), commands, debugLogs }
+        : { pageId: nextPageId, rendered: false, title: "", message: "", buttons: [], commands, debugLogs });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       response.status(422).json({ error: detail });
@@ -266,12 +274,21 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
   return router;
 }
 
+/** Applies schema defaults and migrates older MQTT light brightness factors to ranges. */
 function normalizePluginConfig(definition: PluginDefinition, input: unknown): Record<string, PluginConfigValue> {
   const source = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
-  return Object.fromEntries(definition.configSchema.map((field) => {
+  const normalized = Object.fromEntries(definition.configSchema.map((field) => {
     const value = source[field.key];
     return [field.key, isConfigValue(value) ? value : field.defaultValue];
   }));
+  if (definition.id === "mqtt-light" && source["brightnessMinimum"] === undefined && source["brightnessMaximum"] === undefined) {
+    const legacyFactor = source["brightnessFactor"];
+    if (typeof legacyFactor === "number" && Number.isFinite(legacyFactor) && legacyFactor > 0) {
+      normalized["brightnessMinimum"] = 0;
+      normalized["brightnessMaximum"] = Math.round(100 / legacyFactor);
+    }
+  }
+  return normalized;
 }
 
 function normalizePluginVariables(input: unknown): Record<string, string> {
@@ -363,26 +380,48 @@ function hasConfiguredPage(config: Record<string, PluginConfigValue>, pageId: st
   }
 }
 
+/**
+ * Creates a disposable script context for page and button previews. Writes are
+ * made to local snapshots so a function can read its own changes within this
+ * request; no storage value or MQTT command reaches the live runtime.
+ */
 function createPreviewContext(instance: ResolvedPluginInstance, debugLogs: string[], runtime: MqttRuntime): PluginRuntimeContext {
   const panel: Pick<Panel, "id" | "name" | "nodeName"> = { id: "preview-panel", name: "Preview panel", nodeName: "preview" };
   const binding: PanelBinding = {
     id: "preview-binding", name: "Page preview", panelId: panel.id,
     pluginInstanceId: instance.id, trigger: { type: "favorite", index: 0 }
   };
-  const readOnlyError = async (): Promise<never> => { throw new Error("Page preview cannot write storage."); };
-  const storage = runtime.getScriptStorageSnapshots(instance.id);
+  const storage = structuredClone(runtime.getScriptStorageSnapshots(instance.id));
+  const scopeValues = (scope: "global" | "plugin" | "panel"): Record<string, unknown> => {
+    if (scope === "global") return storage.global;
+    if (scope === "plugin") return storage.plugin;
+    let previewPanel = storage.panels.find((item) => item.id === panel.id);
+    if (!previewPanel) {
+      previewPanel = { id: panel.id, name: panel.name, values: {} };
+      storage.panels.push(previewPanel);
+    }
+    return previewPanel.values;
+  };
+  const namedPanelValues = (panelNameOrId: string): Record<string, unknown> => {
+    let target = storage.panels.find((item) => item.id === panelNameOrId || item.name === panelNameOrId);
+    if (!target) {
+      target = { id: panelNameOrId, name: panelNameOrId, values: {} };
+      storage.panels.push(target);
+    }
+    return target.values;
+  };
   return {
     panel,
     binding,
     variables: instance.variables ?? {},
     storage: {
-      get: async () => undefined,
-      set: readOnlyError,
-      delete: readOnlyError,
-      snapshot: async (scope) => scope === "global" ? storage.global : scope === "plugin" ? storage.plugin : {},
-      snapshotPanels: async () => storage.panels,
-      setPanel: readOnlyError,
-      deletePanel: readOnlyError
+      get: async (scope, key) => structuredClone(scopeValues(scope)[key]),
+      set: async (scope, key, value) => { scopeValues(scope)[key] = structuredClone(value); },
+      delete: async (scope, key) => { delete scopeValues(scope)[key]; },
+      snapshot: async (scope) => structuredClone(scopeValues(scope)),
+      snapshotPanels: async () => structuredClone(storage.panels),
+      setPanel: async (panelNameOrId, key, value) => { namedPanelValues(panelNameOrId)[key] = structuredClone(value); },
+      deletePanel: async (panelNameOrId, key) => { delete namedPanelValues(panelNameOrId)[key]; }
     },
     publish: () => false,
     debug: {

@@ -2,6 +2,8 @@
   display: block;
 }
 
+nspanel-screen-preview { margin-bottom: 22px; }
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(235px, .78fr) minmax(500px, 1.85fr);

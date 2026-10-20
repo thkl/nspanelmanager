@@ -161,7 +161,7 @@ export class ManagerStore {
     return this.http.get<{ plugins: PluginDefinition[] }>("/api/plugins");
   }
 
-  /** Renders an unsaved plugin page against sample MQTT input without publishing or persisting effects. */
+  /** Renders a page or simulates its button action with disposable MQTT and storage effects. */
   previewPluginPage(input: PluginPagePreviewInput): Observable<PluginPagePreviewResult> {
     return this.http.post<PluginPagePreviewResult>("/api/plugins/preview", input);
   }

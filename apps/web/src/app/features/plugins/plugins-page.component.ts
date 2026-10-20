@@ -3,6 +3,7 @@ import { FormsModule } from "@angular/forms";
 import { ManagerStore } from "../../manager-store.service";
 import type { PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
 import { ScriptEditorComponent } from "./script-editor.component";
+import { PanelScreenPreviewComponent } from "../panels/panel-screen-preview.component";
 
 const SCRIPTED_PLUGIN_ID = "mqtt-scripted";
 
@@ -24,7 +25,7 @@ interface PageActionEntry {
 @Component({
   selector: "nspanel-plugins-page",
   standalone: true,
-  imports: [FormsModule, ScriptEditorComponent],
+  imports: [FormsModule, ScriptEditorComponent, PanelScreenPreviewComponent],
   templateUrl: "./plugins-page.component.html",
   styleUrl: "./plugins-page.component.css"
 })
@@ -47,6 +48,8 @@ export class PluginsPageComponent implements OnInit {
   readonly previewingPage = signal(false);
   readonly pagePreview = signal<PluginPagePreviewResult | null>(null);
   readonly pagePreviewError = signal("");
+  readonly pagePreviewNotice = signal("");
+  readonly previewHistory = signal<string[]>([]);
   readonly scriptChecks = signal<Record<string, ScriptCheckState>>({});
   readonly savingInstance = signal(false);
   readonly savingProfile = signal(false);
@@ -763,27 +766,63 @@ export class PluginsPageComponent implements OnInit {
   /** Updates the sample incoming payload used by the preview request. */
   setPreviewPayload(payload: string): void { this.previewPayload.set(payload); this.clearPagePreview(); }
 
-  /** Runs the selected unsaved page renderer with a sample MQTT envelope. */
-  previewPage(): void {
+  /** Starts a new preview path from the currently selected scripted page. */
+  startPreviewPage(): void { this.previewHistory.set([]); this.previewPage(); }
+
+  /** Renders an unsaved page or safely simulates one button with sample MQTT input. */
+  previewPage(actionSlot?: number): void {
     const definition = this.selectedDefinition;
     if (!definition || !this.previewTopic().trim() || !this.previewPageId()) return;
+    const previous = this.pagePreview();
     this.previewingPage.set(true);
-    this.pagePreview.set(null);
+    if (actionSlot === undefined) this.pagePreview.set(null);
     this.pagePreviewError.set("");
+    this.pagePreviewNotice.set("");
     this.manager.previewPluginPage({
       pluginId: definition.id,
       config: structuredClone(this.instanceConfig()),
       variables: { ...this.instanceVariables() },
       pageId: this.previewPageId(),
       topic: this.previewTopic().trim(),
-      payload: this.previewPayload()
+      payload: this.previewPayload(),
+      ...(actionSlot === undefined ? {} : { actionSlot })
     }).subscribe({
-      next: (result) => { this.pagePreview.set(result); this.previewingPage.set(false); },
+      next: (result) => {
+        if (actionSlot !== undefined) {
+          if (previous && result.pageId !== previous.pageId && result.pageId !== "exit") {
+            this.previewHistory.update((history) => [...history, previous.pageId]);
+          }
+          if (result.pageId !== "exit") this.previewPageId.set(result.pageId);
+          const commands = result.commands ?? [];
+          this.pagePreviewNotice.set(commands.length
+            ? commands.map((command) => `Would publish ${command.topic} → ${command.payload}`).join("\n")
+            : result.pageId === "exit" ? "This action would leave the plugin page."
+              : result.rendered ? `Button ${actionSlot} simulated without publishing or saving.` : "This action returned no page update.");
+        }
+        this.pagePreview.set(result.rendered || !previous ? result : { ...previous, debugLogs: result.debugLogs });
+        this.previewingPage.set(false);
+      },
       error: (error) => {
         this.pagePreviewError.set(error.error?.error || "Could not render this page preview.");
         this.previewingPage.set(false);
       }
     });
+  }
+
+  /** Sends a scripted button through the disposable API preview context. */
+  pressPreviewButton(index: number): void {
+    if (!this.pagePreview()?.rendered || this.previewingPage()) return;
+    this.previewPage(index + 1);
+  }
+
+  /** Re-renders the previous scripted page with the same sample MQTT message. */
+  pressPreviewBack(): void {
+    const history = this.previewHistory();
+    const pageId = history.at(-1);
+    if (!pageId || this.previewingPage()) return;
+    this.previewHistory.set(history.slice(0, -1));
+    this.previewPageId.set(pageId);
+    this.previewPage();
   }
 
   /** Parses string-backed table data and fills missing cells with empty strings. */
@@ -861,6 +900,8 @@ export class PluginsPageComponent implements OnInit {
   private clearPagePreview(): void {
     this.pagePreview.set(null);
     this.pagePreviewError.set("");
+    this.pagePreviewNotice.set("");
+    this.previewHistory.set([]);
   }
 
   /** Produces a stable key for a standalone JavaScript setting's syntax feedback. */

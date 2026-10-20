@@ -6,6 +6,7 @@ import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/p
 import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
+import { interpolatePluginTemplate } from "../features/plugins/plugin-variables.js";
 import { Logger } from "./logger.js";
 
 /**
@@ -313,6 +314,21 @@ export class MqttRuntime {
   /** Stores normalized device state in memory and refreshes favorite indicators that use it. */
   private async setPluginState(instance: ResolvedPluginInstance, state: PluginState): Promise<void> {
     await this.runtimeState.setPluginState(instance.id, state);
+    const definition = this.plugins.get(instance.pluginId);
+    for (const [key, value] of Object.entries(definition?.scriptStorageValues?.(instance, state) ?? {})) {
+      if (value === undefined) continue;
+      try {
+        const currentValue = this.runtimeState.getValue("plugin", instance.id, key);
+        if (JSON.stringify(currentValue) !== JSON.stringify(value)) {
+          await this.runtimeState.setValue("plugin", instance.id, key, value);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.logger.error("Plugin state could not be mirrored to script storage.", {
+          component: "plugin", instance: instance.name, phase: "state storage", key, detail
+        });
+      }
+    }
     const config = this.store.get();
     if (!config.panelBindings.some((binding) => binding.pluginInstanceId === instance.id)) return;
     const instances = this.resolvePluginInstances(config);
@@ -595,9 +611,15 @@ export class MqttRuntime {
     if (itemMatch) index = Number(itemMatch[1]);
     else if (levelQueryMatch) index = Number(levelQueryMatch[1]);
     else if (levelSetMatch) index = Number(levelSetMatch[1]);
-    else if (["colorLamp/set", "colorscene", "page/colorlamp"].includes(suffix)) {
+    else if (["colorLamp", "colorLamp/set", "colorscene", "page/colorlamp"].includes(suffix)) {
       const current = this.panelHomeTilePages.get(panel.id);
       if (current?.page === "light") index = current.index;
+    }
+    if (["colorLamp", "colorLamp/set"].includes(suffix)) {
+      const requestedTopic = readPayloadRecord(message.payload)?.["topic"];
+      if (typeof requestedTopic === "string") {
+        index = this.findLightTileIndex(panel, instances, requestedTopic, index);
+      }
     }
     if (index === undefined) return;
 
@@ -630,7 +652,15 @@ export class MqttRuntime {
 
     try {
       const previousState = this.runtimeState.getPluginState(instance.id);
-      const result = await definition.handleHomeTileEvent(instance, panel, index, button, message, previousState);
+      const result = await definition.handleHomeTileEvent(
+        instance,
+        panel,
+        index,
+        button,
+        message,
+        previousState,
+        this.createPluginLifecycleContext(instance, "home tile")
+      );
       if (!result) return;
       const nextState = result.statePatch ? { ...previousState, ...result.statePatch } : previousState;
       if (result.statePatch) await this.setPluginState(instance, nextState);
@@ -668,6 +698,20 @@ export class MqttRuntime {
         component: "plugin", instance: instance.name, panel: panel.name, phase: "home tile event", topic: message.topic, detail
       });
     }
+  }
+
+  /** Finds the panel tile instance whose resolved set topic matches a light event endpoint. */
+  private findLightTileIndex(panel: Panel, instances: ResolvedPluginInstance[], topic: string, preferredIndex?: number): number | undefined {
+    const matches = (index: number): boolean => {
+      const instanceId = panel.settings.buttons[index]?.pluginInstanceId;
+      const instance = instances.find((candidate) => candidate.id === instanceId && candidate.enabled && candidate.pluginId === "mqtt-light");
+      const setTopic = instance?.config["setTopic"];
+      if (!instance || typeof setTopic !== "string") return false;
+      return interpolatePluginTemplate(setTopic, instance.variables) === topic;
+    };
+    if (preferredIndex !== undefined && matches(preferredIndex)) return preferredIndex;
+    const found = panel.settings.buttons.findIndex((_button, index) => matches(index));
+    return found < 0 ? undefined : found;
   }
 
   /** Tracks firmware navigation that changes which home tile may receive state updates. */
@@ -1338,6 +1382,14 @@ function matchesTopic(filter: string, topic: string): boolean {
     if (i >= actual.length || (expected[i] !== "+" && expected[i] !== actual[i])) return false;
   }
   return expected.length === actual.length;
+}
+
+/** Parses a JSON object payload when panel routing needs a device endpoint. */
+function readPayloadRecord(payload: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(payload);
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  } catch { return undefined; }
 }
 
 function renderPayload(template: string, topic: string, payload: string, panel?: Panel): string {

@@ -776,34 +776,12 @@ label small {
     color: var(--preview-screen-ink);
 }
 
-.preview-screen-title {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-    font-size: 14px;
-    font-weight: 700;
-}
+.preview-action-notice { margin: 10px 0; color: var(--preview-screen-soft); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-.preview-screen-title small {
-    color: var(--preview-screen-muted);
-    font-size: 10px;
-    font-weight: 500;
-}
-
-.page-preview>p {
-    min-height: 42px;
+.page-preview>.preview-no-page {
     margin: 0;
     color: var(--preview-screen-soft);
     font-size: 13px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-}
-
-.page-preview>.preview-no-page {
-    min-height: 0;
-    color: var(--preview-screen-soft);
 }
 
 .preview-debug {
@@ -841,35 +819,6 @@ label small {
     color: var(--preview-screen-soft);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-}
-
-.preview-buttons {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
-}
-
-.preview-button {
-    display: flex;
-    min-height: 34px;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 7px;
-    border: 1px solid var(--preview-screen-border);
-    border-radius: 6px;
-    background: var(--preview-button-bg);
-    font-size: 10px;
-    overflow-wrap: anywhere;
-}
-
-.preview-button b {
-    color: var(--preview-screen-accent);
-    font-size: 9px;
-}
-
-.preview-button.empty {
-    color: var(--preview-screen-muted);
-    background: var(--preview-button-empty);
 }
 
 .form-actions,
@@ -1106,10 +1055,6 @@ label small {
 
     .variable-row>.text-danger {
         justify-self: start;
-    }
-
-    .preview-buttons {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .instance-row {

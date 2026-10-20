@@ -1,0 +1,141 @@
+<section class="screen-preview" aria-label="NSPanel screen preview">
+  @if (!pagePreview()) {
+    <div class="preview-heading">
+      <div><h3>Interactive screen preview</h3><p>Tap the screen to try the current panel configuration.</p></div>
+      <span class="preview-badge">455 × 320</span>
+    </div>
+    <div class="screen-picker" role="group" aria-label="Preview screen">
+      @for (screen of screens; track screen.id) {
+        <button type="button" [class.active]="activeScreen() === screen.id" [attr.aria-pressed]="activeScreen() === screen.id" (click)="selectScreen(screen.id)">{{ screen.label }}</button>
+      }
+    </div>
+  }
+
+  <div class="display-shell">
+    <div class="display" [class.home-screen]="activeScreen() === 'home'" [class.favorites-screen]="activeScreen() === 'favorites'" [class.info-screen]="activeScreen() === 'info'" [class.music-screen]="activeScreen() === 'music'" [class.thermostat-screen]="activeScreen() === 'thermostat'" [class.weather-screen]="activeScreen() === 'weather'">
+      @switch (activeScreen()) {
+        @case ('home') { <img class="background" src="/panel-preview/home.png" alt="" aria-hidden="true"> }
+        @case ('favorites') { <img class="background" src="/panel-preview/favorites.png" alt="" aria-hidden="true"> }
+        @case ('info') { <img class="background" src="/panel-preview/info.png" alt="" aria-hidden="true"> }
+        @case ('music') { <img class="background" src="/panel-preview/music.png" alt="" aria-hidden="true"> }
+        @case ('thermostat') { <img class="background" src="/panel-preview/thermostat.png" alt="" aria-hidden="true"> }
+        @case ('weather') { <img class="background" src="/panel-preview/weather.png" alt="" aria-hidden="true"> }
+        @case ('level') { <img class="background" src="/panel-preview/info.png" alt="" aria-hidden="true"> }
+        @case ('light') { <img class="background" src="/panel-preview/light.png" alt="" aria-hidden="true"> }
+      }
+      @if (activeScreen() !== 'home' && activeScreen() !== 'weather' && (!pagePreview() || showBack())) {
+        <button type="button" class="screen-back" aria-label="Back to previous screen" (click)="pagePreview() ? pageBack.emit() : goBack()">‹</button>
+      }
+      @switch (activeScreen()) {
+        @case ('home') {
+          <button type="button" class="home-menu" aria-label="Open favorites" (click)="openScreen('favorites')">☰</button>
+          <div class="top-title">{{ panel()?.settings?.panelname || panel()?.name || 'Home' }}</div>
+          <div class="top-temperature">{{ roomTemperature() }}</div>
+          <div class="home-tiles">
+            @for (button of panel()?.settings?.buttons || []; track $index; let i = $index) {
+              <div class="home-tile" [class.active]="deviceActive(button.pluginInstanceId)">
+                <button type="button" class="tile-main" [attr.aria-label]="(button.mode === 1 ? 'Open level page for ' : 'Toggle ') + button.label" (click)="pressHomeTile(i)">
+                  <span class="tile-icon" aria-hidden="true">{{ button.mode === 1 ? '▤' : '◉' }}</span>
+                  <span class="tile-name">{{ button.label || 'Button ' + (i + 1) }}</span>
+                </button>
+                @if (button.mode === 0) {
+                  <div class="tile-steps"><button type="button" [attr.aria-label]="'Increase ' + button.label" (click)="pressHomeStep(i, 1)">▲</button><button type="button" [attr.aria-label]="'Decrease ' + button.label" (click)="pressHomeStep(i, -1)">▼</button></div>
+                }
+                @if (instanceContext(button.pluginInstanceId)?.profile?.pluginId === 'mqtt-light') {
+                  <button type="button" class="tile-detail" [attr.aria-label]="'Long press ' + button.label + ' for light controls'" (click)="pressHomeLong(i)">Hold</button>
+                }
+                <span class="tile-value">{{ tileValue(button.pluginInstanceId) }}</span>
+              </div>
+            }
+          </div>
+        }
+        @case ('favorites') {
+          <div class="page-title">{{ favoritesTitle() }}</div>
+          <div class="favorite-tiles">
+            @for (favorite of favorites(); track $index; let i = $index) {
+              <button type="button" class="favorite-tile" [class.active]="deviceActive(favorite.instanceId)" [attr.aria-pressed]="deviceActive(favorite.instanceId)" [disabled]="!favorite.label" (click)="pressFavorite(i)">{{ favorite.label }}</button>
+            }
+          </div>
+        }
+        @case ('info') {
+          <div class="page-title">{{ messageTitle() }}</div>
+          <div class="message-body">{{ pagePreview()?.message || (location().instanceId ? 'Render this script with a sample MQTT message in Plugins to see its live text.' : 'Rendered page text appears here.') }}</div>
+          <div class="message-buttons">
+            @for (label of messageButtons(); track $index; let i = $index) {
+              <button type="button" [disabled]="!label" (click)="pressMessageButton(i)">{{ label }}</button>
+            }
+          </div>
+        }
+        @case ('level') {
+          <div class="page-title">{{ location().title || instanceContext(location().instanceId)?.instance?.name || 'Level' }}</div>
+          <div class="level-value">{{ currentLevel() === undefined ? '—' : currentLevel() + ' %' }}</div>
+          <div class="level-slider"><input type="range" [min]="levelMinimum()" [max]="levelMaximum()" [value]="currentLevel() ?? levelMinimum()" aria-label="Simulated level" (input)="setCurrentLevel(+$any($event.target).value)"></div>
+          <div class="level-presets">
+            @for (preset of levelPresets(); track $index) {
+              <button type="button" (click)="setCurrentLevel(preset.value)">{{ preset.label }}</button>
+            }
+          </div>
+        }
+        @case ('light') {
+          <div class="page-title">{{ location().title || 'Light controls' }}</div>
+          <div class="light-side-buttons light-side-left">
+            <button type="button" (click)="setLightBrightness(0)">Off</button>
+            <button type="button" (click)="setLightBrightness(100)">On</button>
+          </div>
+          <div class="light-side-buttons light-side-right">
+            <button type="button" (click)="setLightBrightness(30)">30%</button>
+            <button type="button" (click)="setLightBrightness(60)">60%</button>
+          </div>
+          <button type="button" class="color-wheel" aria-label="Choose light color" (pointerdown)="pickLightColor($event)" (pointermove)="moveLightColor($event)">
+            <img src="/panel-preview/color-wheel.png" alt="" aria-hidden="true">
+            @if (wheelSelection(); as selection) {
+              @if (selection.instanceId === location().instanceId) {
+                <span class="wheel-marker" [style.left.%]="selection.x / 220 * 100" [style.top.%]="selection.y / 220 * 100" [style.backgroundColor]="'rgb(' + selection.rgb + ')'"></span>
+              }
+            }
+          </button>
+          <div class="light-bottom-buttons">
+            <button type="button" (click)="stepLightBrightness(-1)">−10</button>
+            <button type="button" (click)="stepLightBrightness(1)">+10</button>
+            <button type="button" (click)="pressLightScene(1)">PSET1</button>
+            <button type="button" (click)="pressLightScene(2)">PSET2</button>
+          </div>
+        }
+        @case ('music') {
+          <div class="page-title">{{ musicPlayers()[selectedMusicPlayer()]?.name || 'Music' }}</div>
+          @if (musicPlayers().length > 1) {
+            <select class="music-player-picker" aria-label="Music player" [value]="selectedMusicPlayer()" (change)="selectedMusicPlayer.set(+$any($event.target).value)">
+              @for (player of musicPlayers(); track player.id; let i = $index) { <option [value]="i">{{ player.name }}</option> }
+            </select>
+          }
+          <div class="music-song">{{ musicPlayers()[selectedMusicPlayer()]?.currentSong || 'No current track' }}</div>
+          <div class="music-controls">
+            <button type="button" aria-label="Previous track" (click)="pressMusic('group.previous.track')">◀◀</button>
+            <button type="button" aria-label="Play" (click)="pressMusic('group.play')">▶</button>
+            <button type="button" aria-label="Pause" (click)="pressMusic('group.pause')">Ⅱ</button>
+            <button type="button" aria-label="Next track" (click)="pressMusic('group.next.track')">▶▶</button>
+          </div>
+          <div class="music-volume"><button type="button" (click)="pressMusic('group.adjust.volume', '-1')">Vol −</button><button type="button" (click)="pressMusic('group.adjust.volume', '+1')">Vol +</button></div>
+        }
+        @case ('thermostat') {
+          <div class="page-title">Thermostat</div>
+          <div class="thermostat-value">{{ roomTemperature() }}</div>
+          <div class="thermostat-controls"><button type="button" aria-label="Decrease target" (click)="changeThermostat(-1)">−</button><span>Target {{ thermostatTarget() }} °C</span><button type="button" aria-label="Increase target" (click)="changeThermostat(1)">+</button></div>
+          <div class="thermostat-modes"><button type="button" (click)="setThermostatMode('auto')">Auto</button><button type="button" (click)="setThermostatMode('boost')">Boost</button></div>
+        }
+        @case ('weather') {
+          <div class="weather-title">Weather</div>
+          <div class="weather-value">-- °C</div>
+          <div class="weather-forecast">Forecast data appears here when the weather plugin publishes it.</div>
+          <button type="button" class="weather-wake" aria-label="Wake the panel" (click)="openScreen('home')"></button>
+        }
+      }
+    </div>
+  </div>
+  @if (actionNotice()) { <p class="action-notice" role="status">{{ actionNotice() }}</p> }
+  @if (!pagePreview()) {
+    <p class="preview-note">Simulation only. Touches do not publish MQTT. Live values, icons, and exact HMI fonts are approximated.</p>
+  } @else {
+    <p class="preview-note">Layout is approximate; the actual Nextion fonts and button graphics are stored in the HMI file.</p>
+  }
+</section>

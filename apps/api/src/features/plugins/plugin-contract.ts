@@ -215,6 +215,8 @@ export interface PluginDefinition {
   handleSubscription?(instance: ResolvedPluginInstance, subscription: PluginMqttSubscription, message: MqttMessageEnvelope, state: PluginState, context: PluginRuntimeContext): Promise<PluginSubscriptionResult | void>;
   /** Converts a matching MQTT payload into a partial normalized state update. */
   decodeMessage(instance: ResolvedPluginInstance, message: MqttMessageEnvelope): PluginState | undefined;
+  /** Selects normalized state values to expose through the instance's durable `plugin.get` store. */
+  scriptStorageValues?(instance: ResolvedPluginInstance, state: PluginState): Record<string, unknown>;
   /** Returns the page to open for a favorite binding, defaulting to overview. */
   startScreen?(instance: ResolvedPluginInstance): string;
   /** Builds a display model for the requested flow screen. */
@@ -244,7 +246,7 @@ export interface PluginDefinition {
   /** Converts changed plugin state to panel commands that remain useful off-page, such as a home-screen temperature. */
   renderPanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, previousState: PluginState, change: PluginState): readonly PluginCommand[];
   /** Handles a bound home tile, the built-in light page, or the level page's MQTT events. */
-  handleHomeTileEvent?(instance: ResolvedPluginInstance, panel: Panel, index: number, button: Panel["settings"]["buttons"][number], message: MqttMessageEnvelope, state: PluginState): PluginHomeTileResult | void | Promise<PluginHomeTileResult | void>;
+  handleHomeTileEvent?(instance: ResolvedPluginInstance, panel: Panel, index: number, button: Panel["settings"]["buttons"][number], message: MqttMessageEnvelope, state: PluginState, context: PluginRuntimeContext): PluginHomeTileResult | void | Promise<PluginHomeTileResult | void>;
   /** Renders current device state to an active home tile or its built-in detail page. */
   renderHomeTileState?(instance: ResolvedPluginInstance, panel: Panel, index: number, button: Panel["settings"]["buttons"][number], page: "home" | "light" | "level", state: PluginState): readonly PluginCommand[];
   /** Returns the configured interval for a service plugin's scheduled state refresh. */

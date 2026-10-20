@@ -274,20 +274,15 @@
                 </label>
               </div>
               <p class="preview-help">When incoming topic filters are configured, this topic must match one of them. Otherwise it is passed directly to the renderer as a sample. In JavaScript, read it as <code>message.topic</code>. JSON payloads are parsed in both <code>message.payload</code> and <code>payload</code>; other payloads remain text.</p>
-              <button type="button" class="button secondary" [disabled]="previewingPage() || !previewPageId() || !previewTopic().trim()" (click)="previewPage()">{{ previewingPage() ? 'Rendering…' : 'Render preview' }} <span>▶</span></button>
+              <button type="button" class="button secondary" [disabled]="previewingPage() || !previewPageId() || !previewTopic().trim()" (click)="startPreviewPage()">{{ previewingPage() ? 'Rendering…' : 'Render preview' }} <span>▶</span></button>
               @if (pagePreviewError()) { <p class="preview-error" role="alert">{{ pagePreviewError() }}</p> }
               @if (pagePreview(); as preview) {
                 <div class="page-preview" aria-live="polite">
                   @if (!preview.rendered) {
                     <p class="preview-no-page">This function returned no page. The panel would not receive an update.</p>
                   } @else {
-                    <div class="preview-screen-title"><span>{{ preview.title }}</span><small>{{ preview.pageId }}</small></div>
-                    <p>{{ preview.message }}</p>
-                    <div class="preview-buttons">
-                      @for (label of preview.buttons; track $index; let slot = $index) {
-                        <span class="preview-button" [class.empty]="!label"><b>{{ slot + 1 }}</b>{{ label || '—' }}</span>
-                      }
-                    </div>
+                    <nspanel-screen-preview [pagePreview]="preview" [showBack]="previewHistory().length > 0" (pageButton)="pressPreviewButton($event)" (pageBack)="pressPreviewBack()" />
+                    @if (pagePreviewNotice()) { <p class="preview-action-notice" role="status">{{ pagePreviewNotice() }}</p> }
                   }
                   <section class="preview-debug" aria-label="JavaScript debug output">
                     <h4>Debug output</h4>
