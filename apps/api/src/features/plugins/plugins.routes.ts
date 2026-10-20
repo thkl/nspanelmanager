@@ -178,7 +178,8 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const removedBindings = config.panelBindings.filter((binding) => binding.pluginInstanceId === id);
     const panelsUsingInstance = new Set(config.panels.filter((panel) =>
       panel.settings.buttons.some((button) => button.pluginInstanceId === id) ||
-      Object.values(panel.nativePluginInstances ?? {}).includes(id)
+      Object.values(panel.nativePluginInstances ?? {}).includes(id) ||
+      Object.values(panel.panelEventPluginInstances ?? {}).includes(id)
     ).map((panel) => panel.id));
     for (const binding of removedBindings) {
       const panel = config.panels.find((item) => item.id === binding.panelId);
@@ -195,7 +196,8 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
             ? { ...button, pluginInstanceId: undefined }
             : button)
         },
-        nativePluginInstances: Object.fromEntries(Object.entries(panel.nativePluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id))
+        nativePluginInstances: Object.fromEntries(Object.entries(panel.nativePluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id)),
+        panelEventPluginInstances: Object.fromEntries(Object.entries(panel.panelEventPluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id))
       }));
       current.pluginInstances = current.pluginInstances.filter((item) => item.id !== id);
     });

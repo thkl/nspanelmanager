@@ -30,6 +30,7 @@ export interface Panel {
   nodeName: string;
   settings: PanelSettings;
   nativePluginInstances?: Record<string, string>;
+  panelEventPluginInstances?: Record<string, string>;
 }
 
 export type RouteDirection = "external-to-panel" | "panel-to-external";
@@ -81,6 +82,7 @@ export interface PluginDefinition {
   aliases?: string[];
   nativePanelPage?: string;
   nativePanelSharedInstances?: boolean;
+  panelEventObserver?: boolean;
   instanceVariableFields?: Array<{ key: string; label: string; required?: boolean; help?: string }>;
   homeTileType?: "light" | "cover";
   configSchema: PluginConfigField[];

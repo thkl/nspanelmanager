@@ -5,6 +5,17 @@
     gap: 20px;
 }
 
+.plugin-profile-nav {
+    display: flex;
+    grid-column: 1 / -1;
+    min-width: 0;
+    align-items: stretch;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 10px;
+    scrollbar-width: thin;
+}
+
 .card {
     min-width: 0;
     padding: 22px;
@@ -15,7 +26,80 @@
 }
 
 .plugin-editor {
-    grid-row: span 2;
+    grid-row: auto;
+}
+
+.plugin-profile-button {
+    display: grid;
+    min-width: 130px;
+    max-width: 220px;
+    min-height: 48px;
+    flex: 0 0 auto;
+    align-content: center;
+    gap: 3px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    text-align: left;
+    cursor: pointer;
+}
+
+.plugin-profile-button:hover {
+    border-color: var(--green-line);
+    background: var(--surface-subtle);
+}
+
+.plugin-profile-button.active {
+    border-color: var(--green-line);
+    background: var(--green-soft);
+    color: var(--green-dark);
+}
+
+.plugin-profile-button small {
+    overflow: hidden;
+    color: var(--ink-faint);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-button-name {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.new-profile-button {
+    display: flex;
+    min-width: 126px;
+    align-items: center;
+    gap: 7px;
+    background: var(--green);
+    color: var(--on-brand);
+    font-weight: 700;
+}
+
+.new-profile-button:hover,
+.new-profile-button.active {
+    border-color: var(--green-dark);
+    background: var(--green-dark);
+    color: var(--on-brand);
+}
+
+.profile-button-icon {
+    font-size: 17px;
+    line-height: 1;
+}
+
+.profile-nav-empty {
+    align-self: center;
+    padding: 0 6px;
+    color: var(--ink-faint);
+    font-size: 11px;
 }
 
 .card-heading {
@@ -65,17 +149,6 @@
 .instance-form {
     display: grid;
     gap: 14px;
-}
-
-.saved-plugins {
-    margin-top: 22px;
-    padding-top: 19px;
-    border-top: 1px solid var(--line);
-}
-
-.saved-plugins>.card-heading {
-    align-items: center;
-    margin-bottom: 10px;
 }
 
 .instance-list-heading {
@@ -841,6 +914,26 @@ label small {
     border-color: var(--line-strong);
     background: var(--paper);
     color: var(--ink-soft);
+}
+
+.button.danger {
+    border-color: color-mix(in srgb, var(--red) 35%, var(--line));
+    background: var(--paper);
+    color: var(--red);
+}
+
+.button.danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--red) 7%, var(--paper));
+}
+
+.profile-save-button {
+    margin-left: auto;
+}
+
+.plugin-profile-actions {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
 }
 
 .button span {

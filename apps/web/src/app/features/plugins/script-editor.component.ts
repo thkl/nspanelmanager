@@ -2,8 +2,25 @@ import { AfterViewInit, Component, ElementRef, OnDestroy, forwardRef, input, vie
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from "@angular/forms";
 import { EditorView, minimalSetup } from "codemirror";
 import { javascript } from "@codemirror/lang-javascript";
-import { bracketMatching, indentOnInput, indentRange, indentUnit } from "@codemirror/language";
+import { HighlightStyle, bracketMatching, indentOnInput, indentRange, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, EditorState } from "@codemirror/state";
+import { tags } from "@lezer/highlight";
+
+/** Uses application theme variables so token colors change with the selected UI theme. */
+const scriptHighlightStyle = HighlightStyle.define([
+  { tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword, tags.moduleKeyword, tags.operatorKeyword], color: "var(--code-keyword)", fontWeight: "600" },
+  { tag: [tags.string, tags.docString, tags.character, tags.attributeValue], color: "var(--code-string)" },
+  { tag: [tags.number, tags.bool, tags.null, tags.atom, tags.constant(tags.name), tags.constant(tags.variableName)], color: "var(--code-literal)" },
+  { tag: tags.variableName, color: "var(--code-variable)" },
+  { tag: tags.definition(tags.variableName), color: "var(--code-definition)" },
+  { tag: tags.function(tags.variableName), color: "var(--code-function)" },
+  { tag: [tags.propertyName, tags.attributeName], color: "var(--code-property)" },
+  { tag: [tags.typeName, tags.className, tags.namespace], color: "var(--code-type)" },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.docComment], color: "var(--code-comment)", fontStyle: "italic" },
+  { tag: [tags.operator, tags.punctuation], color: "var(--code-punctuation)" },
+  { tag: tags.regexp, color: "var(--code-regexp)" },
+  { tag: tags.invalid, color: "var(--code-invalid)", textDecoration: "underline wavy" }
+]);
 
 /**
  * Wraps CodeMirror's JavaScript editor as an Angular forms control.
@@ -39,6 +56,7 @@ export class ScriptEditorComponent implements ControlValueAccessor, AfterViewIni
         doc: this.value,
         extensions: [
           minimalSetup,
+          syntaxHighlighting(scriptHighlightStyle),
           javascript(),
           bracketMatching(),
           indentOnInput(),
@@ -51,7 +69,7 @@ export class ScriptEditorComponent implements ControlValueAccessor, AfterViewIni
             this.onChange(this.value);
           }),
           EditorView.theme({
-            "&": { border: "1px solid var(--line-strong)", borderRadius: "8px", backgroundColor: "var(--code-bg)", color: "var(--ink)", fontSize: "12px" },
+            "&": { border: "1px solid var(--line-strong)", borderRadius: "8px", backgroundColor: "var(--code-bg)", color: "var(--code-ink)", fontSize: "12px" },
             "&.cm-focused": { outline: "3px solid var(--focus-ring)", borderColor: "var(--focus)" },
             ".cm-content": { minHeight: "420px", padding: "9px 0", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
             ".cm-gutters": { borderRight: "1px solid var(--code-gutter-line)", backgroundColor: "var(--code-gutter-bg)", color: "var(--code-gutter-ink)" },

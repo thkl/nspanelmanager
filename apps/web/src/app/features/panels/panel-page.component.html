@@ -75,7 +75,22 @@
           }
         </div>
 
-        <div class="section-title section-spaced"><span class="section-number">04</span><div><h3>Favorites page</h3><p>Name the panel’s 12 favorite shortcuts and optionally assign a plugin instance.</p></div></div>
+        <div class="section-title section-spaced"><span class="section-number">04</span><div><h3>Page event handlers</h3><p>Create page IDs and brightness rules in Plugins, then assign the Screen dimmer instance here.</p></div></div>
+        <div class="form-grid two-col hardware-grid">
+          @for (plugin of panelEventObserverPlugins(); track plugin.id) {
+            <label>{{ plugin.name }} instance
+              <select [ngModel]="panelEventInstance(plugin.id)" (ngModelChange)="setPanelEventInstance(plugin.id, $event)">
+                <option value="">No instance assigned</option>
+                @for (instance of panelEventInstances(plugin.id); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }
+              </select>
+            </label>
+            @if (panelEventInstances(plugin.id).length === 0) {
+              <p class="field-help">Create a {{ plugin.name }} profile and instance in Plugins first.</p>
+            }
+          }
+        </div>
+
+        <div class="section-title section-spaced"><span class="section-number">05</span><div><h3>Favorites page</h3><p>Name the panel’s 12 favorite shortcuts and optionally assign a plugin instance.</p></div></div>
         <div class="form-grid two-col favorite-heading"><label>Page title<input [(ngModel)]="panel.settings.favorites.name" placeholder="Favorites"></label></div>
         <div class="favorite-grid">
           @for (favorite of panel.settings.favorites.buttons; track $index; let i = $index) {
@@ -95,7 +110,7 @@
         </div>
         @if (!favoritesValid(panel)) { <p class="favorite-validation" role="alert">Add a favorite name for each slot assigned to a plugin instance.</p> }
 
-        <div class="section-title section-spaced"><span class="section-number">05</span><div><h3>Physical buttons</h3><p>Choose whether each relay responds locally or through an MQTT route.</p></div></div>
+        <div class="section-title section-spaced"><span class="section-number">06</span><div><h3>Physical buttons</h3><p>Choose whether each relay responds locally or through an MQTT route.</p></div></div>
         <div class="form-grid two-col hardware-grid">
           <label>Left hardware button<select [(ngModel)]="panel.settings.hwbuttons['0']"><option [ngValue]="0">Toggle relay locally</option><option [ngValue]="1">Publish event only</option></select></label>
           <label>Right hardware button<select [(ngModel)]="panel.settings.hwbuttons['1']"><option [ngValue]="0">Toggle relay locally</option><option [ngValue]="1">Publish event only</option></select></label>

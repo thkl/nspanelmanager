@@ -421,6 +421,7 @@ export class MqttRuntime {
     await this.dispatchPluginMessage(instances, message);
     await this.dispatchPluginSubscriptions(instances, message);
     if (eventPanel) await this.dispatchNativePanelEvent(eventPanel, message, instances);
+    if (eventPanel) await this.dispatchPanelEventObservers(eventPanel, message, instances);
     const favoritePageHandled = eventPanel ? await this.dispatchFavoritePanelEvent(eventPanel, message, instances, config.panelBindings) : false;
     if (eventPanel && !favoritePageHandled) await this.dispatchHomeTileEvent(eventPanel, message, instances);
 
@@ -557,6 +558,28 @@ export class MqttRuntime {
         }
       }
       if (transition === "open" || ownerStateChanged) await this.publishNativePanelState(definition, owner, panel, ownerState);
+    }
+  }
+
+  /** Runs explicitly assigned observer plugins for a panel's page-change events. */
+  private async dispatchPanelEventObservers(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[]): Promise<void> {
+    if (!message.topic.startsWith(`${panel.nodeName}/event/page/`)) return;
+    for (const [pluginId, instanceId] of Object.entries(panel.panelEventPluginInstances ?? {})) {
+      const instance = instances.find((candidate) => candidate.id === instanceId && candidate.enabled);
+      const definition = instance && this.plugins.get(instance.pluginId);
+      if (!instance || definition?.id !== pluginId || !definition.panelEventObserver || !definition.handlePanelEvent) continue;
+      try {
+        const commands = await definition.handlePanelEvent(instance, panel, message);
+        for (const command of commands ?? []) {
+          if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.lastError = detail;
+        this.logger.error("Panel event observer failed.", {
+          component: "plugin", instance: instance.name, panel: panel.name, phase: "panel event observer", topic: message.topic, detail
+        });
+      }
     }
   }
 

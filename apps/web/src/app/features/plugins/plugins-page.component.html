@@ -1,7 +1,21 @@
 <section class="plugin-layout">
+  <nav class="plugin-profile-nav card" aria-label="Plugin profiles">
+    <button type="button" class="plugin-profile-button new-profile-button" [class.active]="!editingProfileId()" [attr.aria-pressed]="!editingProfileId()" (click)="cancelProfileEdit()">
+      <span class="profile-button-icon" aria-hidden="true">＋</span><span>New plugin</span>
+    </button>
+    @for (profile of manager.config().pluginProfiles; track profile.id) {
+      <button type="button" class="plugin-profile-button" [class.active]="editingProfileId() === profile.id" [attr.aria-pressed]="editingProfileId() === profile.id" (click)="editPluginProfile(profile)">
+        <span class="profile-button-name">{{ profile.name }}</span>
+        <small>{{ pluginName(profile.pluginId) }}</small>
+      </button>
+    } @empty {
+      <span class="profile-nav-empty">No saved plugins yet</span>
+    }
+  </nav>
+
   <article class="card plugin-editor">
     <div class="card-heading">
-      <div><h2>{{ editingProfileId() ? 'Edit plugin' : 'Create a reusable plugin' }}</h2><p>Define a device integration once, then use it from as many instances as you need.</p></div>
+      <div><h2>{{ editingProfileId() ? 'Edit plugin' : 'New plugin' }}</h2><p>Define a device integration once, then use it from as many instances as you need.</p></div>
       <span class="plugin-mark">◈</span>
     </div>
 
@@ -290,27 +304,11 @@
             </section>
           }
         }
-        <div class="form-actions">
-          <button class="button primary" [disabled]="savingProfile() || !profileName().trim()" (click)="savePluginProfile()">{{ savingProfile() ? 'Saving…' : editingProfileId() ? 'Save plugin' : 'Create plugin' }} <span>＋</span></button>
-          @if (editingProfileId()) { <button class="button secondary" (click)="cancelProfileEdit()">New plugin</button> }
+        <div class="form-actions plugin-profile-actions">
+          @if (editingProfileId()) { <button type="button" class="button danger" [disabled]="savingProfile()" (click)="removeCurrentPluginProfile()">Remove plugin</button> }
+          <button type="button" class="button primary profile-save-button" [disabled]="savingProfile() || !profileName().trim()" (click)="savePluginProfile()">{{ savingProfile() ? 'Saving…' : 'Save plugin' }} <span>✓</span></button>
         </div>
       </div>
-      <section class="saved-plugins">
-        <div class="card-heading"><div><h3>Saved plugins</h3><p>Reusable device logic and page actions.</p></div><span class="count-badge">{{ manager.config().pluginProfiles.length }}</span></div>
-        @if (manager.config().pluginProfiles.length > 0) {
-          <div class="instance-list">
-            @for (profile of manager.config().pluginProfiles; track profile.id) {
-              <div class="instance-row">
-                <div class="instance-icon">◈</div>
-                <div class="instance-details"><b>{{ profile.name }}</b><span>{{ pluginName(profile.pluginId) }}</span></div>
-                <div class="row-actions"><button class="text-action" (click)="editPluginProfile(profile)">Edit</button><button class="text-danger" (click)="removePluginProfile(profile)">Remove</button></div>
-              </div>
-            }
-          </div>
-        } @else {
-          <div class="empty-state compact"><b>No saved plugins yet</b><span>Create one above, such as a reusable Dyson controller.</span></div>
-        }
-      </section>
     } @else {
       <div class="empty-state"><b>No plugins are registered</b><span>Built-in and custom plugins appear here when added to the server registry.</span></div>
     }

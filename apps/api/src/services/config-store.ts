@@ -67,6 +67,7 @@ export class ConfigStore {
         panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
           ...panel,
           nativePluginInstances: normalizeNativePluginInstances(panel.nativePluginInstances),
+          panelEventPluginInstances: normalizeNativePluginInstances(panel.panelEventPluginInstances),
           settings: normalizePanelSettings(panel.settings, panel.name)
         })) : [],
         routes: Array.isArray(saved.routes) ? saved.routes : [],

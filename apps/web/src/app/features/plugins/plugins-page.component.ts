@@ -547,8 +547,16 @@ export class PluginsPageComponent implements OnInit {
     this.selectPlugin(this.definitions()[0]?.id ?? "");
   }
 
+  /** Removes the profile currently shown in the editor after confirmation. */
+  removeCurrentPluginProfile(): void {
+    const profileId = this.editingProfileId();
+    const profile = profileId ? this.manager.config().pluginProfiles.find((item) => item.id === profileId) : undefined;
+    if (profile) this.removePluginProfile(profile);
+  }
+
   /** Removes a plugin definition when the API confirms it has no instances. */
   removePluginProfile(profile: PluginProfile): void {
+    if (!confirm(`Remove the plugin '${profile.name}'?`)) return;
     this.manager.removePluginProfile(profile).subscribe({
       next: () => {
         if (this.editingProfileId() === profile.id) this.cancelProfileEdit();

@@ -206,13 +206,17 @@ export class ManagerStore {
     }));
   }
 
-  /** Removes a plugin instance and the favorite bindings managed by the API. */
+  /** Removes a plugin instance, its favorite bindings, and its panel event-observer assignments. */
   removePluginInstance(instance: PluginInstance): Observable<void> {
     return this.http.delete<void>(`/api/plugins/instances/${instance.id}`).pipe(tap(() => {
       this.config.update((config) => ({
         ...config,
         pluginInstances: config.pluginInstances.filter((item) => item.id !== instance.id),
-        panelBindings: config.panelBindings.filter((item) => item.pluginInstanceId !== instance.id)
+        panelBindings: config.panelBindings.filter((item) => item.pluginInstanceId !== instance.id),
+        panels: config.panels.map((panel) => ({
+          ...panel,
+          panelEventPluginInstances: Object.fromEntries(Object.entries(panel.panelEventPluginInstances ?? {}).filter(([, assignedInstanceId]) => assignedInstanceId !== instance.id))
+        }))
       }));
     }));
   }

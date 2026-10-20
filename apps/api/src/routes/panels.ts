@@ -22,7 +22,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     const nodeName = stringValue(request.body?.nodeName).trim();
     if (!name || !validNodeName(nodeName)) return response.status(400).json({ error: "Name and a valid MQTT node name are required." });
     if (store.get().panels.some((panel) => panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
-    const panel = await store.addPanel({ name, nodeName, settings: defaultPanelSettings(name), nativePluginInstances: {} });
+    const panel = await store.addPanel({ name, nodeName, settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {} });
     mqttRuntime.syncSubscriptions();
     response.status(201).json({ panel });
   });
@@ -44,6 +44,15 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
         return response.status(400).json({ error: `Choose a registered plugin instance that supports the '${pageId}' native page.` });
       }
     }
+    const panelEventPluginInstances = normalizeNativePluginInstances(input.panelEventPluginInstances === undefined ? current.panelEventPluginInstances : input.panelEventPluginInstances);
+    for (const [pluginId, instanceId] of Object.entries(panelEventPluginInstances)) {
+      const instance = store.get().pluginInstances.find((item) => item.id === instanceId);
+      const profile = instance && store.get().pluginProfiles.find((item) => item.id === instance.pluginProfileId);
+      const definition = profile && pluginRegistry.get(profile.pluginId);
+      if (!instance || !definition?.panelEventObserver || definition.id !== pluginId) {
+        return response.status(400).json({ error: `Choose an instance of the '${pluginId}' plugin, which must support panel event handling.` });
+      }
+    }
     const settings = normalizePanelSettings(input.settings, name);
     for (const [index, button] of settings.buttons.entries()) {
       if (!button.pluginInstanceId) {
@@ -59,7 +68,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
         return response.status(400).json({ error: `Main button ${index + 1} uses the level page and must be assigned to a cover plugin.` });
       }
     }
-    const panel: Panel = { ...current, name, nodeName, settings, nativePluginInstances };
+    const panel: Panel = { ...current, name, nodeName, settings, nativePluginInstances, panelEventPluginInstances };
     await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
     const published = mqttRuntime.publishPanelSettings(panel);
     await mqttRuntime.refreshNativePanel(panel);

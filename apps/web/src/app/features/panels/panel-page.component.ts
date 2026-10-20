@@ -115,6 +115,21 @@ export class PanelPageComponent implements OnInit {
     return this.pluginDefinitions().filter((plugin) => Boolean(plugin.nativePanelPage));
   }
 
+  /** Lists integrations that can observe panel page changes, such as the screen dimmer. */
+  panelEventObserverPlugins(): PluginDefinition[] {
+    return this.pluginDefinitions().filter((plugin) => Boolean(plugin.panelEventObserver));
+  }
+
+  /** Lists enabled instances of one event-observer plugin for panel assignment. */
+  panelEventInstances(pluginId: string) {
+    const plugin = this.pluginDefinitions().find((candidate) => candidate.id === pluginId);
+    const pluginIds = new Set(plugin ? [plugin.id, ...(plugin.aliases ?? [])] : [pluginId]);
+    const profileIds = new Set(this.manager.config().pluginProfiles
+      .filter((profile) => pluginIds.has(profile.pluginId))
+      .map((profile) => profile.id));
+    return this.manager.config().pluginInstances.filter((instance) => instance.enabled && profileIds.has(instance.pluginProfileId));
+  }
+
   /** Lists enabled configuration instances that support one firmware-owned page. */
   nativePageInstances(pageId: string) {
     const pluginIds = new Set(this.nativePanelPlugins()
@@ -144,6 +159,21 @@ export class PanelPageComponent implements OnInit {
     if (pluginInstanceId) nativePluginInstances[pageId] = pluginInstanceId;
     else delete nativePluginInstances[pageId];
     panel.nativePluginInstances = nativePluginInstances;
+  }
+
+  /** Returns the assigned observer instance for one plugin definition. */
+  panelEventInstance(pluginId: string): string {
+    return this.draft()?.panelEventPluginInstances?.[pluginId] ?? "";
+  }
+
+  /** Assigns or clears one panel page-event observer instance in the unsaved draft. */
+  setPanelEventInstance(pluginId: string, pluginInstanceId: string): void {
+    const panel = this.draft();
+    if (!panel) return;
+    const assignments = { ...(panel.panelEventPluginInstances ?? {}) };
+    if (pluginInstanceId) assignments[pluginId] = pluginInstanceId;
+    else delete assignments[pluginId];
+    panel.panelEventPluginInstances = assignments;
   }
 
   /** Provides a friendly page label for the firmware-native integration selector. */

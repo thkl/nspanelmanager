@@ -10,11 +10,11 @@ The main implementation points are [`server.ts`](../apps/api/src/server.ts), [`d
 
 A **plugin profile** selects a plugin type and stores its reusable configuration, such as MQTT topic templates or device behavior. A **plugin instance** gives that profile a device-specific name and variables. This lets several devices use one profile with different topic names or identifiers. Runtime resolution combines the profile and instance into a `ResolvedPluginInstance` before calling plugin methods.
 
-Panels refer to instances in different ways: native page assignments in `panel.nativePluginInstances`, home tile assignments on panel buttons, or favorite bindings for plugin flows. The plugin API routes validate and save these settings, then ask the runtime to refresh instances.
+Panels refer to instances in different ways: native page assignments in `panel.nativePluginInstances`, page-event observers in `panel.panelEventPluginInstances`, home tile assignments on panel buttons, or favorite bindings for plugin flows. The plugin API routes validate and save these settings, then ask the runtime to refresh instances.
 
 ## Initialization and Subscriptions
 
-At server startup, `createDefaultPluginRegistry()` registers the built-in scripted MQTT, thermostat, weather, light, cover, favorites, and Sonos plugins. The runtime resolves enabled instances and initializes each whose plugin type, version, configuration, or variables changed. An optional `initialize()` hook can set up startup behavior and return callback subscriptions. For example, scripted plugins use this to register `mqtt.subscribe(topic, callback)` handlers.
+At server startup, `createDefaultPluginRegistry()` registers the built-in scripted MQTT, thermostat, weather, light, cover, favorites, Sonos, and screen dimmer plugins. The runtime resolves enabled instances and initializes each whose plugin type, version, configuration, or variables changed. An optional `initialize()` hook can set up startup behavior and return callback subscriptions. For example, scripted plugins use this to register `mqtt.subscribe(topic, callback)` handlers.
 
 The runtime combines and deduplicates panel event filters (`<nodeName>/event/#`), configured route sources, each plugin instance’s `subscriptions(instance)`, and startup callback filters. On broker connection or configuration changes it subscribes to additions and removes obsolete filters. Plugins receive the shared runtime context for publishing, scoped storage, and logging.
 
@@ -25,7 +25,7 @@ Each broker packet becomes a `MqttMessageEnvelope` with topic, payload text, QoS
 1. Identifies whether the topic belongs to a configured panel and updates panel page/session tracking for navigation events.
 2. Checks every enabled plugin instance whose declared topic filters match. `decodeMessage()` parses that packet and returns a partial state update. The runtime merges it into that instance’s cached state.
 3. Invokes any matching startup callback subscriptions through `handleSubscription()`. These can update state, publish commands, or request page navigation.
-4. Routes panel-specific events to the assigned native page plugin, favorite flow, or home tile handler as applicable.
+4. Routes panel-specific events to the assigned native page plugin, assigned page-event observers, favorite flow, or home tile handler as applicable. Page-event observers receive `<nodeName>/event/page/<pageId>` events even when they do not own that firmware page; the screen dimmer uses this to publish `dims=<value>` to `<nodeName>/cmnd/nextion`.
 5. Applies matching generic MQTT routes, independently of plugin dispatch.
 
 The runtime does not infer a plugin from a topic prefix: it checks the filters returned by every enabled instance, and dispatches to each match. This allows multiple configured devices to listen to related topics. The plugin’s decoder decides whether a matching payload contains useful state; returning no patch leaves the state unchanged.

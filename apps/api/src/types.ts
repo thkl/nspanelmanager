@@ -33,6 +33,8 @@ export interface Panel {
   settings: PanelSettings;
   /** Reusable plugin instances assigned to firmware-native pages by page ID. */
   nativePluginInstances?: Record<string, string>;
+  /** Reusable plugin instances that observe every firmware page-change event, keyed by plugin ID. */
+  panelEventPluginInstances?: Record<string, string>;
 }
 
 export type RouteDirection = "external-to-panel" | "panel-to-external";

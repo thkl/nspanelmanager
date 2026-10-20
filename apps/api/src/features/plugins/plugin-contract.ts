@@ -195,6 +195,8 @@ export interface PluginDefinition {
   readonly nativePanelSharedInstances?: boolean;
   /** Allows a native page integration to publish state while its page is closed. */
   readonly nativePanelStateUpdatesWhenClosed?: boolean;
+  /** Whether this plugin can be assigned to observe all page-change events for a panel. */
+  readonly panelEventObserver?: boolean;
   /** Per-instance fields shown in the reusable instance editor. */
   readonly instanceVariableFields?: readonly PluginInstanceVariableField[];
   /** Device capability exposed to the four configurable panel home tiles. */
@@ -235,6 +237,8 @@ export interface PluginDefinition {
   nativePanelTransition?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope): "open" | "close" | undefined;
   /** Handles one native page event, such as a thermostat setpoint or mode button. */
   handleNativePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope, state: PluginState): PluginNativePanelResult | void | Promise<PluginNativePanelResult | void>;
+  /** Handles a panel event independently of native-page ownership, such as a page-change dimmer rule. */
+  handlePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope): readonly PluginCommand[] | void | Promise<readonly PluginCommand[] | void>;
   /** Converts normalized device state to firmware commands while its native page is open. */
   renderNativePanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, relatedInstances?: readonly PluginNativePanelInstanceState[]): readonly PluginCommand[];
   /** Converts changed plugin state to panel commands that remain useful off-page, such as a home-screen temperature. */
