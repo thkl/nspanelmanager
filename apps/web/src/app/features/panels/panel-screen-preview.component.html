@@ -23,12 +23,11 @@
         @case ('level') { <img class="background" src="/panel-preview/info.png" alt="" aria-hidden="true"> }
         @case ('light') { <img class="background" src="/panel-preview/light.png" alt="" aria-hidden="true"> }
       }
-      @if (activeScreen() !== 'home' && activeScreen() !== 'weather' && (!pagePreview() || showBack())) {
-        <button type="button" class="screen-back" aria-label="Back to previous screen" (click)="pagePreview() ? pageBack.emit() : goBack()">‹</button>
+      @if (activeScreen() !== 'home' && (!pagePreview() || showBack())) {
+        <button type="button" class="screen-back" aria-label="Back to main screen" (click)="pagePreview() ? pageBack.emit() : goBack()">‹</button>
       }
       @switch (activeScreen()) {
         @case ('home') {
-          <button type="button" class="home-menu" aria-label="Open favorites" (click)="openScreen('favorites')">☰</button>
           <div class="top-title">{{ panel()?.settings?.panelname || panel()?.name || 'Home' }}</div>
           <div class="top-temperature">{{ roomTemperature() }}</div>
           <div class="home-tiles">
@@ -47,6 +46,10 @@
                 <span class="tile-value">{{ tileValue(button.pluginInstanceId) }}</span>
               </div>
             }
+          </div>
+          <div class="home-bottom-buttons">
+            <button type="button" aria-label="Open favorites menu" (click)="openScreen('favorites')">Favorites</button>
+            <button type="button" aria-label="Open music screen" (click)="openScreen('music')">Music</button>
           </div>
         }
         @case ('favorites') {
@@ -109,13 +112,18 @@
             </select>
           }
           <div class="music-song">{{ musicPlayers()[selectedMusicPlayer()]?.currentSong || 'No current track' }}</div>
-          <div class="music-controls">
-            <button type="button" aria-label="Previous track" (click)="pressMusic('group.previous.track')">◀◀</button>
-            <button type="button" aria-label="Play" (click)="pressMusic('group.play')">▶</button>
-            <button type="button" aria-label="Pause" (click)="pressMusic('group.pause')">Ⅱ</button>
-            <button type="button" aria-label="Next track" (click)="pressMusic('group.next.track')">▶▶</button>
+          <div class="music-main-controls">
+            <button type="button" aria-label="Play or pause" (click)="pressMusicPlayPause()">Play/Pause</button>
+            <button type="button" aria-label="Stop playback" (click)="pressMusic('group.stop')">Stop</button>
+            <button type="button" aria-label="Join or leave a group" (click)="pressMusicGroup()">Join/Leave</button>
+            <button type="button" aria-label="Music favorites" (click)="pressMusicFavorite()">Favorites</button>
           </div>
-          <div class="music-volume"><button type="button" (click)="pressMusic('group.adjust.volume', '-1')">Vol −</button><button type="button" (click)="pressMusic('group.adjust.volume', '+1')">Vol +</button></div>
+          <div class="music-bottom-controls">
+            <button type="button" aria-label="Previous track" (click)="pressMusic('group.previous.track')">Previous</button>
+            <button type="button" aria-label="Next track" (click)="pressMusic('group.next.track')">Next</button>
+            <button type="button" aria-label="Volume down" (click)="pressMusic('group.adjust.volume', '-1')">Vol dn</button>
+            <button type="button" aria-label="Volume up" (click)="pressMusic('group.adjust.volume', '+1')">Vol up</button>
+          </div>
         }
         @case ('thermostat') {
           <div class="page-title">Thermostat</div>

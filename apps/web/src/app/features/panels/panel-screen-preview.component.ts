@@ -29,7 +29,6 @@ export class PanelScreenPreviewComponent {
   readonly pageBack = output<void>();
   readonly showBack = input(false);
   readonly location = signal<PreviewLocation>({ screen: "home" });
-  readonly history = signal<PreviewLocation[]>([]);
   readonly simulatedLevels = signal<Record<string, number>>({});
   readonly wheelSelection = signal<(PanelWheelColor & { instanceId: string }) | null>(null);
   readonly thermostatTarget = signal(20);
@@ -59,14 +58,12 @@ export class PanelScreenPreviewComponent {
   /** Opens a firmware page directly from the picker. */
   selectScreen(screen: PreviewScreen): void {
     this.location.set({ screen });
-    this.history.set([]);
     this.actionNotice.set("");
   }
 
   /** Resets only simulated state; the panel draft is never changed. */
   reset(): void {
     this.location.set({ screen: "home" });
-    this.history.set([]);
     this.simulatedLevels.set({});
     this.wheelSelection.set(null);
     this.thermostatTarget.set(20);
@@ -77,17 +74,14 @@ export class PanelScreenPreviewComponent {
   /** The scripted render preview always uses the firmware's message page. */
   activeScreen(): PreviewScreen { return this.pagePreview() ? "info" : this.location().screen; }
 
-  /** Returns to the last simulated page or to the home screen. */
+  /** The panel's top-left control on every subpage returns directly to Home. */
   goBack(): void {
-    const stack = this.history();
-    this.location.set(stack.at(-1) ?? { screen: "home" });
-    this.history.set(stack.slice(0, -1));
+    this.location.set({ screen: "home" });
     this.actionNotice.set("");
   }
 
-  /** Opens a page while preserving the path for its Back button. */
+  /** Opens a panel screen without creating a nested Back path. */
   private navigate(next: PreviewLocation): void {
-    this.history.update((stack) => [...stack, this.location()]);
     this.location.set(next);
     this.actionNotice.set("");
   }
@@ -308,11 +302,41 @@ export class PanelScreenPreviewComponent {
     }).sort((left, right) => Number(left.id) - Number(right.id)).slice(0, 8);
   }
 
+  /** Returns the player selected in the simulated music screen. */
+  private selectedMusic(): NonNullable<Panel["settings"]["music"]>[number] | undefined {
+    return this.musicPlayers()[this.selectedMusicPlayer()];
+  }
+
+  /** Chooses Play or Pause using the selected player's displayed track label. */
+  pressMusicPlayPause(): void {
+    const player = this.selectedMusic();
+    if (!player) { this.actionNotice.set("No music player is available in this panel's settings."); return; }
+    const track = player.currentSong?.trim().toUpperCase() ?? "";
+    const stoppedOrPaused = !track || track === "[STOP]" || track === "[S T O P]" || track === "[PAUSE]";
+    this.pressMusic(stoppedOrPaused ? "group.play" : "group.pause");
+  }
+
   /** Simulates the selected Sonos player's configured MQTT command. */
   pressMusic(command: "group.pause" | "group.play" | "group.stop" | "group.next.track" | "group.previous.track" | "group.adjust.volume", payload = ""): void {
-    const player = this.musicPlayers()[this.selectedMusicPlayer()];
+    const player = this.selectedMusic();
     if (!player?.player) { this.actionNotice.set("No music player is available in this panel's settings."); return; }
     this.actionNotice.set(`Would publish ${player.player}/cmnd/${command} → ${payload || "(empty payload)"}`);
+  }
+
+  /** Shows the firmware's Favorite action event in this local-only preview. */
+  pressMusicFavorite(): void {
+    const player = this.selectedMusic();
+    if (!player) { this.actionNotice.set("No music player is available in this panel's settings."); return; }
+    const nodeName = this.panel()?.nodeName || "panel";
+    this.actionNotice.set(`Would send ${nodeName}/event/music { cmd: "fav1", player: "${player.id}" }`);
+  }
+
+  /** Shows the panel's Join/Leave group control in this local-only preview. */
+  pressMusicGroup(): void {
+    const player = this.selectedMusic();
+    if (!player) { this.actionNotice.set("No music player is available in this panel's settings."); return; }
+    const nodeName = this.panel()?.nodeName || "panel";
+    this.actionNotice.set(`Would use ${nodeName}/event/music Join/Leave for ${player.name}.`);
   }
 
   /** Shows the value label that the home tile would receive after a touch. */

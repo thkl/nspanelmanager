@@ -2,7 +2,7 @@ import type { Panel, PluginConfigValue, ResolvedPluginInstance } from "../../typ
 import type { MqttMessageEnvelope, PluginActionResult, PluginConfigField, PluginDefinition, PluginHomeTileResult, PluginRuntimeContext, PluginScreen, PluginState } from "./plugin-contract.js";
 import { isTopicTemplateValid, readPayloadValue, scalarNumber, scalarPower, tileCommand, tileConfigNumber, tileConfigString } from "./home-tile-utils.js";
 import { interpolatePluginTemplate } from "./plugin-variables.js";
-import { decodeNextionRgb } from "./nextion-color-wheel.js";
+import { decodeNextionRgb, XYToRGB } from "./nextion-color-wheel.js";
 
 /** Connects a generic MQTT light to the panel tile and its brightness/color screen. */
 export class MqttLightPlugin implements PluginDefinition {
@@ -162,31 +162,17 @@ export class MqttLightPlugin implements PluginDefinition {
       }
       if (typeof event["color"] === "string") {
         const rawColor = event["color"];
-        const wheel = decodeNextionRgb(rawColor);
-        if (!wheel) {
-          const legacyCommand = tileCommand(instance, commandTopic, tileConfigString(instance, "colorPayloadTemplate"), { value: rawColor });
-          return legacyCommand ? { commands: [legacyCommand], statePatch: { color: rawColor } } : undefined;
-        }
-        const hueDegrees = wheel.hue;
-        const saturationPercent =wheel.saturation * 100;
         const savedBrightness = scalarNumber(await context.storage.get("plugin", "brightness"));
         const brightnessPercent = clampBrightness(scalarNumber(state.lastBrightness) ?? scalarNumber(state.brightness) ?? savedBrightness ?? 100);
-        const hue =  Math.round(mapRange(hueDegrees, 0, 360, tileConfigNumber(instance, "hueMinimum", 0), tileConfigNumber(instance, "hueMaximum", 255)));
-        const saturation =  Math.round(mapRange(saturationPercent, 0, 100, tileConfigNumber(instance, "saturationMinimum", 0), tileConfigNumber(instance, "saturationMaximum", 255)));
         const brightness = this.toMqttBrightness(instance, brightnessPercent);
+        const rgb = XYToRGB(rawColor)
         const values: Record<string, string> = {
-          value: rawColor,
-          rgb: wheel.rgb,
-          red: String(wheel.red), green: String(wheel.green), blue: String(wheel.blue),
-          hue: formatNumber(hue), hueDegrees: formatNumber(hueDegrees), hueFraction: formatNumber(hueDegrees / 360),
-          saturation: formatNumber(saturation), saturationPercent: formatNumber(saturationPercent),
-          saturationFraction: formatNumber(wheel.saturation),
+          rgb: `${rgb.r},${rgb.g},${rgb.b}`,
           brightness: String(brightness), brightnessPercent: String(brightnessPercent)
-        };
-        console.log(values)
-        const template = tileConfigString(instance, "colorWheelPayloadTemplate", '{"color":{"hue":{{hue}},"saturation":{{saturation}}},"brightness":{{brightness}},"transition":0.5}');
+        }
+        const template = tileConfigString(instance, "colorWheelPayloadTemplate", '{"color":{"rgb":"{{rgb}}"},"brightness":{{brightness}},"transition":0.5}');
         const command = tileCommand(instance, commandTopic, template, values);
-        return command ? { commands: [command], statePatch: { color: wheel.rgb, hue, saturation } } : undefined;
+        return command ? { commands: [command], statePatch: { color: rgb } } : undefined;
       }
     }
 
