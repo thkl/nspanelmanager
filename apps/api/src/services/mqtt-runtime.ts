@@ -76,6 +76,7 @@ export class MqttRuntime {
         this.connected = true;
         this.lastError = "";
         this.syncSubscriptions();
+        void this.notifyPluginsConnected();
         void this.restoreAllPanels().catch((error: unknown) => {
           this.lastError = error instanceof Error ? error.message : String(error);
         });
@@ -228,7 +229,9 @@ export class MqttRuntime {
 
   /** Publishes changed settings, or always publishes when boot/apply explicitly requests a refresh. */
   publishPanelSettings(panel: Panel, force = false): boolean {
-    const configuredPlayers = this.configuredNativePagePlayers("music");
+    const defaultPlayer = panel.nativePluginInstances ? panel.nativePluginInstances['music'] : undefined;
+    const configuredPlayers = this.configuredNativePagePlayers("music",defaultPlayer);
+
     const settings = {
       ...panel.settings,
       music: configuredPlayers,
@@ -248,7 +251,7 @@ export class MqttRuntime {
   }
 
   /** Builds the firmware's player-slot configuration from active shared music-page instances. */
-  private configuredNativePagePlayers(pageId: string): Array<{ id: string; name: string; sonos: string; player: string; currentSong?: string }> {
+  private configuredNativePagePlayers(pageId: string, defaultPlayer?:string): Array<{ id: string; name: string; sonos: string; player: string; currentSong?: string }> {
     return this.resolvePluginInstances()
       .filter((instance) => instance.enabled && this.plugins.get(instance.pluginId)?.nativePanelPage === pageId && this.plugins.get(instance.pluginId)?.nativePanelSharedInstances)
       .flatMap((instance) => {
@@ -260,6 +263,7 @@ export class MqttRuntime {
         const currentSong = currentSonosSong(state);
         return [{
           id: String(id),
+          current: instance.id === defaultPlayer,
           name: firmwareSafeText(instance.name),
           sonos: firmwareSafeText(sonosName),
           player: `sonos/${topicPlayerName}`,
@@ -472,15 +476,43 @@ export class MqttRuntime {
       if (!instance.enabled) continue;
       const definition = this.plugins.get(instance.pluginId);
       if (!definition || !definition.subscriptions(instance).some((filter) => matchesTopic(filter, message.topic))) continue;
-      const patch = definition.decodeMessage(instance, message);
-      if (!patch || Object.keys(patch).length === 0) continue;
       const previousState = this.runtimeState.getPluginState(instance.id);
+      const patch = definition.decodeMessage(instance, message, previousState);
+      if (!patch || Object.keys(patch).length === 0) continue;
       const state = { ...previousState, ...patch };
       await this.setPluginState(instance, state);
       await this.refreshBoundPanels(instance, state);
       await this.refreshNativePanelStates(instance, state);
       await this.refreshAssignedPanelStates(instance, state, previousState, patch);
       await this.refreshHomeTileStates(instance, state);
+    }
+  }
+
+  /** Notifies each active plugin once after the shared broker connection is ready. */
+  private async notifyPluginsConnected(): Promise<void> {
+    const instancesByDefinition = new Map<PluginDefinition, ResolvedPluginInstance[]>();
+    for (const instance of this.resolvePluginInstances()) {
+      if (!instance.enabled) continue;
+      const definition = this.plugins.get(instance.pluginId);
+      if (!definition?.onMqttConnected) continue;
+      const instances = instancesByDefinition.get(definition) ?? [];
+      instances.push(instance);
+      instancesByDefinition.set(definition, instances);
+    }
+
+    for (const [definition, instances] of instancesByDefinition) {
+      try {
+        await definition.onMqttConnected?.(instances, (topic, payload) => this.publish(topic, payload));
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.lastError = detail;
+        this.logger.error("Plugin broker-connected handler failed.", {
+          component: "plugin",
+          plugin: definition.name,
+          phase: "mqtt-connected",
+          detail
+        });
+      }
     }
   }
 
@@ -545,9 +577,10 @@ export class MqttRuntime {
       }
       if (this.nativePanelPages.get(panel.id) !== pageId) continue;
 
-      const eventInstances = definition.nativePanelSharedInstances
+      const sharedEventInstances = definition.nativePanelSharedInstances
         ? instances.filter((candidate) => candidate.enabled && candidate.pluginId === owner.pluginId)
         : [owner];
+      const eventInstances = definition.nativePanelEventTargets?.(sharedEventInstances, panel, message) ?? sharedEventInstances;
       let ownerState = this.runtimeState.getPluginState(owner.id);
       let ownerStateChanged = false;
       for (const instance of eventInstances) {

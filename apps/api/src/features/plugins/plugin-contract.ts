@@ -209,12 +209,16 @@ export interface PluginDefinition {
   validateInstance?(instance: ResolvedPluginInstance): string | undefined;
   /** Lists incoming MQTT filters for the configured instance. */
   subscriptions(instance: ResolvedPluginInstance): readonly string[];
+  /** Runs once per broker connection with all enabled instances of this plugin. */
+  onMqttConnected?(instances: readonly ResolvedPluginInstance[], publish: (topic: string, payload: string) => boolean): void | Promise<void>;
+  /** Selects the configured instance or instances that should receive a shared native-page event. */
+  nativePanelEventTargets?(instances: readonly ResolvedPluginInstance[], panel: Panel, message: MqttMessageEnvelope): readonly ResolvedPluginInstance[] | undefined;
   /** Runs when an enabled instance starts or its configuration changes. */
   initialize?(instance: ResolvedPluginInstance, state: PluginState, context: PluginRuntimeContext): Promise<readonly PluginMqttSubscription[]>;
   /** Executes a registered callback for one MQTT message and may return commands or page navigation. */
   handleSubscription?(instance: ResolvedPluginInstance, subscription: PluginMqttSubscription, message: MqttMessageEnvelope, state: PluginState, context: PluginRuntimeContext): Promise<PluginSubscriptionResult | void>;
   /** Converts a matching MQTT payload into a partial normalized state update. */
-  decodeMessage(instance: ResolvedPluginInstance, message: MqttMessageEnvelope): PluginState | undefined;
+  decodeMessage(instance: ResolvedPluginInstance, message: MqttMessageEnvelope, currentState?: PluginState): PluginState | undefined;
   /** Selects normalized state values to expose through the instance's durable `plugin.get` store. */
   scriptStorageValues?(instance: ResolvedPluginInstance, state: PluginState): Record<string, unknown>;
   /** Returns the page to open for a favorite binding, defaulting to overview. */

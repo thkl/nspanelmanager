@@ -11,7 +11,8 @@ interface SonosState {
   album: string;
   playbackState: "playing" | "paused_playback" | "stopped";
   artUri: string;
-  isCoordinator: boolean;
+  /** Unknown until the household status packet identifies this player. */
+  isCoordinator?: boolean;
 }
 
 /**
@@ -49,16 +50,29 @@ export class MqttSonosPlugin implements PluginDefinition {
     return undefined;
   }
 
-  /** Subscribes to the state message for this configured room. */
+  /** Subscribes to this room's playback state and the household coordinator list. */
   subscriptions(instance: ResolvedPluginInstance): readonly string[] {
     const playerName = playerNameFor(instance);
-    return playerName ? [`${SONOS_TOPIC_PREFIX}/${playerName}/state`] : [];
+    return playerName
+      ? [`${SONOS_TOPIC_PREFIX}/${playerName}/state`, `${SONOS_TOPIC_PREFIX}/household/state`]
+      : [];
   }
 
-  /** Converts the relay's room status packet into a small normalized state object. */
-  decodeMessage(instance: ResolvedPluginInstance, message: MqttMessageEnvelope): PluginState | undefined {
+  /** Requests the household snapshot after MQTT connects so Leave can check coordinator status immediately. */
+  onMqttConnected(_instances: readonly ResolvedPluginInstance[], publish: (topic: string, payload: string) => boolean): void {
+    publish(`${SONOS_TOPIC_PREFIX}/household/get`, "{}");
+  }
+
+  /** Normalizes room playback packets and caches this room's coordinator flag from household state. */
+  decodeMessage(instance: ResolvedPluginInstance, message: MqttMessageEnvelope, currentState: PluginState = {}): PluginState | undefined {
     const playerName = playerNameFor(instance);
-    if (!playerName || message.topic !== `${SONOS_TOPIC_PREFIX}/${playerName}/state`) return undefined;
+    if (!playerName) return undefined;
+    if (message.topic === `${SONOS_TOPIC_PREFIX}/household/state`) {
+      const isCoordinator = coordinatorFor(instance, message.payload);
+      if (isCoordinator === undefined || currentState["isCoordinator"] === isCoordinator) return undefined;
+      return { isCoordinator };
+    }
+    if (message.topic !== `${SONOS_TOPIC_PREFIX}/${playerName}/state`) return undefined;
     const state = parseSonosState(message.payload);
     return state ? { ...state } : undefined;
   }
@@ -81,8 +95,21 @@ export class MqttSonosPlugin implements PluginDefinition {
     return undefined;
   }
 
-  /** Stores the selected player ID or translates transport controls for the matching player. */
-  handleNativePanelEvent(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope): PluginNativePanelResult | void {
+  /** Routes music controls by the firmware player ID to the matching configured player instance. */
+  nativePanelEventTargets(
+    instances: readonly ResolvedPluginInstance[],
+    panel: Panel,
+    message: MqttMessageEnvelope
+  ): readonly ResolvedPluginInstance[] | undefined {
+    if (message.topic !== `${panel.nodeName}/event/music`) return undefined;
+    const event = parseMusicEvent(message.payload);
+    if (!event) return [];
+    const target = instances.find((candidate) => candidate.enabled && playerIdFor(candidate) === event.playerId);
+    return target ? [target] : [];
+  }
+
+  /** Stores the selected player ID or translates transport controls for the routed player instance. */
+  handleNativePanelEvent(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope, state: PluginState): PluginNativePanelResult | void {
     if (message.topic === `${panel.nodeName}/event/page/music`) {
       const selectedPlayerId = parsePlayerId(message.payload);
       return selectedPlayerId === undefined ? undefined : { statePatch: { selectedPlayerId } };
@@ -90,12 +117,19 @@ export class MqttSonosPlugin implements PluginDefinition {
     if (message.topic !== `${panel.nodeName}/event/music`) return undefined;
 
     const event = parseMusicEvent(message.payload);
-    if (!event || event.playerId !== playerIdFor(instance)) return undefined;
-    const command = musicCommand(event.command, playerNameFor(instance)!);
+    const playerName = playerNameFor(instance);
+    if (!event || event.playerId !== playerIdFor(instance) || !playerName) return undefined;
+    if (event.command === "leave") {
+      // Sonos cannot make a coordinator standalone while its group still has members.
+      // Wait for a known household status and ignore the request if this room coordinates.
+      if (state["isCoordinator"] !== false) return undefined;
+      return { commands: [{ topic: `${SONOS_TOPIC_PREFIX}/${playerName}/cmnd/player.become.standalone`, payload: "{}" }] };
+    }
+    const command = musicCommand(event.command, playerName);
     return command ? { commands: [command] } : undefined;
   }
 
-  /** Builds the complete room list and selected-room metadata for the panel. */
+  /** Sends only the currently selected room's track, playback, and coordinator state to the panel. */
   renderNativePanelState(
     instance: ResolvedPluginInstance,
     panel: Panel,
@@ -110,40 +144,44 @@ export class MqttSonosPlugin implements PluginDefinition {
       .map(({ instance: candidate, state: candidateState }) => ({
         id: playerIdFor(candidate),
         name: candidate.name,
-        state: playerState(candidateState),
-        hasState: hasSonosPlaybackState(candidateState)
+        state: playerState(candidateState)
       }))
-      .filter((player): player is { id: number; name: string; state: SonosState; hasState: boolean } => player.id !== undefined && Boolean(player.name))
+      .filter((player): player is { id: number; name: string; state: SonosState } => player.id !== undefined && Boolean(player.name))
       .sort((left, right) => left.id - right.id);
-    const status = players.map(({ name, state: player }) => ({
-      player: hmiSafeText(name),
-      currenttrack: currentTrackLabel(player),
-      currentstate: playbackStateCode(player.playbackState),
-      isCoordinator: player.isCoordinator
-    }));
     const selectedId = finiteNumber(state.selectedPlayerId);
     const selected = players.find((player) => player.id === selectedId);
-    const selectedState = selected?.hasState ? selected.state : undefined;
+    if (!selected) return [];
 
-    const commands = [
-      { topic: `${panel.nodeName}/cmnd/music`, payload: JSON.stringify({ status }) },
-    ];
-    if (selectedState) {
-      commands.push({
+    const selectedState = selected.state;
+    const selectedStatus = {
+      player: hmiSafeText(selected.name),
+      currenttrack: currentTrackLabel(selectedState),
+      currentstate: playbackStateCode(selectedState.playbackState),
+      isCoordinator: selectedState.isCoordinator
+    };
+    return [
+      {
+        topic: `${panel.nodeName}/cmnd/music`,
+        payload: JSON.stringify({ status: [selectedStatus] })
+      },
+      {
         topic: `${panel.nodeName}/cmnd/music/state`,
         payload: JSON.stringify({
-          title: currentSongTitle(selectedState),
+          title: currentTrackLabel(selectedState),
           state: selectedState.playbackState === "playing",
           isCoordinator: selectedState.isCoordinator
         })
-      });
-    }
-    return commands;
+      }
+    ];
   }
 }
 
 function playerNameFor(instance: ResolvedPluginInstance): string {
   return instance.variables.playerName?.trim() ?? "";
+}
+
+function nameFor(instance: ResolvedPluginInstance): string {
+  return instance.variables.name?.trim() ?? "";
 }
 
 function playerIdFor(instance: ResolvedPluginInstance): number | undefined {
@@ -162,14 +200,15 @@ function parseSonosState(payload: string): SonosState | undefined {
   if (!isRecord(value)) return undefined;
   const playbackState = value["playbackstate"];
   if (playbackState !== "playing" && playbackState !== "paused_playback" && playbackState !== "stopped") return undefined;
-  return {
+  const state: SonosState = {
     title: stringValue(value["title"]),
     artist: stringValue(value["artist"]),
     album: stringValue(value["album"]),
     playbackState,
-    artUri: stringValue(value["artUri"]),
-    isCoordinator: typeof value["isCoordinator"] === "boolean" ? value["isCoordinator"] : false
+    artUri: stringValue(value["artUri"])
   };
+  if (typeof value["isCoordinator"] === "boolean") state.isCoordinator = value["isCoordinator"];
+  return state;
 }
 
 function parseMusicEvent(payload: string): { command: string; playerId: number } | undefined {
@@ -178,13 +217,13 @@ function parseMusicEvent(payload: string): { command: string; playerId: number }
     value = JSON.parse(payload);
   } catch {
     // This firmware currently formats the control event with single quotes.
-    const command = /['"]cmd['"]\s*:\s*['"]([^'"]+)['"]/.exec(payload)?.[1];
+    const command = /['"](?:cmd|action)['"]\s*:\s*['"]([^'"]+)['"]/.exec(payload)?.[1];
     const player = /['"]player['"]\s*:\s*['"]?(\d+)['"]?/.exec(payload)?.[1];
     const playerId = parsePlayerId(player);
     return command && playerId !== undefined ? { command, playerId } : undefined;
   }
   if (!isRecord(value)) return undefined;
-  const command = stringValue(value["cmd"]);
+  const command = stringValue(value["cmd"]) || stringValue(value["action"]);
   const playerId = parsePlayerId(value["player"]);
   return command && playerId !== undefined ? { command, playerId } : undefined;
 }
@@ -205,19 +244,41 @@ function musicCommand(action: string, playerName: string): { topic: string; payl
 
 function playerState(value: PluginState): SonosState {
   const playbackState = value["playbackState"];
-  return {
+  const state: SonosState = {
     title: stringValue(value["title"]),
     artist: stringValue(value["artist"]),
     album: stringValue(value["album"]),
     playbackState: playbackState === "playing" || playbackState === "paused_playback" ? playbackState : "stopped",
-    artUri: stringValue(value["artUri"]),
-    isCoordinator: value["isCoordinator"] === true
+    artUri: stringValue(value["artUri"])
   };
+  if (typeof value["isCoordinator"] === "boolean") state.isCoordinator = value["isCoordinator"];
+  return state;
 }
 
-/** Distinguishes a decoded player status from the default empty runtime state. */
-function hasSonosPlaybackState(value: PluginState): boolean {
-  return value["playbackState"] === "playing" || value["playbackState"] === "paused_playback" || value["playbackState"] === "stopped";
+/** Finds this configured player in the household list and returns its known coordinator flag. */
+function coordinatorFor(instance: ResolvedPluginInstance, payload: string): boolean | undefined {
+  let value: unknown;
+  try { value = JSON.parse(payload); } catch { return undefined; }
+  if (!Array.isArray(value)) return undefined;
+
+  const aliases = [
+    playerNameFor(instance),
+    instance.variables.sonosName ?? "",
+    instance.name
+  ].map(normalizePlayerName).filter(Boolean);
+  const player = value.find((entry) => {
+    if (!isRecord(entry)) return false;
+    const candidate = normalizePlayerName(stringValue(entry["player"]));
+    return candidate !== "" && aliases.includes(candidate);
+  });
+  return isRecord(player) && typeof player["isCoordinator"] === "boolean"
+    ? player["isCoordinator"]
+    : undefined;
+}
+
+/** Normalizes room labels such as `Living Room` and topic names such as `livingroom`. */
+function normalizePlayerName(value: string): string {
+  return value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function currentTrackLabel(state: SonosState): string {
@@ -227,12 +288,6 @@ function currentTrackLabel(state: SonosState): string {
   const artist = hmiSafeText(state.artist);
   const strLabel = title && artist ? `${artist} | ${title}` : title ?? artist ?? "[STOP]"
   return strLabel;
-}
-
-function currentSongTitle(state: SonosState): string {
-  const title = hmiSafeText(state.title);
-  const artist = hmiSafeText(state.artist);
-  return title && artist ? `${artist} | ${title}` : title || artist;
 }
 
 function playbackStateCode(state: SonosState["playbackState"]): number {
