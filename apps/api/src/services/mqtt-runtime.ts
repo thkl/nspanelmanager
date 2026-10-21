@@ -588,7 +588,7 @@ export class MqttRuntime {
         if (!instanceDefinition?.handleNativePanelEvent) continue;
         try {
           const previousState = this.runtimeState.getPluginState(instance.id);
-          const result = await instanceDefinition.handleNativePanelEvent(instance, panel, message, previousState);
+          const result = await instanceDefinition.handleNativePanelEvent(instance, panel, message, previousState, sharedEventInstances);
           const nextState = result?.statePatch ? { ...previousState, ...result.statePatch } : previousState;
           if (result?.statePatch) await this.setPluginState(instance, nextState);
           if (instance.id === owner.id && result?.statePatch) {

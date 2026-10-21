@@ -109,7 +109,13 @@ export class MqttSonosPlugin implements PluginDefinition {
   }
 
   /** Stores the selected player ID or translates transport controls for the routed player instance. */
-  handleNativePanelEvent(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope, state: PluginState): PluginNativePanelResult | void {
+  handleNativePanelEvent(
+    instance: ResolvedPluginInstance,
+    panel: Panel,
+    message: MqttMessageEnvelope,
+    state: PluginState,
+    relatedInstances: readonly ResolvedPluginInstance[] = []
+  ): PluginNativePanelResult | void {
     if (message.topic === `${panel.nodeName}/event/page/music`) {
       const selectedPlayerId = parsePlayerId(message.payload);
       return selectedPlayerId === undefined ? undefined : { statePatch: { selectedPlayerId } };
@@ -124,6 +130,19 @@ export class MqttSonosPlugin implements PluginDefinition {
       // Wait for a known household status and ignore the request if this room coordinates.
       if (state["isCoordinator"] !== false) return undefined;
       return { commands: [{ topic: `${SONOS_TOPIC_PREFIX}/${playerName}/cmnd/player.become.standalone`, payload: "{}" }] };
+    }
+    if (event.command === "join") {
+      const coordinator = event.groupId === undefined
+        ? undefined
+        : relatedInstances.find((candidate) => playerIdFor(candidate) === event.groupId);
+      const coordinatorName = coordinator ? playerNameFor(coordinator) : "";
+      if (!coordinatorName) return undefined;
+      return {
+        commands: [{
+          topic: `${SONOS_TOPIC_PREFIX}/${playerName}/cmnd/player.join.group`,
+          payload: coordinatorName
+        }]
+      };
     }
     const command = musicCommand(event.command, playerName);
     return command ? { commands: [command] } : undefined;
@@ -211,7 +230,7 @@ function parseSonosState(payload: string): SonosState | undefined {
   return state;
 }
 
-function parseMusicEvent(payload: string): { command: string; playerId: number } | undefined {
+function parseMusicEvent(payload: string): { command: string; playerId: number; groupId?: number } | undefined {
   let value: unknown;
   try {
     value = JSON.parse(payload);
@@ -219,13 +238,20 @@ function parseMusicEvent(payload: string): { command: string; playerId: number }
     // This firmware currently formats the control event with single quotes.
     const command = /['"](?:cmd|action)['"]\s*:\s*['"]([^'"]+)['"]/.exec(payload)?.[1];
     const player = /['"]player['"]\s*:\s*['"]?(\d+)['"]?/.exec(payload)?.[1];
+    const group = /['"]group['"]\s*:\s*['"]?(\d+)['"]?/.exec(payload)?.[1];
     const playerId = parsePlayerId(player);
-    return command && playerId !== undefined ? { command, playerId } : undefined;
+    const groupId = parsePlayerId(group);
+    return command && playerId !== undefined
+      ? { command, playerId, ...(groupId === undefined ? {} : { groupId }) }
+      : undefined;
   }
   if (!isRecord(value)) return undefined;
   const command = stringValue(value["cmd"]) || stringValue(value["action"]);
   const playerId = parsePlayerId(value["player"]);
-  return command && playerId !== undefined ? { command, playerId } : undefined;
+  const groupId = parsePlayerId(value["group"]);
+  return command && playerId !== undefined
+    ? { command, playerId, ...(groupId === undefined ? {} : { groupId }) }
+    : undefined;
 }
 
 function musicCommand(action: string, playerName: string): { topic: string; payload: string } | undefined {

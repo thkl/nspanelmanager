@@ -242,7 +242,7 @@ export interface PluginDefinition {
   /** Reports whether one panel MQTT event opens or closes this native page. */
   nativePanelTransition?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope): "open" | "close" | undefined;
   /** Handles one native page event, such as a thermostat setpoint or mode button. */
-  handleNativePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope, state: PluginState): PluginNativePanelResult | void | Promise<PluginNativePanelResult | void>;
+  handleNativePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope, state: PluginState, relatedInstances?: readonly ResolvedPluginInstance[]): PluginNativePanelResult | void | Promise<PluginNativePanelResult | void>;
   /** Handles a panel event independently of native-page ownership, such as a page-change dimmer rule. */
   handlePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope): readonly PluginCommand[] | void | Promise<readonly PluginCommand[] | void>;
   /** Converts normalized device state to firmware commands while its native page is open. */
