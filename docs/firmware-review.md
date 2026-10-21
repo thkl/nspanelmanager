@@ -6,6 +6,34 @@ This is a static review of `esphome/nsp-livingroom.yaml`, the shared display imp
 
 The firmware already has a useful separation between reusable scripts and MQTT/UI event handlers, and it tracks the active page for several updates. There is still room to improve display-update behavior, input handling, configuration refreshes, and maintainability. The recommendations below preserve the current MQTT protocol unless a later firmware change is chosen.
 
+## Firmware follow-up review (2026-10-21)
+
+I rechecked the current `esphome/nsp-livingroom.yaml` and `esphome/panel3.yaml`. This was a static source review only; I did not run ESPHome validation or test on hardware.
+
+### Highest-priority current finding
+
+The music settings lambda previously used `player_id` before its per-entry declaration. This is fixed in the current working tree: the parser now reads the ID before assigning `musicPlayer[i]` and checking the `current` boolean (`panel3.yaml:852-856`). ESPHome validation has not been run, so the firmware still needs a build check.
+
+### Other current improvement candidates
+
+- A live `cmnd/settings` update sends the awake display to `page 0` (`panel3.yaml:871-875`). Preserve the current page when applying settings so updates do not interrupt the user.
+- The `cmnd/weather` handler writes current values to the hidden weather page on every message, while it only writes the forecast when `currentPage` is `pageWeather` (`605-646`). Cache the complete latest weather snapshot and render it on page entry; send Nextion commands only when needed.
+- MQTT strings are interpolated into Nextion commands without a common escape/length check. This includes weather fields, page labels, names, and message text (`605-665`, `781-827`). Add a bounded text helper for display strings. The `cmnd/nextion` handler passes the MQTT value directly to Nextion (`panel3.yaml:2876-2883`), so keep that topic restricted to trusted publishers.
+- Settings arrays update only the entries provided (`781-827`), leaving previous button labels/modes in omitted slots. Clear defaults before applying a new config or reject payloads that do not have the expected shape and count.
+- `cmnd/goto` changes the Nextion page without updating `currentPage` or reporting a page event (`584-590`); the `handle_pageShow` script is defined but has no call site. Use one page-transition helper for all navigation so screen gating and manager state stay aligned.
+- Split `panel3.yaml` by feature after correctness fixes. It is now about 3,000 lines, so separating MQTT commands, display scripts, touch events, and hardware setup would make changes easier to review.
+
+### Performance review
+
+The likely optimization target is Nextion UART traffic, rather than CPU work. The loops in the handlers are small and bounded (typically 4-12 entries), so there is no obvious CPU-heavy algorithm in this configuration. I did not profile runtime behavior or measure UART throughput.
+
+- `update_time` sends eight home-page updates every minute even when another page is active or the panel is asleep (`panel3.yaml:213-230`). `cmnd/weather` also writes current values to the weather page while it is hidden (`605-630`), and `update_music` writes the home-page song field on every invocation (`429-445`). Gate writes by page and sleep state, cache the latest values, and render them when that page opens.
+- Several update scripts resend all fields on each trigger. Keep the last rendered values and send only fields that changed. This reduces serial work during repeated status updates while keeping the display in sync after page entry.
+- The main-page refresh waits 10 seconds before asking the manager for home data (`1355-1370`). If the intent is to allow the HMI to initialize, prefer an immediate render from cached values followed by a short, explicit retry. This mainly improves perceived responsiveness.
+- Fixed loops, `std::string` conversions, and the 12-iteration `pow()` loop in favorite rendering are unlikely to matter before display traffic is reduced. Optimize these only if ESPHome runtime metrics show CPU or heap pressure.
+
+The opt-in `esphome/panel4.yaml` variant applies the low-risk changes above: it limits home and weather writes to their active pages, refreshes the home cache on page entry, skips unchanged home fields, avoids the duplicate air-quality write, gates the home song field, and uses an integer bit shift for favorite-state rendering. `esphome/nsp-livingroom.yaml` still includes `panel3.yaml`; switch that include to `panel4.yaml` to build the variant. The new YAML has not been compiled or tested on hardware.
+
 ## Recommended improvements
 
 ### 1. Guard all display updates by page and sleep state

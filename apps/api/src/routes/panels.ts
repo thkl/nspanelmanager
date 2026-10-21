@@ -9,13 +9,15 @@ import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 /**
  * Creates the HTTP endpoints for panel profile lifecycle operations.
  *
- * `POST /` creates a profile, `PUT /:id` normalizes and publishes changed
- * settings, `DELETE /:id` removes its associated routes, and `POST /:id/apply`
- * manually resends the profile to firmware. This router owns profile-specific
- * behavior; broker setup and generic MQTT route editing live in separate routers.
+ * `GET /status` returns in-memory MQTT connectivity, `POST /` creates a profile,
+ * `PUT /:id` normalizes and publishes changed settings, `DELETE /:id` removes its
+ * associated routes, and `POST /:id/apply` manually resends the profile to
+ * firmware. Broker setup and generic MQTT route editing live in separate routers.
  */
 export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry): Router {
   const router = Router();
+
+  router.get("/status", (_request, response) => response.json({ panels: mqttRuntime.panelConnectionStatuses() }));
 
   router.post("/", async (request, response) => {
     const name = stringValue(request.body?.name).trim();

@@ -1,7 +1,7 @@
 import mqtt, { type MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store.js";
-import type { ManagerConfig, MqttRoute, Panel, PanelBinding, ResolvedPluginInstance } from "../types.js";
+import type { ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
 import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
@@ -12,9 +12,11 @@ import { Logger } from "./logger.js";
 /**
  * Maintains the shared MQTT connection and dispatches device and panel events.
  * The runtime coordinates registered plugins, panel protocol adaptation,
- * durable flow sessions, and the existing configurable MQTT route feature.
+ * durable flow sessions, configurable MQTT routes, and an in-memory panel
+ * connection view sourced from each panel's LWT status and minute heartbeat.
  */
 export class MqttRuntime {
+  private static readonly PANEL_HEARTBEAT_TIMEOUT_MS = 150_000;
   private client?: MqttClient;
   private connected = false;
   private lastError = "";
@@ -28,6 +30,7 @@ export class MqttRuntime {
   private readonly panelHomeTilePages = new Map<string, { page: "home" | "light" | "level"; index?: number }>();
   private readonly publishedPanelSettings = new Map<string, string>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
+  private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null }>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
 
@@ -43,6 +46,22 @@ export class MqttRuntime {
 
   /** Exposes health only; credentials and the client object never leave this service. */
   status(): { connected: boolean; error: string } { return { connected: this.connected, error: this.lastError }; }
+
+  /** Returns live panel connection state without adding runtime data to saved configuration. */
+  panelConnectionStatuses(): PanelConnectionStatus[] {
+    const now = Date.now();
+    return this.store.get().panels.map((panel) => {
+      const connection = this.panelConnections.get(panel.nodeName);
+      const heartbeatFresh = connection?.lastSeenAt !== null && connection?.lastSeenAt !== undefined
+        && now - connection.lastSeenAt <= MqttRuntime.PANEL_HEARTBEAT_TIMEOUT_MS;
+      return {
+        panelId: panel.id,
+        nodeName: panel.nodeName,
+        status: connection?.status === "online" && heartbeatFresh ? "online" : "offline",
+        lastSeenAt: connection?.lastSeenAt ?? null
+      };
+    });
+  }
 
   /**
    * Replaces the current broker client using the latest saved credentials.
@@ -176,7 +195,14 @@ export class MqttRuntime {
     const config = this.store.get();
     const instances = this.resolvePluginInstances(config);
     const desiredTopics = new Set<string>();
-    for (const panel of config.panels) desiredTopics.add(`${panel.nodeName}/event/#`);
+    const panelNodeNames = new Set(config.panels.map((panel) => panel.nodeName));
+    for (const nodeName of this.panelConnections.keys()) {
+      if (!panelNodeNames.has(nodeName)) this.panelConnections.delete(nodeName);
+    }
+    for (const panel of config.panels) {
+      desiredTopics.add(`${panel.nodeName}/status`);
+      desiredTopics.add(`${panel.nodeName}/event/#`);
+    }
     for (const route of config.routes) desiredTopics.add(route.sourceTopic);
     for (const instance of instances) {
       if (!instance.enabled) continue;
@@ -399,6 +425,7 @@ export class MqttRuntime {
   private async handleMessage(message: MqttMessageEnvelope): Promise<void> {
     const config = this.store.get();
     const { topic, payload } = message;
+    this.updatePanelConnection(topic, payload, message.receivedAt, config.panels);
     const instances = this.resolvePluginInstances(config);
     const eventPanel = config.panels.find((panel) => topic.startsWith(`${panel.nodeName}/event/`));
     if (eventPanel && topic === `${eventPanel.nodeName}/event/page/favs`) {
@@ -469,6 +496,25 @@ export class MqttRuntime {
       if (route.direction === "external-to-panel" && eventPanel) continue;
       this.applyRoute(route, topic, payload, eventPanel, config.panels);
     }
+  }
+
+  /** Applies panel LWT status and ping packets to the in-memory connection view. */
+  private updatePanelConnection(topic: string, payload: string, receivedAt: number, panels: Panel[]): void {
+    const panel = panels.find((candidate) => topic === `${candidate.nodeName}/status` || topic === `${candidate.nodeName}/event/ping`);
+    if (!panel) return;
+
+    const previous = this.panelConnections.get(panel.nodeName);
+    if (topic === `${panel.nodeName}/status`) {
+      const normalized = payload.trim().toLowerCase();
+      if (normalized !== "online" && normalized !== "offline") return;
+      this.panelConnections.set(panel.nodeName, {
+        status: normalized,
+        lastSeenAt: normalized === "online" ? receivedAt : previous?.lastSeenAt ?? null
+      });
+      return;
+    }
+
+    this.panelConnections.set(panel.nodeName, { status: "online", lastSeenAt: receivedAt });
   }
 
   private async dispatchPluginMessage(instances: ResolvedPluginInstance[], message: MqttMessageEnvelope): Promise<void> {

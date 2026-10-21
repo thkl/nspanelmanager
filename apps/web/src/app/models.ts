@@ -125,6 +125,14 @@ export interface MqttStatus {
   error: string;
 }
 
+/** Current online state reported by one configured NSPanel over MQTT. */
+export interface PanelConnectionStatus {
+  panelId: string;
+  nodeName: string;
+  status: "online" | "offline";
+  lastSeenAt: number | null;
+}
+
 export interface ManagerState {
   config: ManagerConfig;
   mqtt: MqttStatus;

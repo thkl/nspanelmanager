@@ -37,6 +37,14 @@ export interface Panel {
   panelEventPluginInstances?: Record<string, string>;
 }
 
+/** Live MQTT connectivity reported by a panel's LWT status topic and heartbeat events. */
+export interface PanelConnectionStatus {
+  panelId: string;
+  nodeName: string;
+  status: "online" | "offline";
+  lastSeenAt: number | null;
+}
+
 export type RouteDirection = "external-to-panel" | "panel-to-external";
 
 export interface MqttRoute {

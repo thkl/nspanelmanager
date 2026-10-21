@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, ManagerConfig, ManagerState, MqttRoute, MqttStatus, Panel, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
+import type { AuthStatus, AuthUser, BrokerInput, ManagerConfig, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -26,6 +26,7 @@ export class ManagerStore {
     panelBindings: []
   });
   readonly mqtt = signal<MqttStatus>({ connected: false, error: "" });
+  readonly panelConnections = signal<Record<string, PanelConnectionStatus>>({});
   readonly notice = signal<ManagerNotice | null>(null);
   readonly authStatus = signal<AuthStatus | null>(null);
   readonly authUser = signal<AuthUser | null>(null);
@@ -96,6 +97,13 @@ export class ManagerStore {
   /** Updates the lightweight connection indicator without reloading drafts. */
   refreshHealth(): Observable<{ mqtt: MqttStatus }> {
     return this.http.get<{ mqtt: MqttStatus }>("/api/health").pipe(tap((health) => this.mqtt.set(health.mqtt)));
+  }
+
+  /** Refreshes live panel connectivity independently from editable configuration drafts. */
+  refreshPanelConnections(): Observable<{ panels: PanelConnectionStatus[] }> {
+    return this.http.get<{ panels: PanelConnectionStatus[] }>("/api/panels/status").pipe(tap(({ panels }) => {
+      this.panelConnections.set(Object.fromEntries(panels.map((panel) => [panel.nodeName, panel])));
+    }));
   }
 
   /** Reads a bounded, optionally filtered set of recent records from rotated manager log files. */

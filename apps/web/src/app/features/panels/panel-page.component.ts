@@ -1,6 +1,7 @@
-import { Component, OnInit, signal } from "@angular/core";
+import { Component, DestroyRef, OnInit, inject, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
-import { concatMap, from, switchMap, toArray, type Observable } from "rxjs";
+import { EMPTY, catchError, concatMap, from, interval, startWith, switchMap, toArray, type Observable } from "rxjs";
+import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { ManagerStore } from "../../manager-store.service";
 import type { Panel, PanelBinding, PluginDefinition } from "../../models";
 import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
@@ -21,6 +22,7 @@ import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
   styleUrl: "./panel-page.component.css"
 })
 export class PanelPageComponent implements OnInit {
+  private readonly destroyRef = inject(DestroyRef);
   readonly selectedPanelId = signal<string | null>(null);
   readonly pluginDefinitions = signal<PluginDefinition[]>([]);
   readonly draft = signal<Panel | null>(null);
@@ -37,6 +39,11 @@ export class PanelPageComponent implements OnInit {
   ngOnInit(): void {
     this.refresh();
     this.manager.loadPlugins().subscribe({ next: ({ plugins }) => this.pluginDefinitions.set(plugins) });
+    interval(15_000).pipe(
+      startWith(0),
+      switchMap(() => this.manager.refreshPanelConnections().pipe(catchError(() => EMPTY))),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe();
   }
 
   /**

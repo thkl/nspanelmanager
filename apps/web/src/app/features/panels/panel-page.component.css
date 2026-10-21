@@ -129,6 +129,28 @@ nspanel-screen-preview { margin-bottom: 22px; }
   font-size: 20px;
 }
 
+.connection-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.connection-status.online { color: var(--green-text); }
+.connection-status.offline { color: var(--ink-faint); }
+
+.connection-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.connection-status.online .connection-dot { background: var(--green); }
+
 .add-panel-button {
   width: 100%;
   min-height: 39px;

@@ -6,7 +6,10 @@
     }
     @for (panel of manager.config().panels; track panel.id) {
       <button class="panel-row" [class.selected]="selectedPanelId() === panel.id" [attr.aria-pressed]="selectedPanelId() === panel.id" (click)="selectPanel(panel)">
-        <span class="panel-icon">▣</span><span class="panel-row-copy"><b>{{ panel.name }}</b><small>{{ panel.nodeName }}</small></span><span class="row-arrow">›</span>
+        <span class="panel-icon">▣</span><span class="panel-row-copy"><b>{{ panel.name }}</b><small>{{ panel.nodeName }}</small></span>
+        <span class="connection-status" [class.online]="manager.panelConnections()[panel.nodeName]?.status === 'online'" [class.offline]="manager.panelConnections()[panel.nodeName]?.status !== 'online'" [attr.aria-label]="manager.panelConnections()[panel.nodeName]?.status === 'online' ? 'Online' : 'Offline'">
+          <span class="connection-dot"></span>{{ manager.panelConnections()[panel.nodeName]?.status === 'online' ? 'Online' : 'Offline' }}
+        </span><span class="row-arrow">›</span>
       </button>
     }
     @if (addingPanel()) {
