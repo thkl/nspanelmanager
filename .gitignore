@@ -11,3 +11,5 @@ esphome/secrets.yaml
 .impeccable/
 .pnpm-store/
 esphome/
+docs/security*.md
+**/data/

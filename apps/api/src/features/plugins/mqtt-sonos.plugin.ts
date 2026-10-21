@@ -68,9 +68,12 @@ export class MqttSonosPlugin implements PluginDefinition {
     const playerName = playerNameFor(instance);
     if (!playerName) return undefined;
     if (message.topic === `${SONOS_TOPIC_PREFIX}/household/state`) {
-      const isCoordinator = coordinatorFor(instance, message.payload);
-      if (isCoordinator === undefined || currentState["isCoordinator"] === isCoordinator) return undefined;
-      return { isCoordinator };
+      const householdState = householdStateFor(instance, message.payload);
+      if (!householdState) return undefined;
+      const changed = Object.fromEntries(
+        Object.entries(householdState).filter(([key, value]) => currentState[key] !== value)
+      );
+      return Object.keys(changed).length > 0 ? changed : undefined;
     }
     if (message.topic !== `${SONOS_TOPIC_PREFIX}/${playerName}/state`) return undefined;
     const state = parseSonosState(message.payload);
@@ -262,8 +265,8 @@ function musicCommand(action: string, playerName: string): { topic: string; payl
     case "stop": return { topic: `${topic}group.stop`, payload: "" };
     case "next": return { topic: `${topic}group.next.track`, payload: "" };
     case "prev": return { topic: `${topic}group.previous.track`, payload: "" };
-    case "volup": return { topic: `${topic}group.adjust.volume`, payload: "1" };
-    case "voldn": return { topic: `${topic}group.adjust.volume`, payload: "-1" };
+    case "volup": return { topic: `${topic}player.adjust.volume`, payload: "1" };
+    case "voldn": return { topic: `${topic}player.adjust.volume`, payload: "-1" };
     default: return undefined;
   }
 }
@@ -281,8 +284,8 @@ function playerState(value: PluginState): SonosState {
   return state;
 }
 
-/** Finds this configured player in the household list and returns its known coordinator flag. */
-function coordinatorFor(instance: ResolvedPluginInstance, payload: string): boolean | undefined {
+/** Finds this configured player in the cached household list and normalizes its display state. */
+function householdStateFor(instance: ResolvedPluginInstance, payload: string): PluginState | undefined {
   let value: unknown;
   try { value = JSON.parse(payload); } catch { return undefined; }
   if (!Array.isArray(value)) return undefined;
@@ -297,9 +300,32 @@ function coordinatorFor(instance: ResolvedPluginInstance, payload: string): bool
     const candidate = normalizePlayerName(stringValue(entry["player"]));
     return candidate !== "" && aliases.includes(candidate);
   });
-  return isRecord(player) && typeof player["isCoordinator"] === "boolean"
-    ? player["isCoordinator"]
-    : undefined;
+  if (!isRecord(player)) return undefined;
+
+  const patch: PluginState = {};
+  if (typeof player["isCoordinator"] === "boolean") patch["isCoordinator"] = player["isCoordinator"];
+  if (typeof player["currenttrack"] === "string") {
+    patch["title"] = player["currenttrack"];
+    patch["artist"] = "";
+    patch["album"] = "";
+    patch["artUri"] = "";
+    const playbackState = householdPlaybackState(player["currentstate"], player["currenttrack"]);
+    if (playbackState) patch["playbackState"] = playbackState;
+  }
+  return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+/** Maps the compact household status fields to the normalized playback states used by the plugin. */
+function householdPlaybackState(currentState: unknown, currentTrack: string): SonosState["playbackState"] | undefined {
+  const stateCode = typeof currentState === "number" ||
+    typeof currentState === "string" && currentState.trim() !== ""
+    ? Number(currentState)
+    : Number.NaN;
+  if (stateCode === 1) return "playing";
+  if (stateCode === 0) return currentTrack.trim().toUpperCase() === "[PAUSE]" ? "paused_playback" : "stopped";
+  if (stateCode === 2 || currentTrack.trim().toUpperCase() === "[PAUSE]") return "paused_playback";
+  if (currentTrack.trim().toUpperCase() === "[STOP]") return "stopped";
+  return undefined;
 }
 
 /** Normalizes room labels such as `Living Room` and topic names such as `livingroom`. */

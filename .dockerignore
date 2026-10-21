@@ -9,3 +9,5 @@ esphome/secrets.yaml
 .impeccable/
 .pnpm-store/
 esphome/
+**/data/
+secrets/
