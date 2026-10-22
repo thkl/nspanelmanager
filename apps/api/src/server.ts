@@ -22,6 +22,7 @@ const logger = new Logger();
  * the management API and production Angular files from the same origin.
  */
 async function startServer(): Promise<void> {
+  logger.debug(`we are running ${process.version}`)
   const port = Number(process.env.PORT || 3000);
   const dataDir = process.env.DATA_DIR || path.resolve(process.cwd(), "data");
   const logDirectory = process.env.LOG_DIR?.trim() || path.join(dataDir, "logs");
