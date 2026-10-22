@@ -13,3 +13,4 @@ esphome/secrets.yaml
 esphome/
 docs/security*.md
 **/data/
+graphify-out/

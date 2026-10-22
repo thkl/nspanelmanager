@@ -14,7 +14,11 @@
 
 **Stage 6 — Home-page lights and blinds:** Implemented
 
-**Stage 7 — Sonos:** Next
+**Stage 7 — Sonos:** Implemented
+
+**Stage 8 — Screen dimmer:** Implemented
+
+**Stage 9 — Firmware and HMI delivery:** Planned for post-MVP
 
 ## Implementation Started
 
@@ -24,7 +28,7 @@ The generic scripted plugin and its editor are working. Reusable plugin profiles
 
 NSPanel Manager should let a household configure one or more NSPanels and use them as flexible controls for the wider smart home. It replaces hand-maintained Node-RED flows for panel configuration, device state display, and device control. The long-term product should cover diverse devices through reusable plugins, generic MQTT entities, and user-authored flows.
 
-The MVP targets the existing ESPHome firmware in `esphome/nsp-livingroom.yaml` and `esphome/panel3.yaml`. Firmware flashing and OTA updates are out of scope for this release.
+The MVP targets the existing ESPHome firmware in `esphome/nsp-livingroom.yaml` and `esphome/panel3.yaml`. Firmware flashing and OTA updates remain outside the MVP and are tracked in the post-MVP roadmap below.
 
 ## Current Baseline
 
@@ -108,7 +112,7 @@ The API now has a local administrator store with normalized unique emails, Argon
 
 User-authored JavaScript is part of the scripted-plugin slice, not a later visual-flow milestone. QuickJS runs each function in a limited evaluation context; the manager exposes message data, read-only render context, and explicitly enabled publish/storage effects. See the [QuickJS-emscripten documentation](https://github.com/justjake/quickjs-emscripten) for its limits and evaluation model.
 
-## MVP Scope and Milestones
+## Project Milestones
 
 1. **Scripted plugin — Working.** Reusable profiles and per-device instances, script editor, MQTT subscriptions and actions, page preview, syntax feedback, scoped storage, and favorite bindings are implemented.
 2. **First hardware walkthrough — Approved.** The user confirmed the scripted Dyson flow works well on the available hardware.
@@ -116,7 +120,9 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 4. **MQTT thermostat — Implemented.** Reusable profile and per-device instance variables, configurable status/request/set topics, JSON value extraction, temperature bounds and step, payload templates for requests/setpoints/modes, panel assignment to the native thermostat screen, and page-specific MQTT refresh gating. Firmware `up` and `dn` events adjust the latest target temperature by the configured delta and clamp it to the configured bounds. Changed actual temperature also updates the assigned panel's home-screen temperature. The first profile is configured for Homematic topics, while its fields support other topic and payload conventions.
 5. **Open-Meteo weather — Implemented.** A reusable service profile polls current conditions and a five-day forecast; each instance supplies latitude, longitude, and an optional timezone. The manager translates service data to the firmware weather payload, caches changed data, sends it only while the native weather page is open, and replays the forecast when the page opens. The panel can assign a weather instance independently for each location.
 6. **Lights and blinds on the panel home page — Implemented.** Reusable MQTT light and cover plugins can be assigned to any of the four home tiles. Panel settings configure each tile's `image`, `mode`, and `label`; icon IDs 0–6 represent lamp, bulb, downlight, desk lamp, outdoor lamp, blind, and curtain. Mode 0 shows up/down controls and toggles on the center press, mode 1 opens the level page, and mode 2 toggles without up/down controls. A long press on an assigned light opens the brightness/color screen. Plugin profiles configure status filters, value paths, request/set topics, payload templates, endpoint labels for 0%/100%, brightness steps and conversion ranges, position bounds, and level presets. Brightness values map between the configured MQTT minimum/maximum and the panel's 0–100 scale; set the maximum to 255 for Hue brightness. Color wheel RGB triplets are converted to canonical hue 0–360 and saturation 0–100%, then each is scaled into the configured device minimum/maximum; the default maxima are 255 for Philips Hue. Optional instance variables `PSET1` and `PSET2` supply raw preset payloads. While the home screen is visible, the runtime translates each light or cover state to a display label and sends only that label to `<nodeName>/cmnd/status`. When the level page opens, its zero-based `<nodeName>/event/level/{button}` query resolves the bound tile instance, publishes its configured state request when present, and sends the cached position as a numeric payload to `<nodeName>/cmnd/level/status`; later device updates refresh the level. The local `panel3.yaml` include implements this contract.
-7. **Sonos — Next.** Reuse the plugin model for media status and playback actions after the front-page light and blind flow is established.
+7. **Sonos — Implemented.** Shared player state, panel player selection, playback and volume commands, favorites handoff, and join/leave group actions use the existing MQTT bridge.
+8. **Screen dimmer — Implemented.** Panel page events can be assigned to a screen-dimmer instance that sets Nextion brightness by page.
+9. **Firmware and HMI delivery — Planned post-MVP.** Upload compatible ESPHome OTA images and Nextion `.tft` assets, assign the HMI URL at runtime per panel, and manage secure, observable rollouts from the manager.
 
 ## MVP Acceptance Criteria
 
@@ -141,11 +147,33 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 
 ## Decisions for Later Milestones
 
-- Should Sonos connect through an existing MQTT integration or directly to the local Sonos API?
+- Should firmware artifacts be uploaded per panel, or should the manager build target-specific images from a shared ESPHome configuration?
+
+## Post-MVP Roadmap: Firmware and HMI Delivery
+
+Add an authenticated firmware and HMI workspace for administrators to upload artifacts, assign them to registered panels, and track each panel's update result. Keep firmware binaries and Nextion `.tft` files as separate artifact types.
+
+### ESPHome Firmware Updates
+
+- Upload an ESPHome OTA-format firmware image, record its version, checksum, target, and compatible panel profile, then select one or more panels for rollout. Panel builds can embed `node_name`, `hostname`, IP, and secrets, so the manager must prevent sending a target-specific image to an incompatible panel.
+- Avoid adding `esphome-cli` to the manager runtime. Add ESPHome's `http_request` OTA platform and an MQTT-triggered update action to the firmware. The manager hosts a short-lived, authenticated download URL and asks each selected panel to pull the image. The ESPHome `http_request` OTA platform is designed for this device-initiated flow and requires an OTA-format image: [ESPHome HTTP-request OTA](https://esphome.io/components/ota/http_request/).
+- Existing panels need one bootstrap firmware update through the current ESPHome OTA workflow before manager-triggered HTTP updates are available. Retain native ESPHome OTA as a recovery option. Roll out sequentially, report per-panel progress, and confirm the panel returns online and resumes heartbeats after reboot.
+
+### Nextion HMI Updates
+
+- Upload and version `.tft` assets independently from ESP firmware, associate each asset with compatible panel/HMI profiles, and select target panels for an update.
+- Replace the hardcoded `display_update_url` substitution in `esphome/nsp-livingroom.yaml` with a manager-assigned runtime URL. The firmware can set the Nextion driver's URL with `set_tft_url()` before calling its existing `upload_tft()` flow; see the [ESPHome Nextion upload documentation](https://esphome.io/components/display/nextion/).
+- Use a short-lived authenticated URL reachable from each panel. Keep the current panel confirmation flow for HMI updates, show update status in the manager, and report completion after the panel reconnects.
+
+### Rollout and Recovery
+
+- Start with one selected panel, then allow batches with a configurable delay between panels. Do not send a settings refresh during an update.
+- Persist artifact metadata and update-job history in the manager data directory, while keeping download URLs temporary and credentials protected.
+- Document USB/serial recovery for panels that cannot reconnect after an update. Validate firmware and HMI updates on a test panel before enabling broad rollouts.
 
 ## Out of Scope for the MVP
 
-- Firmware flashing, OTA management, and changing the panel's TFT assets.
+- Firmware flashing, OTA management, and changing the panel's TFT assets are out of the MVP and planned as a post-MVP milestone.
 - A plugin marketplace or third-party package installation.
 - A visual drag-and-drop automation editor.
 - Integrations for every smart-home platform; generic MQTT entities and the plugin contract provide the extension path.
