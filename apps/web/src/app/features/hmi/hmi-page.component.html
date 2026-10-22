@@ -43,16 +43,20 @@
 
     <section class="panel-section" aria-labelledby="panel-targets-title">
       <div class="section-heading">
-        <div><h3 id="panel-targets-title">Choose a panel</h3><p>The panel will show its existing HMI confirmation screen before downloading the file.</p></div>
+        <div><h3 id="panel-targets-title">Choose a panel</h3><p>Send an update prompt, or force the panel to start downloading immediately.</p></div>
         <span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'MQTT connected' : 'MQTT disconnected' }}</span>
       </div>
+      <label class="force-option" [class.force-active]="forceUpdate()">
+        <input type="checkbox" [checked]="forceUpdate()" (change)="setForceUpdate($event)">
+        <span><b>Force update</b><small>Start immediately without waiting for confirmation on the panel.</small></span>
+      </label>
       @if (manager.config().panels.length) {
         <div class="panel-list">
           @for (panel of manager.config().panels; track panel.id) {
             <article class="panel-row">
               <div class="panel-copy"><h4>{{ panel.name }}</h4><p>{{ panel.nodeName }}/cmnd/updatehmi</p></div>
               <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingPanelId() !== ''" (click)="requestUpdate(panel)">
-                {{ updatingPanelId() === panel.id ? 'Sending…' : 'Send update prompt' }}
+                {{ updatingPanelId() === panel.id ? 'Sending…' : forceUpdate() ? 'Force update now' : 'Send update prompt' }}
               </button>
             </article>
           }

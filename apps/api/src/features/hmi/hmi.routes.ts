@@ -30,6 +30,9 @@ export function createHmiRouter(hmiService: HmiArtifactService, store: ConfigSto
   });
 
   router.post("/panels/:panelId/update", async (request, response, next) => {
+    const forceValue: unknown = request.body?.force;
+    if (forceValue !== undefined && typeof forceValue !== "boolean") return response.status(400).json({ error: "The force option must be a boolean." });
+    const force = forceValue === true;
     const panelId = request.params.panelId;
     const panel = store.get().panels.find((item) => item.id === panelId);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
@@ -39,11 +42,12 @@ export function createHmiRouter(hmiService: HmiArtifactService, store: ConfigSto
     try {
       const download = await hmiService.createDownloadUrl();
       const topic = `${panel.nodeName}/cmnd/updatehmi`;
-      if (!mqttRuntime.publishHmiUpdate(panel, download.url)) return response.status(503).json({ error: "The MQTT broker disconnected before the update request could be sent." });
+      if (!mqttRuntime.publishHmiUpdate(panel, download.url, force)) return response.status(503).json({ error: "The MQTT broker disconnected before the update request could be sent." });
       logger.info("HMI update request published.", {
         component: "hmi",
         panel: panel.nodeName,
         artifactId: hmiService.currentArtifact()?.id ?? "unknown",
+        force: String(force),
         grantExpiresAt: download.expiresAt,
         requestedBy: request.authUser?.email ?? "unknown"
       });

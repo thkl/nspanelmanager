@@ -16,6 +16,7 @@ export class HmiPageComponent implements OnInit {
   readonly loading = signal(true);
   readonly uploading = signal(false);
   readonly updatingPanelId = signal("");
+  readonly forceUpdate = signal(false);
   readonly maxUploadBytes = signal(32 * 1024 * 1024);
   readonly fileInput = viewChild<ElementRef<HTMLInputElement>>("fileInput");
 
@@ -81,17 +82,26 @@ export class HmiPageComponent implements OnInit {
   /** Sends a fresh temporary download URL to the selected panel over MQTT. */
   requestUpdate(panel: Panel): void {
     if (this.updatingPanelId() || !this.artifact() || !this.manager.mqtt().connected) return;
+    const force = this.forceUpdate();
     this.updatingPanelId.set(panel.id);
-    this.manager.requestHmiUpdate(panel.id).subscribe({
+    this.manager.requestHmiUpdate(panel.id, force).subscribe({
       next: ({ expiresAt }) => {
         this.updatingPanelId.set("");
-        this.manager.inform(`Update prompt sent to ${panel.name}. Press UPDATE on the panel to begin; its download link expires at ${this.formatTimestamp(expiresAt)}.`);
+        this.manager.inform(force
+          ? `Forced update started on ${panel.name}; the panel will not ask for confirmation.`
+          : `Update prompt sent to ${panel.name}. Press UPDATE on the panel to begin; its download link expires at ${this.formatTimestamp(expiresAt)}.`);
       },
       error: (error: unknown) => {
         this.updatingPanelId.set("");
         this.manager.inform(this.errorMessage(error), "error");
       }
     });
+  }
+
+  /** Updates whether the next panel request should bypass the on-panel confirmation. */
+  setForceUpdate(event: Event): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) this.forceUpdate.set(target.checked);
   }
 
   /** Formats artifact size for the uploaded-file summary. */

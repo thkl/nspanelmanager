@@ -32,6 +32,12 @@
 .panel-section { overflow: hidden; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 19px; border-bottom: 1px solid var(--line); }
 .section-heading h3 { margin-bottom: 4px; }
+.force-option { display: flex; align-items: center; gap: 11px; margin: 14px 19px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field-bg); cursor: pointer; }
+.force-option.force-active { border-color: var(--amber-line); background: var(--amber-soft); }
+.force-option input { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--amber-text); cursor: pointer; }
+.force-option input:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.force-option b { display: block; color: var(--ink); font-size: 12px; }
+.force-option small { display: block; margin-top: 3px; color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
 .mqtt-state { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--amber-line); border-radius: 99px; background: var(--amber-soft); color: var(--amber-text); font-size: 10px; font-weight: 700; }
 .mqtt-state.connected { border-color: var(--green-line); background: var(--green-soft); color: var(--green-text); }
 .panel-list { display: grid; }
