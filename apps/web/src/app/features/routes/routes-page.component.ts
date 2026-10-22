@@ -67,12 +67,28 @@ export class RoutesPageComponent implements OnInit {
     this.draft.update((draft) => ({ ...draft, direction, panelId: direction === "external-to-panel" ? draft.panelId : "" }));
   }
 
+  /** Changes the optional payload filter while retaining its current inputs. */
+  setFilterMode(mode: RouteDraft["payloadFilter"]["mode"]): void {
+    this.draft.update((draft) => ({ ...draft, payloadFilter: { ...draft.payloadFilter, mode } }));
+  }
+
+  /** Describes an active filter beside its route so it can be reviewed later. */
+  filterSummary(route: MqttRoute): string | undefined {
+    const filter = route.payloadFilter;
+    if (!filter) return undefined;
+    if (filter.mode === "json-equals") return `${filter.path} equals ${JSON.stringify(filter.value)}`;
+    return `${filter.mode} ${JSON.stringify(filter.value)}`;
+  }
+
   /** Resolves a route's optional panel id into the current human-readable name. */
   panelName(id: string | undefined): string {
     return this.manager.config().panels.find((panel) => panel.id === id)?.name ?? "All matching panels";
   }
 
   private emptyDraft(): RouteDraft {
-    return { name: "", direction: "external-to-panel", panelId: "", sourceTopic: "", targetTopic: "", payloadTemplate: "{{payload}}" };
+    return {
+      name: "", direction: "external-to-panel", panelId: "", sourceTopic: "", targetTopic: "", payloadTemplate: "{{payload}}",
+      payloadFilter: { mode: "none", path: "", value: "" }
+    };
   }
 }

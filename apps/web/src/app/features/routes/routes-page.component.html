@@ -10,7 +10,7 @@
       @for (route of manager.config().routes; track route.id) {
         <div class="route-row">
           <div class="route-direction">{{ route.direction === 'external-to-panel' ? 'EXT → PANEL' : 'PANEL → EXT' }}</div>
-          <div class="route-details"><b>{{ route.name }}</b><code>{{ route.sourceTopic }}</code><span>→</span><code>{{ route.targetTopic }}</code>@if (route.panelId) { <small>Panel: {{ panelName(route.panelId) }}</small> }</div>
+          <div class="route-details"><b>{{ route.name }}</b><code>{{ route.sourceTopic }}</code><span>→</span><code>{{ route.targetTopic }}</code>@if (route.panelId) { <small>Panel: {{ panelName(route.panelId) }}</small> }@if (filterSummary(route); as summary) { <small>Payload filter: {{ summary }}</small> }</div>
           <button class="text-danger" (click)="removeRoute(route)">Remove</button>
         </div>
       }
@@ -19,7 +19,7 @@
     <div class="empty-routes"><b>No routes configured</b><span>Create a route below to connect your devices.</span></div>
   }
 
-  <div class="section-title section-spaced route-form-title"><span class="section-number">＋</span><div><h3>Add a route</h3><p>Source topics accept + and # wildcards. Payload tokens: payload, topic, nodeName, and JSON paths like json.temperature.</p></div></div>
+  <div class="section-title section-spaced route-form-title"><span class="section-number">＋</span><div><h3>Add a route</h3><p>Source topics accept + and # wildcards. Optional payload filters can match text, the full payload, or a JSON value. Payload template tokens include payload, topic, nodeName, and JSON paths like json.temperature.</p></div></div>
   <div class="route-form">
     <label>Route name<input [(ngModel)]="draft().name" placeholder="Thermostat current temperature"></label>
     <label>Direction<select [ngModel]="draft().direction" (ngModelChange)="setDirection($event)"><option value="external-to-panel">External state → panel</option><option value="panel-to-external">Panel event → device</option></select></label>
@@ -28,6 +28,14 @@
     }
     <label>Source topic<input [(ngModel)]="draft().sourceTopic" [placeholder]="draft().direction === 'external-to-panel' ? 'home/thermostat/temperature' : 'nsp-livingroom/event/item/0'"></label>
     <label>Target topic<input [(ngModel)]="draft().targetTopic" [placeholder]="targetTopicPlaceholder"></label>
+    <label>Payload filter<select [ngModel]="draft().payloadFilter.mode" (ngModelChange)="setFilterMode($event)"><option value="none">No filter</option><option value="contains">Contains text</option><option value="equals">Exact payload</option><option value="json-equals">JSON path equals</option></select></label>
+    @if (draft().payloadFilter.mode === 'contains' || draft().payloadFilter.mode === 'equals') {
+      <label>Matching text<input [(ngModel)]="draft().payloadFilter.value" [placeholder]="draft().payloadFilter.mode === 'contains' ? 'press' : 'true'"><small>{{ draft().payloadFilter.mode === 'equals' ? 'Matches the complete payload exactly.' : 'Matches this case-sensitive text anywhere in the payload.' }}</small></label>
+    }
+    @if (draft().payloadFilter.mode === 'json-equals') {
+      <label>JSON path<input [(ngModel)]="draft().payloadFilter.path" placeholder="buttons.b1"><small>Use dot-separated property names, such as buttons.b1.</small></label>
+      <label>Expected value<input [(ngModel)]="draft().payloadFilter.value" placeholder="press"></label>
+    }
     <label class="wide">Payload template<input [(ngModel)]="draft().payloadTemplate" placeholder="payload"><small>For external-to-panel routes, the selected panel’s node name is used in the target topic.</small></label>
     <div class="wide form-actions"><button class="button primary" [disabled]="saving()" (click)="addRoute()">{{ saving() ? 'Adding…' : 'Add route' }} <span>＋</span></button></div>
   </div>

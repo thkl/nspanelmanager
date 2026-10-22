@@ -492,6 +492,7 @@ export class MqttRuntime {
 
     for (const route of config.routes) {
       if (!matchesTopic(route.sourceTopic, topic)) continue;
+      if (!matchesPayloadFilter(route.payloadFilter, payload)) continue;
       if (route.direction === "panel-to-external" && !eventPanel) continue;
       if (route.direction === "external-to-panel" && eventPanel) continue;
       this.applyRoute(route, topic, payload, eventPanel, config.panels);
@@ -1485,4 +1486,22 @@ function renderPayload(template: string, topic: string, payload: string, panel?:
     }, parsed) : undefined;
     return value === undefined || value === null ? "" : String(value);
   });
+}
+
+/** Checks the raw payload or one scalar value parsed from its JSON body. */
+function matchesPayloadFilter(filter: MqttRoute["payloadFilter"], payload: string): boolean {
+  if (!filter) return true;
+  if (filter.mode === "contains") return payload.includes(filter.value);
+  if (filter.mode === "equals") return payload === filter.value;
+  if (filter.mode !== "json-equals") return false;
+
+  let parsed: unknown;
+  try { parsed = JSON.parse(payload); } catch { return false; }
+  const value = filter.path.split(".").reduce<unknown>((current, part) => {
+    if (!current || typeof current !== "object" || !Object.hasOwn(current, part)) return undefined;
+    return (current as Record<string, unknown>)[part];
+  }, parsed);
+  if (typeof value === "string") return value === filter.value;
+  if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value) === filter.value;
+  return false;
 }

@@ -35,6 +35,10 @@ export interface Panel {
 
 export type RouteDirection = "external-to-panel" | "panel-to-external";
 
+export type RoutePayloadFilter =
+  | { mode: "contains" | "equals"; value: string }
+  | { mode: "json-equals"; path: string; value: string };
+
 export interface MqttRoute {
   id: string;
   name: string;
@@ -43,6 +47,7 @@ export interface MqttRoute {
   sourceTopic: string;
   targetTopic: string;
   payloadTemplate: string;
+  payloadFilter?: RoutePayloadFilter;
 }
 
 export type PluginConfigValue = string | number | boolean;
@@ -166,6 +171,7 @@ export interface RouteDraft {
   sourceTopic: string;
   targetTopic: string;
   payloadTemplate: string;
+  payloadFilter: { mode: "none" | "contains" | "equals" | "json-equals"; path: string; value: string };
 }
 
 export interface PluginInstanceDraft {
