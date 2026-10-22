@@ -1,6 +1,6 @@
 # NSPanel Manager
 
-NSPanel Manager is a TypeScript application for configuring and operating NSPanel firmware through MQTT. It replaces hand-edited Node-RED flows for panel settings and simple device topic mappings. It does not flash or update firmware. The Angular 22 UI uses standalone feature pages with separate TypeScript, HTML, and CSS files; the Express API is divided into feature routers, domain helpers, and services.
+NSPanel Manager is a TypeScript application for configuring and operating NSPanel firmware through MQTT. It replaces hand-edited Node-RED flows for panel settings and simple device topic mappings. It can upload and deliver Nextion HMI files; ESPHome firmware flashing remains a separate operation. The Angular 22 UI uses standalone feature pages with separate TypeScript, HTML, and CSS files; the Express API is divided into feature routers, domain helpers, and services.
 
 ## Features in this MVP
 
@@ -90,6 +90,10 @@ The container data directory defaults to `/data`. Set `DATA_DIR` in `.env` to an
 
 The authenticated workspace includes a **Logs** page with category and severity filters, plus paging at 50, 100, or 200 records per page. The API bounds each read to 20,000 scanned lines; narrow the filters when older entries are needed. It writes structured JSON log records to `DATA_DIR/logs` by default (`/data/logs` in Docker). Set `LOG_DIR` to use another directory; if you do, make sure it is writable by the manager and mounted persistently in Docker. Winston rotates files daily or at 10 MB and retains the latest 20 files. The manager creates the log directory with owner-only access and log files with owner read/write access. Treat logs as sensitive: configured scripts can write their own values through `debug.log(...)`.
 
+## HMI updates
+
+The authenticated **HMI updates** page accepts a Nextion `.tft` file up to 32 MB, stores it in `DATA_DIR/hmi`, and can send a six-hour download link to one configured panel over MQTT. The panel keeps its existing on-screen confirmation; press **UPDATE** on the panel to begin. Panels must run the current `esphome/panel4.yaml` firmware included by `esphome/nsp-livingroom.yaml`. The configured `APP_PUBLIC_URL` must be reachable from the panel. Set `HMI_PUBLIC_URL` to a panel-network address if the manager's browser-facing URL is not reachable there; local development may use the API host and port `3000`. The `.tft` file is included in manager data backups.
+
 ## Backups and manual restore
 
 Signed-in administrators can open **Backup** and download a ZIP of the complete configured `DATA_DIR`. The archive streams directly to the browser and includes regular files under that directory, including logs when `LOG_DIR` is inside it. Treat the downloaded ZIP as sensitive because it contains user records, configuration, and saved script state.
@@ -124,7 +128,7 @@ Create an **MQTT thermostat** profile under **Plugins**, then create an instance
 
 The default request payload is `{}`. Set temperature publishes the numeric value from `{{value}}`; panel `up` and `dn` events add or subtract the configured delta from the latest target, clamped to the configured minimum and maximum. Auto and Boost use `mode:{{mode}}`, producing `mode:auto` or `mode:boost`. The profile also exposes an optional target request topic and configurable minimum, maximum, Up/Down delta, and all three payload templates. Change the value path or templates to match another MQTT thermostat's payload contract.
 
-On the panel's **Panels** page, assign the thermostat instance in **Thermostat page**. The manager requests state when the built-in thermostat page opens, translates its temperature and mode events to MQTT, and sends current/target updates only while that page is open. When the assigned thermostat's actual temperature changes, it also publishes the numeric reading to `<nodeName>/cmnd/temperature/current` for the panel's home-screen temperature. Flash compatible firmware from `esphome/panel3.yaml`: it publishes `event/page/thermostat` on entry and `event/page/page0` on Back so the manager knows when to stop thermostat-page updates. Other `/event/page/#` navigation and display sleep also clear the active page.
+On the panel's **Panels** page, assign the thermostat instance in **Thermostat page**. The manager requests state when the built-in thermostat page opens, translates its temperature and mode events to MQTT, and sends current/target updates only while that page is open. When the assigned thermostat's actual temperature changes, it also publishes the numeric reading to `<nodeName>/cmnd/temperature/current` for the panel's home-screen temperature. Flash compatible firmware from `esphome/panel4.yaml`: it publishes `event/page/thermostat` on entry and `event/page/page0` on Back so the manager knows when to stop thermostat-page updates. Other `/event/page/#` navigation and display sleep also clear the active page.
 
 ## Built-in weather screen
 

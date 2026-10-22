@@ -8,8 +8,9 @@ import { AuthPageComponent } from "./app/features/auth/auth-page.component";
 import { UsersPageComponent } from "./app/features/auth/users-page.component";
 import { LogsPageComponent } from "./app/features/logs/logs-page.component";
 import { BackupsPageComponent } from "./app/features/backups/backups-page.component";
+import { HmiPageComponent } from "./app/features/hmi/hmi-page.component";
 
-type WorkspaceView = "panels" | "plugins" | "routes" | "broker" | "users" | "logs" | "backups";
+type WorkspaceView = "panels" | "plugins" | "routes" | "broker" | "users" | "logs" | "backups" | "hmi";
 
 /**
  * Provides the persistent workspace shell and coordinates manager feature
@@ -20,7 +21,7 @@ type WorkspaceView = "panels" | "plugins" | "routes" | "broker" | "users" | "log
 @Component({
   selector: "nspanel-app",
   standalone: true,
-  imports: [AuthPageComponent, PanelPageComponent, PluginsPageComponent, RoutesPageComponent, BrokerPageComponent, UsersPageComponent, LogsPageComponent, BackupsPageComponent],
+  imports: [AuthPageComponent, PanelPageComponent, PluginsPageComponent, RoutesPageComponent, BrokerPageComponent, UsersPageComponent, LogsPageComponent, BackupsPageComponent, HmiPageComponent],
   templateUrl: "./app.component.html",
   styleUrl: "./app.component.css"
 })
@@ -34,6 +35,7 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly brokerPage = viewChild(BrokerPageComponent);
   readonly usersPage = viewChild(UsersPageComponent);
   readonly logsPage = viewChild(LogsPageComponent);
+  readonly hmiPage = viewChild(HmiPageComponent);
   readonly authLoaded = signal(false);
   readonly authError = signal(false);
   private healthTimer?: ReturnType<typeof setInterval>;
@@ -99,7 +101,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   /** Identifies views grouped under the Settings menu. */
   isSettingsView(view: WorkspaceView = this.view()): boolean {
-    return view === "broker" || view === "users" || view === "logs" || view === "backups";
+    return view === "broker" || view === "users" || view === "logs" || view === "backups" || view === "hmi";
   }
 
   /**
@@ -116,17 +118,18 @@ export class AppComponent implements OnInit, OnDestroy {
       case "broker": this.brokerPage()?.refresh(); break;
       case "users": this.usersPage()?.refresh(); break;
       case "logs": this.logsPage()?.refresh(); break;
+      case "hmi": this.hmiPage()?.refresh(); break;
     }
   }
 
   /** Human-readable heading matching the selected workspace feature. */
   get pageTitle(): string {
-    return this.view() === "panels" ? "Panel manager" : this.view() === "plugins" ? "Plugin manager" : this.view() === "routes" ? "MQTT routes" : this.view() === "users" ? "User accounts" : this.view() === "logs" ? "Application logs" : this.view() === "backups" ? "Data backup" : "Broker connection";
+    return this.view() === "panels" ? "Panel manager" : this.view() === "plugins" ? "Plugin manager" : this.view() === "routes" ? "MQTT routes" : this.view() === "users" ? "User accounts" : this.view() === "logs" ? "Application logs" : this.view() === "backups" ? "Data backup" : this.view() === "hmi" ? "HMI updates" : "Broker connection";
   }
 
   /** Breadcrumb label matching the selected workspace feature. */
   get viewLabel(): string {
-    return this.view() === "panels" ? "PANELS" : this.view() === "plugins" ? "PLUGINS" : this.view() === "routes" ? "AUTOMATIONS" : this.view() === "users" ? "ACCESS" : this.view() === "logs" || this.view() === "backups" ? "SYSTEM" : "SETUP";
+    return this.view() === "panels" ? "PANELS" : this.view() === "plugins" ? "PLUGINS" : this.view() === "routes" ? "AUTOMATIONS" : this.view() === "users" ? "ACCESS" : this.view() === "logs" || this.view() === "backups" || this.view() === "hmi" ? "SYSTEM" : "SETUP";
   }
 
   /** Revokes the current session and reveals the sign-in screen. */

@@ -4,6 +4,8 @@
 
 This is a static review of `esphome/nsp-livingroom.yaml`, the shared display implementation in `esphome/panel3.yaml`, and the manager's MQTT runtime and panel adapter. No firmware or application code was changed, and no ESPHome validation or hardware test was run.
 
+Status note: this review predates the switch to `panel4.yaml` as the active include and the manager-driven HMI URL handler. Findings below retain the earlier panel3 line references as a review snapshot.
+
 The firmware already has a useful separation between reusable scripts and MQTT/UI event handlers, and it tracks the active page for several updates. There is still room to improve display-update behavior, input handling, configuration refreshes, and maintainability. The recommendations below preserve the current MQTT protocol unless a later firmware change is chosen.
 
 ## Firmware follow-up review (2026-10-21)

@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, ManagerConfig, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
+import type { AuthStatus, AuthUser, BrokerInput, ManagerConfig, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -104,6 +104,26 @@ export class ManagerStore {
     return this.http.get<{ panels: PanelConnectionStatus[] }>("/api/panels/status").pipe(tap(({ panels }) => {
       this.panelConnections.set(Object.fromEntries(panels.map((panel) => [panel.nodeName, panel])));
     }));
+  }
+
+  /** Loads the latest uploaded HMI artifact and the API upload limit. */
+  loadHmiArtifact(): Observable<{ artifact: HmiArtifact | null; maxUploadBytes: number }> {
+    return this.http.get<{ artifact: HmiArtifact | null; maxUploadBytes: number }>("/api/hmi");
+  }
+
+  /** Uploads the selected `.tft` file as a binary request body. */
+  uploadHmi(file: File): Observable<{ artifact: HmiArtifact }> {
+    return this.http.post<{ artifact: HmiArtifact }>("/api/hmi/upload", file, {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Hmi-Filename": encodeURIComponent(file.name)
+      }
+    });
+  }
+
+  /** Requests the selected panel to show its existing HMI update confirmation screen. */
+  requestHmiUpdate(panelId: string): Observable<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string }> {
+    return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string }>(`/api/hmi/panels/${panelId}/update`, {});
   }
 
   /** Reads a bounded, optionally filtered set of recent records from rotated manager log files. */

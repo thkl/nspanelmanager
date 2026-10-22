@@ -45,6 +45,15 @@ export interface PanelConnectionStatus {
   lastSeenAt: number | null;
 }
 
+/** Metadata returned by the authenticated HMI upload and status endpoints. */
+export interface HmiArtifactRecord {
+  id: string;
+  filename: string;
+  size: number;
+  sha256: string;
+  uploadedAt: string;
+}
+
 export type RouteDirection = "external-to-panel" | "panel-to-external";
 
 export type RoutePayloadFilter =

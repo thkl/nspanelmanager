@@ -10,7 +10,9 @@ esphome/secrets.yaml
 .DS_Store
 .impeccable/
 .pnpm-store/
-esphome/
+esphome/*
+!esphome/nsp-livingroom.yaml
+!esphome/panel4.yaml
 docs/security*.md
 **/data/
 graphify-out/

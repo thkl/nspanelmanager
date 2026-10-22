@@ -47,6 +47,11 @@ export class MqttRuntime {
   /** Exposes health only; credentials and the client object never leave this service. */
   status(): { connected: boolean; error: string } { return { connected: this.connected, error: this.lastError }; }
 
+  /** Publishes a manager-hosted HMI download URL to the selected panel's update topic. */
+  publishHmiUpdate(panel: Panel, url: string): boolean {
+    return this.publish(`${panel.nodeName}/cmnd/updatehmi`, JSON.stringify({ url }));
+  }
+
   /** Returns live panel connection state without adding runtime data to saved configuration. */
   panelConnectionStatuses(): PanelConnectionStatus[] {
     const now = Date.now();

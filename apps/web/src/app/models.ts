@@ -138,6 +138,15 @@ export interface PanelConnectionStatus {
   lastSeenAt: number | null;
 }
 
+/** Metadata for the latest Nextion HMI artifact uploaded to the manager. */
+export interface HmiArtifact {
+  id: string;
+  filename: string;
+  size: number;
+  sha256: string;
+  uploadedAt: string;
+}
+
 export interface ManagerState {
   config: ManagerConfig;
   mqtt: MqttStatus;

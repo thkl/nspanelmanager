@@ -11,6 +11,7 @@ import { UserStore } from "./features/auth/user-store.js";
 import { CredentialEncryption } from "./features/security/credential-encryption.js";
 import { LogFileReader } from "./features/logs/log-file-reader.js";
 import { BackupArchiveService } from "./features/backups/backup-archive-service.js";
+import { HmiArtifactService } from "./features/hmi/hmi-artifact-service.js";
 
 const logger = new Logger();
 
@@ -39,6 +40,9 @@ async function startServer(): Promise<void> {
   const runtimeState = new RuntimeStateStore(dataDir, logger);
   await runtimeState.load();
   const backupService = new BackupArchiveService(dataDir, () => runtimeState.flush());
+  const hmiPublicUrl = process.env.HMI_PUBLIC_URL?.trim() || process.env.APP_PUBLIC_URL?.trim() || "";
+  const hmiService = new HmiArtifactService(dataDir, hmiPublicUrl);
+  await hmiService.load();
   const setUserStorePermissions = process.env.USER_STORE_SET_PERMISSIONS?.trim().toLowerCase() !== "false";
   const userStore = new UserStore(dataDir, setUserStorePermissions);
   await userStore.load();
@@ -67,7 +71,7 @@ async function startServer(): Promise<void> {
   const pluginRegistry = createDefaultPluginRegistry();
   const mqttRuntime = new MqttRuntime(store, pluginRegistry, runtimeState, logger);
   await mqttRuntime.reconnect();
-  const httpServer = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService).listen(port, () => logger.info(`NSPanel Manager listening on port ${port}`, { component: "server" }));
+  const httpServer = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, hmiService).listen(port, () => logger.info(`NSPanel Manager listening on port ${port}`, { component: "server" }));
   registerShutdownHandlers(httpServer, mqttRuntime, runtimeState, logger);
 }
 

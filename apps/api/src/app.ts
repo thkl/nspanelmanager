@@ -14,6 +14,8 @@ import { createLogsRouter } from "./features/logs/logs.routes.js";
 import type { LogFileReader } from "./features/logs/log-file-reader.js";
 import { createBackupsRouter } from "./features/backups/backups.routes.js";
 import type { BackupArchiveService } from "./features/backups/backup-archive-service.js";
+import { createHmiDownloadRouter, createHmiRouter } from "./features/hmi/hmi.routes.js";
+import type { HmiArtifactService } from "./features/hmi/hmi-artifact-service.js";
 
 const logger = new Logger();
 
@@ -25,7 +27,7 @@ const logger = new Logger();
  * production it serves the Angular build from `WEB_ROOT`; local development
  * uses Angular CLI's dev server and proxies `/api` to this application.
  */
-export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry, authService: AuthService, logger: Logger, logFileReader: LogFileReader, backupService: BackupArchiveService): Express {
+export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry, authService: AuthService, logger: Logger, logFileReader: LogFileReader, backupService: BackupArchiveService, hmiService: HmiArtifactService): Express {
   const app = express();
   app.set("trust proxy", parseTrustProxySetting(process.env.TRUST_PROXY));
   app.disable("x-powered-by");
@@ -41,10 +43,12 @@ export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRe
   }
 
   app.use("/api/auth", createAuthRouter(authService, logger));
+  app.use("/api/hmi", createHmiDownloadRouter(hmiService, logger));
   app.use("/api", requireAuthenticatedUser(authService));
 
   app.use("/api/logs", createLogsRouter(logFileReader));
   app.use("/api/backups", createBackupsRouter(backupService, logger));
+  app.use("/api/hmi", createHmiRouter(hmiService, store, mqttRuntime, logger));
   app.get("/api/health", (_request, response) => response.json({ ok: true, mqtt: mqttRuntime.status() }));
   app.get("/api/state", (_request, response) => response.json({ config: publicConfig(store.get(), pluginRegistry), mqtt: mqttRuntime.status() }));
   app.use("/api/broker", createBrokerRouter(store, mqttRuntime, pluginRegistry));

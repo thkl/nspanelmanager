@@ -1,0 +1,75 @@
+<section class="hmi-page" aria-label="HMI updates">
+  <div class="hmi-heading">
+    <div>
+      <p class="eyebrow">DISPLAY MAINTENANCE</p>
+      <h2>Nextion HMI update</h2>
+      <p class="hmi-description">Upload a TFT file, then send a temporary manager download link to one panel.</p>
+    </div>
+  </div>
+
+  <article class="hmi-card upload-card">
+    <div class="hmi-icon" aria-hidden="true">↑</div>
+    <div class="card-copy">
+      <h3>Upload HMI file</h3>
+      <p>The latest upload becomes the selected version. Files still referenced by active panel links are retained until those links expire. The manager records size and SHA-256 checksum.</p>
+      <div class="file-picker">
+        <label for="hmi-file">TFT file</label>
+        <input #fileInput id="hmi-file" type="file" accept=".tft,application/octet-stream" [disabled]="uploading()" (change)="selectFile($event)">
+        @if (selectedFile(); as file) {
+          <div class="selected-file"><span>{{ file.name }}</span><span>{{ formatSize(file.size) }}</span></div>
+        }
+        <button class="primary-button" type="button" [disabled]="!selectedFile() || uploading()" (click)="upload()">
+          {{ uploading() ? 'Uploading…' : 'Upload TFT' }}
+        </button>
+      </div>
+    </div>
+  </article>
+
+  @if (loading()) {
+    <p class="loading-note" aria-live="polite">Loading stored HMI file…</p>
+  } @else if (artifact(); as currentArtifact) {
+    <article class="artifact-card">
+      <div class="artifact-topline"><span class="status-dot" aria-hidden="true"></span><span>READY TO SEND</span></div>
+      <div class="artifact-main">
+        <div>
+          <h3>{{ currentArtifact.filename }}</h3>
+          <p>{{ formatSize(currentArtifact.size) }} · Uploaded {{ formatTimestamp(currentArtifact.uploadedAt) }}</p>
+        </div>
+      </div>
+      <dl class="artifact-details">
+        <div><dt>SHA-256</dt><dd>{{ currentArtifact.sha256 }}</dd></div>
+      </dl>
+    </article>
+
+    <section class="panel-section" aria-labelledby="panel-targets-title">
+      <div class="section-heading">
+        <div><h3 id="panel-targets-title">Choose a panel</h3><p>The panel will show its existing HMI confirmation screen before downloading the file.</p></div>
+        <span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'MQTT connected' : 'MQTT disconnected' }}</span>
+      </div>
+      @if (manager.config().panels.length) {
+        <div class="panel-list">
+          @for (panel of manager.config().panels; track panel.id) {
+            <article class="panel-row">
+              <div class="panel-copy"><h4>{{ panel.name }}</h4><p>{{ panel.nodeName }}/cmnd/updatehmi</p></div>
+              <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingPanelId() !== ''" (click)="requestUpdate(panel)">
+                {{ updatingPanelId() === panel.id ? 'Sending…' : 'Send update prompt' }}
+              </button>
+            </article>
+          }
+        </div>
+      } @else {
+        <p class="empty-note">Add a panel under Panels before requesting an HMI update.</p>
+      }
+    </section>
+  } @else {
+    <aside class="empty-artifact" role="note">
+      <h3>No HMI file uploaded</h3>
+      <p>Choose a compatible Nextion <code>.tft</code> file above. It will be stored in the manager's persistent data directory.</p>
+    </aside>
+  }
+
+  <aside class="hmi-notice" role="note">
+    <h3>Before sending an update</h3>
+    <p>Panels must run the updated <code>panel4.yaml</code> firmware to accept a manager URL. Set <code>HMI_PUBLIC_URL</code> when the manager's browser URL is not reachable from the panel network. The link is valid for six hours.</p>
+  </aside>
+</section>

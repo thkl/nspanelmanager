@@ -38,6 +38,9 @@
         <button class="nav-item settings-child" type="button" aria-label="Data backup" [class.active]="view() === 'backups'" [attr.aria-current]="view() === 'backups' ? 'page' : null" (click)="show('backups')">
           <span>↓</span> Backup
         </button>
+        <button class="nav-item settings-child" type="button" aria-label="HMI updates" [class.active]="view() === 'hmi'" [attr.aria-current]="view() === 'hmi' ? 'page' : null" (click)="show('hmi')">
+          <span>▧</span> HMI updates
+        </button>
       </div>
     </div>
     <div class="sidebar-bottom">
@@ -80,6 +83,8 @@
       <nspanel-users-page #usersPage />
     } @else if (view() === 'logs') {
       <nspanel-logs-page #logsPage />
+    } @else if (view() === 'hmi') {
+      <nspanel-hmi-page #hmiPage />
     } @else {
       <nspanel-backups-page />
     }
