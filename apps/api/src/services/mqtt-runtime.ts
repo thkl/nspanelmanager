@@ -1473,8 +1473,7 @@ function readPayloadRecord(payload: string): Record<string, unknown> | undefined
 }
 
 function renderPayload(template: string, topic: string, payload: string, panel?: Panel): string {
-  let parsed: unknown;
-  try { parsed = JSON.parse(payload); } catch { parsed = undefined; }
+  const parsed = parseRoutePayloadJson(payload);
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, key: string) => {
     const lookup = key.trim();
     if (lookup === "payload") return payload;
@@ -1495,8 +1494,8 @@ function matchesPayloadFilter(filter: MqttRoute["payloadFilter"], payload: strin
   if (filter.mode === "equals") return payload === filter.value;
   if (filter.mode !== "json-equals") return false;
 
-  let parsed: unknown;
-  try { parsed = JSON.parse(payload); } catch { return false; }
+  const parsed = parseRoutePayloadJson(payload);
+  if (parsed === undefined) return false;
   const value = filter.path.split(".").reduce<unknown>((current, part) => {
     if (!current || typeof current !== "object" || !Object.hasOwn(current, part)) return undefined;
     return (current as Record<string, unknown>)[part];
@@ -1504,4 +1503,67 @@ function matchesPayloadFilter(filter: MqttRoute["payloadFilter"], payload: strin
   if (typeof value === "string") return value === filter.value;
   if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value) === filter.value;
   return false;
+}
+
+/** Parses standard JSON and the single-quoted object syntax used by older panel events. */
+function parseRoutePayloadJson(payload: string): unknown {
+  try { return JSON.parse(payload); } catch { /* Try the panel's legacy single-quoted payload format. */ }
+  const normalized = normalizeSingleQuotedJson(payload);
+  if (normalized === undefined) return undefined;
+  try { return JSON.parse(normalized); } catch { return undefined; }
+}
+
+/** Converts quoted strings in legacy panel objects into JSON without evaluating payload text. */
+function normalizeSingleQuotedJson(payload: string): string | undefined {
+  let normalized = "";
+  for (let index = 0; index < payload.length;) {
+    const character = payload[index];
+    if (character === "\"") {
+      const start = index++;
+      let escaped = false;
+      let closed = false;
+      while (index < payload.length) {
+        const current = payload[index++];
+        if (escaped) escaped = false;
+        else if (current === "\\") escaped = true;
+        else if (current === "\"") { closed = true; break; }
+      }
+      if (!closed) return undefined;
+      normalized += payload.slice(start, index);
+      continue;
+    }
+    if (character !== "'") {
+      normalized += character;
+      index++;
+      continue;
+    }
+
+    index++;
+    let value = "";
+    let closed = false;
+    while (index < payload.length) {
+      const current = payload[index++];
+      if (current === "'") { closed = true; break; }
+      if (current !== "\\") { value += current; continue; }
+      if (index >= payload.length) return undefined;
+      const escaped = payload[index++];
+      if (escaped === "'") value += "'";
+      else if (escaped === "\"") value += "\"";
+      else if (escaped === "\\") value += "\\";
+      else if (escaped === "n") value += "\n";
+      else if (escaped === "r") value += "\r";
+      else if (escaped === "t") value += "\t";
+      else if (escaped === "b") value += "\b";
+      else if (escaped === "f") value += "\f";
+      else if (escaped === "u") {
+        const code = payload.slice(index, index + 4);
+        if (!/^[0-9a-fA-F]{4}$/.test(code)) return undefined;
+        value += String.fromCharCode(Number.parseInt(code, 16));
+        index += 4;
+      } else value += `\\${escaped}`;
+    }
+    if (!closed) return undefined;
+    normalized += JSON.stringify(value);
+  }
+  return normalized;
 }
