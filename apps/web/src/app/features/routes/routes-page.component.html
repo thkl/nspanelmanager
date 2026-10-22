@@ -11,7 +11,7 @@
         <div class="route-row">
           <div class="route-direction">{{ route.direction === 'external-to-panel' ? 'EXT → PANEL' : 'PANEL → EXT' }}</div>
           <div class="route-details"><b>{{ route.name }}</b><code>{{ route.sourceTopic }}</code><span>→</span><code>{{ route.targetTopic }}</code>@if (route.panelId) { <small>Panel: {{ panelName(route.panelId) }}</small> }@if (filterSummary(route); as summary) { <small>Payload filter: {{ summary }}</small> }</div>
-          <button class="text-danger" (click)="removeRoute(route)">Remove</button>
+          <div class="route-actions"><button class="text-action" (click)="editRoute(route)">Edit</button><button class="text-danger" (click)="removeRoute(route)">Remove</button></div>
         </div>
       }
     </div>
@@ -19,7 +19,7 @@
     <div class="empty-routes"><b>No routes configured</b><span>Create a route below to connect your devices.</span></div>
   }
 
-  <div class="section-title section-spaced route-form-title"><span class="section-number">＋</span><div><h3>Add a route</h3><p>Source topics accept + and # wildcards. Optional payload filters can match text, the full payload, or a JSON value. Payload template tokens include payload, topic, nodeName, and JSON paths like json.temperature.</p></div></div>
+  <div class="section-title section-spaced route-form-title"><span class="section-number">{{ editingRouteId() ? '✎' : '＋' }}</span><div><h3>{{ editingRouteId() ? 'Edit route' : 'Add a route' }}</h3><p>Source topics accept + and # wildcards. Optional payload filters can match text, the full payload, or a JSON value. Payload template tokens include payload, topic, nodeName, and JSON paths like json.temperature.</p></div></div>
   <div class="route-form">
     <label>Route name<input [(ngModel)]="draft().name" placeholder="Thermostat current temperature"></label>
     <label>Direction<select [ngModel]="draft().direction" (ngModelChange)="setDirection($event)"><option value="external-to-panel">External state → panel</option><option value="panel-to-external">Panel event → device</option></select></label>
@@ -37,6 +37,9 @@
       <label>Expected value<input [(ngModel)]="draft().payloadFilter.value" placeholder="press"></label>
     }
     <label class="wide">Payload template<input [(ngModel)]="draft().payloadTemplate" placeholder="payload"><small>For external-to-panel routes, the selected panel’s node name is used in the target topic.</small></label>
-    <div class="wide form-actions"><button class="button primary" [disabled]="saving()" (click)="addRoute()">{{ saving() ? 'Adding…' : 'Add route' }} <span>＋</span></button></div>
+    <div class="wide form-actions">
+      @if (editingRouteId()) { <button class="button secondary" [disabled]="saving()" (click)="cancelEdit()">Cancel</button> }
+      <button class="button primary" [disabled]="saving()" (click)="saveRoute()">{{ saving() ? (editingRouteId() ? 'Saving…' : 'Adding…') : (editingRouteId() ? 'Save changes' : 'Add route') }} <span>{{ editingRouteId() ? '✓' : '＋' }}</span></button>
+    </div>
   </div>
 </section>

@@ -157,6 +157,13 @@ export class ManagerStore {
     }));
   }
 
+  /** Saves edited route settings and replaces the matching shared route record. */
+  updateRoute(id: string, draft: RouteDraft): Observable<{ route: MqttRoute }> {
+    return this.http.put<{ route: MqttRoute }>(`/api/routes/${id}`, draft).pipe(tap(({ route }) => {
+      this.config.update((config) => ({ ...config, routes: config.routes.map((item) => item.id === route.id ? route : item) }));
+    }));
+  }
+
   /** Deletes a topic mapping from persistent storage and local shared state. */
   removeRoute(route: MqttRoute): Observable<void> {
     return this.http.delete<void>(`/api/routes/${route.id}`).pipe(tap(() => {

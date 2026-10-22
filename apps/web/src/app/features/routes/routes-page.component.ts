@@ -21,6 +21,7 @@ import type { MqttRoute, RouteDraft } from "../../models";
 })
 export class RoutesPageComponent implements OnInit {
   readonly draft = signal<RouteDraft>(this.emptyDraft());
+  readonly editingRouteId = signal<string | null>(null);
   readonly saving = signal(false);
 
   /** Provides a direction-specific example without placing raw braces in HTML. */
@@ -41,23 +42,60 @@ export class RoutesPageComponent implements OnInit {
     this.manager.refresh().subscribe({ error: () => this.manager.inform("Could not load MQTT routes.", "error") });
   }
 
-  /** Adds the currently drafted topic mapping and resets the editor on success. */
-  addRoute(): void {
+  /** Adds a route or saves edits to the route currently loaded in the form. */
+  saveRoute(): void {
     this.saving.set(true);
-    this.manager.addRoute(this.draft()).subscribe({
+    const editingRouteId = this.editingRouteId();
+    const request = editingRouteId
+      ? this.manager.updateRoute(editingRouteId, this.draft())
+      : this.manager.addRoute(this.draft());
+    request.subscribe({
       next: () => {
+        this.editingRouteId.set(null);
         this.draft.set(this.emptyDraft());
         this.saving.set(false);
-        this.manager.inform("MQTT route added.");
+        this.manager.inform(editingRouteId ? "MQTT route updated." : "MQTT route added.");
       },
-      error: (error) => { this.saving.set(false); this.manager.inform(error.error?.error || "Could not add route.", "error"); }
+      error: (error) => {
+        this.saving.set(false);
+        this.manager.inform(error.error?.error || (editingRouteId ? "Could not update route." : "Could not add route."), "error");
+      }
     });
+  }
+
+  /** Loads a saved route into the form, including its optional payload filter. */
+  editRoute(route: MqttRoute): void {
+    this.editingRouteId.set(route.id);
+    this.draft.set({
+      name: route.name,
+      direction: route.direction,
+      panelId: route.panelId ?? "",
+      sourceTopic: route.sourceTopic,
+      targetTopic: route.targetTopic,
+      payloadTemplate: route.payloadTemplate,
+      payloadFilter: route.payloadFilter
+        ? {
+            mode: route.payloadFilter.mode,
+            path: route.payloadFilter.mode === "json-equals" ? route.payloadFilter.path : "",
+            value: route.payloadFilter.value
+          }
+        : { mode: "none", path: "", value: "" }
+    });
+  }
+
+  /** Clears edit mode and returns the form to its empty new-route state. */
+  cancelEdit(): void {
+    this.editingRouteId.set(null);
+    this.draft.set(this.emptyDraft());
   }
 
   /** Deletes a route from the broker subscription set and persistent profile. */
   removeRoute(route: MqttRoute): void {
     this.manager.removeRoute(route).subscribe({
-      next: () => this.manager.inform("Route removed."),
+      next: () => {
+        if (this.editingRouteId() === route.id) this.cancelEdit();
+        this.manager.inform("Route removed.");
+      },
       error: () => this.manager.inform("Could not remove route.", "error")
     });
   }
