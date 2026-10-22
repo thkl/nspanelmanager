@@ -1,9 +1,10 @@
 import { Component, DestroyRef, OnInit, inject, signal } from "@angular/core";
+import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { EMPTY, catchError, concatMap, from, interval, startWith, switchMap, toArray, type Observable } from "rxjs";
 import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { ManagerStore } from "../../manager-store.service";
-import type { Panel, PanelBinding, PluginDefinition } from "../../models";
+import type { Panel, PanelBinding, PanelTelemetry, PluginDefinition } from "../../models";
 import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
 
 /**
@@ -17,7 +18,7 @@ import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
 @Component({
   selector: "nspanel-panel-page",
   standalone: true,
-  imports: [FormsModule, PanelScreenPreviewComponent],
+  imports: [DatePipe, FormsModule, PanelScreenPreviewComponent],
   templateUrl: "./panel-page.component.html",
   styleUrl: "./panel-page.component.css"
 })
@@ -34,6 +35,16 @@ export class PanelPageComponent implements OnInit {
 
   /** Receives the shared API store used to load and persist panel profiles. */
   constructor(readonly manager: ManagerStore) {}
+
+  /** Formats the latest firmware metrics for compact display in the panel list. */
+  formatTelemetry(telemetry: PanelTelemetry): string {
+    const parts: string[] = [];
+    if (Number.isFinite(telemetry.uptimeSeconds)) parts.push(`Up ${formatUptime(telemetry.uptimeSeconds!)}`);
+    if (Number.isFinite(telemetry.freeHeapBytes)) parts.push(`Free ${formatKilobytes(telemetry.freeHeapBytes!)} KB`);
+    if (Number.isFinite(telemetry.minFreeHeapBytes)) parts.push(`Min ${formatKilobytes(telemetry.minFreeHeapBytes!)} KB`);
+    if (Number.isFinite(telemetry.chipTemperatureC)) parts.push(`Chip ${telemetry.chipTemperatureC!.toFixed(1)}°C`);
+    return parts.join(" · ");
+  }
 
   /** Loads the latest panel list and selects the current or first available panel. */
   ngOnInit(): void {
@@ -276,4 +287,18 @@ export class PanelPageComponent implements OnInit {
     }
     return operations;
   }
+}
+
+function formatUptime(seconds: number): string {
+  const totalMinutes = Math.floor(Math.max(0, seconds) / 60);
+  const days = Math.floor(totalMinutes / 1_440);
+  const hours = Math.floor((totalMinutes % 1_440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function formatKilobytes(bytes: number): string {
+  return (bytes / 1_024).toFixed(1);
 }

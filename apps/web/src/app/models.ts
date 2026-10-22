@@ -131,11 +131,26 @@ export interface MqttStatus {
 }
 
 /** Current online state reported by one configured NSPanel over MQTT. */
+export interface PanelResetReport {
+  reason: string;
+  reportedAt: number;
+}
+
+export interface PanelTelemetry {
+  reportedAt: number;
+  uptimeSeconds?: number;
+  freeHeapBytes?: number;
+  minFreeHeapBytes?: number;
+  chipTemperatureC?: number;
+}
+
 export interface PanelConnectionStatus {
   panelId: string;
   nodeName: string;
   status: "online" | "offline";
   lastSeenAt: number | null;
+  lastResetReport: PanelResetReport | null;
+  telemetry: PanelTelemetry | null;
 }
 
 /** Metadata for the latest Nextion HMI artifact uploaded to the manager. */

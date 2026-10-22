@@ -12,7 +12,7 @@ NSPanel Manager is a TypeScript application for configuring and operating NSPane
 
 ## Run locally
 
-Install Node.js 22.22.3 or newer in the Node 22 line and pnpm, then run:
+Install Node.js 24.22.1 or newer in the Node 24 line, plus pnpm, then run:
 
 ```sh
 pnpm install

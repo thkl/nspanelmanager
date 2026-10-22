@@ -1,7 +1,7 @@
 import mqtt, { type MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store.js";
-import type { ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, ResolvedPluginInstance } from "../types.js";
+import type { ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelTelemetry, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
 import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
@@ -30,7 +30,7 @@ export class MqttRuntime {
   private readonly panelHomeTilePages = new Map<string, { page: "home" | "light" | "level"; index?: number }>();
   private readonly publishedPanelSettings = new Map<string, string>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
-  private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null }>();
+  private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
 
@@ -57,13 +57,16 @@ export class MqttRuntime {
     const now = Date.now();
     return this.store.get().panels.map((panel) => {
       const connection = this.panelConnections.get(panel.nodeName);
+      const resetReport = this.runtimeState.getPanelResetReport(panel.id);
       const heartbeatFresh = connection?.lastSeenAt !== null && connection?.lastSeenAt !== undefined
         && now - connection.lastSeenAt <= MqttRuntime.PANEL_HEARTBEAT_TIMEOUT_MS;
       return {
         panelId: panel.id,
         nodeName: panel.nodeName,
         status: connection?.status === "online" && heartbeatFresh ? "online" : "offline",
-        lastSeenAt: connection?.lastSeenAt ?? null
+        lastSeenAt: connection?.lastSeenAt ?? null,
+        lastResetReport: resetReport ?? null,
+        telemetry: connection?.telemetry ?? null
       };
     });
   }
@@ -454,6 +457,9 @@ export class MqttRuntime {
     this.updatePanelConnection(topic, payload, message.receivedAt, config.panels);
     const instances = this.resolvePluginInstances(config);
     const eventPanel = config.panels.find((panel) => topic.startsWith(`${panel.nodeName}/event/`));
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/reset_reason`) {
+      await this.recordPanelResetReport(eventPanel, payload, message.receivedAt);
+    }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/page/favs`) {
       this.publishPanelFavorites(eventPanel);
       await this.publishPanelFavoriteState(eventPanel, config.panelBindings, instances);
@@ -499,6 +505,7 @@ export class MqttRuntime {
     if (eventPanel && !favoritePageHandled) await this.dispatchHomeTileEvent(eventPanel, message, instances);
 
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
+      this.requestPanelResetReport(eventPanel);
       this.publishPanelSettings(eventPanel, true);
       await this.refreshNativePanel(eventPanel);
       this.panelHomeTilePages.set(eventPanel.id, { page: "home" });
@@ -536,12 +543,29 @@ export class MqttRuntime {
       if (normalized !== "online" && normalized !== "offline") return;
       this.panelConnections.set(panel.nodeName, {
         status: normalized,
-        lastSeenAt: normalized === "online" ? receivedAt : previous?.lastSeenAt ?? null
+        lastSeenAt: normalized === "online" ? receivedAt : previous?.lastSeenAt ?? null,
+        telemetry: previous?.telemetry ?? null
       });
       return;
     }
 
-    this.panelConnections.set(panel.nodeName, { status: "online", lastSeenAt: receivedAt });
+    this.panelConnections.set(panel.nodeName, {
+      status: "online",
+      lastSeenAt: receivedAt,
+      telemetry: readPanelTelemetry(payload, receivedAt) ?? previous?.telemetry ?? null
+    });
+  }
+
+  /** Persists the panel's latest reset reason for the device status view. */
+  private async recordPanelResetReport(panel: Panel, payload: string, receivedAt: number): Promise<void> {
+    const reason = payload.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 80);
+    if (!reason) return;
+    await this.runtimeState.setPanelResetReport(panel.id, { reason, reportedAt: receivedAt });
+  }
+
+  /** Asks compatible panel firmware to replay its latest reset reason report. */
+  private requestPanelResetReport(panel: Panel): void {
+    this.publish(`${panel.nodeName}/cmnd/diag`, "{}");
   }
 
   private async dispatchPluginMessage(instances: ResolvedPluginInstance[], message: MqttMessageEnvelope): Promise<void> {
@@ -1269,6 +1293,7 @@ export class MqttRuntime {
     const config = this.store.get();
     const instances = this.resolvePluginInstances(config);
     for (const panel of config.panels) {
+      this.requestPanelResetReport(panel);
       this.publishPanelSettings(panel);
       await this.publishPanelFavoriteState(panel, config.panelBindings, instances);
       await this.refreshNativePanel(panel);
@@ -1480,6 +1505,28 @@ function isValidTopicFilter(filter: string): boolean {
     if (level.includes("#")) return level === "#" && index === levels.length - 1;
     return !level.includes("+") || level === "+";
   });
+}
+
+/** Reads the optional firmware diagnostics from a panel heartbeat JSON object. */
+function readPanelTelemetry(payload: string, receivedAt: number): PanelTelemetry | null {
+  const record = readPayloadRecord(payload);
+  if (!record) return null;
+
+  const telemetry: PanelTelemetry = { reportedAt: receivedAt };
+  const nonNegativeNumber = (key: string): number | undefined => {
+    const value = record[key];
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+  };
+  const uptimeSeconds = nonNegativeNumber("uptime_seconds");
+  const freeHeapBytes = nonNegativeNumber("free_heap_bytes");
+  const minFreeHeapBytes = nonNegativeNumber("min_free_heap_bytes");
+  const chipTemperatureC = record["chip_temperature_c"];
+
+  if (uptimeSeconds !== undefined) telemetry.uptimeSeconds = uptimeSeconds;
+  if (freeHeapBytes !== undefined) telemetry.freeHeapBytes = freeHeapBytes;
+  if (minFreeHeapBytes !== undefined) telemetry.minFreeHeapBytes = minFreeHeapBytes;
+  if (typeof chipTemperatureC === "number" && Number.isFinite(chipTemperatureC)) telemetry.chipTemperatureC = chipTemperatureC;
+  return Object.keys(telemetry).length > 1 ? telemetry : null;
 }
 
 function matchesTopic(filter: string, topic: string): boolean {

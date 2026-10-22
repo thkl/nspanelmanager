@@ -37,12 +37,31 @@ export interface Panel {
   panelEventPluginInstances?: Record<string, string>;
 }
 
-/** Live MQTT connectivity reported by a panel's LWT status topic and heartbeat events. */
+/** Latest reboot reason reported by one panel, with the manager's receipt time. */
+export interface PanelResetReport {
+  reason: string;
+  /** Time the manager received the reset report; firmware reports the latest reset on MQTT connect. */
+  reportedAt: number;
+}
+
+/** Latest firmware diagnostics included in a panel's MQTT heartbeat. */
+export interface PanelTelemetry {
+  /** Time the manager received this telemetry report. */
+  reportedAt: number;
+  uptimeSeconds?: number;
+  freeHeapBytes?: number;
+  minFreeHeapBytes?: number;
+  chipTemperatureC?: number;
+}
+
+/** Live MQTT connectivity, telemetry, and latest reboot report for one panel. */
 export interface PanelConnectionStatus {
   panelId: string;
   nodeName: string;
   status: "online" | "offline";
   lastSeenAt: number | null;
+  lastResetReport: PanelResetReport | null;
+  telemetry: PanelTelemetry | null;
 }
 
 /** Metadata returned by the authenticated HMI upload and status endpoints. */

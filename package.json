@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@11.21.0",
   "engines": {
-    "node": ">=22.22.3 <23"
+    "node": ">=24.22.1 <25"
   },
   "scripts": {
     "start:debug": "pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api start:debug",

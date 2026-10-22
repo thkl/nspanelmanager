@@ -25,4 +25,4 @@ logger:
  level: DEBUG
 
   
-<<: !include panel4.yaml
+<<: !include panel5.yaml

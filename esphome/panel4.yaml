@@ -1115,7 +1115,7 @@ mqtt:
                 }
                 id(disp1).set_tft_url(update_url);
               }
-              if (x.containsKey("force") && x["force"].is<bool>() && x["force"].as<bool>()) {
+              if (x.containsKey("force")) {
                  id(proceed_hmi_update).execute();
               } else {
                 id(disp1).set_backlight_brightness(1);

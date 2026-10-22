@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PluginState, PluginStorageScope } from "../plugins/plugin-contract.js";
+import type { PanelResetReport } from "../../types.js";
 import type { Logger } from "../../services/logger.js";
 
 const MIN_PERSIST_INTERVAL_MS = 1_000;
@@ -46,13 +47,14 @@ export interface PanelFlowFrame {
 interface RuntimeSnapshot {
   version: 1;
   panelSessions: Record<string, PanelFlowSession>;
+  panelResetReports: Record<string, PanelResetReport>;
   values: Record<string, unknown>;
   pluginStates: Record<string, PluginState>;
 }
 
 /**
  * Keeps normalized plugin state in memory and persists a bounded last-known
- * device snapshot, panel flow sessions, and explicitly saved script values.
+ * device snapshot, panel flow and reset reports, and explicitly saved script values.
  * State changes are available in memory immediately and coalesced to a maximum
  * of one snapshot write per second. Device state is limited to 512 instances,
  * 2 MiB total, and 64 KiB per instance. Script storage is limited to 4,096
@@ -94,9 +96,11 @@ export class RuntimeStateStore {
     if (!isRecord(value)) throw new Error("The runtime state file is invalid; refusing to replace it.");
     const rawPluginStates = isRecord(value.pluginStates) ? value.pluginStates : {};
     const pluginStates = normalizePluginStates(rawPluginStates);
+    const panelResetReports = normalizePanelResetReports(value.panelResetReports);
     this.snapshot = {
       version: 1,
       panelSessions: isRecord(value.panelSessions) ? value.panelSessions as Record<string, PanelFlowSession> : {},
+      panelResetReports,
       values: isRecord(value.values) ? value.values : {},
       pluginStates
     };
@@ -106,7 +110,9 @@ export class RuntimeStateStore {
     this.storageBytes = measureStorageBytes(this.snapshot.values);
     const needsSnapshotUpgrade = !Object.hasOwn(value, "pluginStates")
       || !isRecord(value.pluginStates)
-      || JSON.stringify(value.pluginStates) !== JSON.stringify(pluginStates);
+      || JSON.stringify(value.pluginStates) !== JSON.stringify(pluginStates)
+      || !Object.hasOwn(value, "panelResetReports")
+      || JSON.stringify(value.panelResetReports) !== JSON.stringify(panelResetReports);
     if (needsSnapshotUpgrade) {
       this.persist();
       await this.flush();
@@ -213,9 +219,22 @@ export class RuntimeStateStore {
     this.persist();
   }
 
+  /** Returns the latest durable reboot report received for one panel. */
+  getPanelResetReport(panelId: string): PanelResetReport | undefined {
+    const report = this.snapshot.panelResetReports[panelId];
+    return report ? structuredClone(report) : undefined;
+  }
+
+  /** Saves the latest reboot report independently from panel configuration and script values. */
+  async setPanelResetReport(panelId: string, report: PanelResetReport): Promise<void> {
+    this.snapshot.panelResetReports[panelId] = structuredClone(report);
+    this.persist();
+  }
+
   /** Removes one panel's restored flow state when its saved profile is deleted. */
   async removePanel(panelId: string): Promise<void> {
     delete this.snapshot.panelSessions[panelId];
+    delete this.snapshot.panelResetReports[panelId];
     for (const key of Object.keys(this.snapshot.values)) {
       if (key.startsWith(`panel:${panelId}:`)) this.deleteStoredValue(key);
     }
@@ -344,8 +363,18 @@ export class RuntimeStateStore {
   }
 }
 
-function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, values: {}, pluginStates: {} }; }
+function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, values: {}, pluginStates: {} }; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
+
+function normalizePanelResetReports(value: unknown): Record<string, PanelResetReport> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([panelId, candidate]) => {
+    if (!panelId || !isRecord(candidate) || typeof candidate.reason !== "string" || typeof candidate.reportedAt !== "number" || !Number.isFinite(candidate.reportedAt)) return [];
+    const reason = candidate.reason.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 80);
+    return reason ? [[panelId, { reason, reportedAt: candidate.reportedAt }]] : [];
+  }));
+}
+
 function storageKey(scope: PluginStorageScope, ownerId: string, key: string): string { return `${scope}:${ownerId}:${key}`; }
 function storageEntryBytes(key: string, value: unknown): number {
   const serialized = JSON.stringify(value);
