@@ -138,9 +138,12 @@ export interface PanelResetReport {
 
 export interface PanelTelemetry {
   reportedAt: number;
+  firmwareVersion?: string;
   uptimeSeconds?: number;
   freeHeapBytes?: number;
   minFreeHeapBytes?: number;
+  largestFreeBlockBytes?: number;
+  loopTimeMs?: number;
   chipTemperatureC?: number;
 }
 

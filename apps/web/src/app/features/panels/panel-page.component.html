@@ -131,7 +131,7 @@
           <label>Right hardware button<select [(ngModel)]="panel.settings.hwbuttons['1']"><option [ngValue]="0">Toggle relay locally</option><option [ngValue]="1">Publish event only</option></select></label>
         </div>
 
-        <div class="save-bottom"><span>Saving sends settings to the panel. Use Apply to resend them.</span><button class="button primary" [disabled]="!manager.mqtt().connected" (click)="applyPanel()">Apply to panel <span>↗</span></button></div>
+        <div class="save-bottom"><span>Apply saves your current edits and sends the full settings profile to the panel.</span><button class="button primary" [disabled]="saving() || !manager.mqtt().connected" (click)="applyPanel()">Apply to panel <span>↗</span></button></div>
       </div>
     </section>
   } @else {

@@ -1,7 +1,7 @@
 import { Component, DestroyRef, OnInit, inject, signal } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
-import { EMPTY, catchError, concatMap, from, interval, startWith, switchMap, toArray, type Observable } from "rxjs";
+import { EMPTY, catchError, concatMap, from, interval, of, startWith, switchMap, toArray, type Observable } from "rxjs";
 import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { ManagerStore } from "../../manager-store.service";
 import type { Panel, PanelBinding, PanelTelemetry, PluginDefinition } from "../../models";
@@ -39,9 +39,12 @@ export class PanelPageComponent implements OnInit {
   /** Formats the latest firmware metrics for compact display in the panel list. */
   formatTelemetry(telemetry: PanelTelemetry): string {
     const parts: string[] = [];
+    if (telemetry.firmwareVersion) parts.push(`FW ${telemetry.firmwareVersion}`);
     if (Number.isFinite(telemetry.uptimeSeconds)) parts.push(`Up ${formatUptime(telemetry.uptimeSeconds!)}`);
     if (Number.isFinite(telemetry.freeHeapBytes)) parts.push(`Free ${formatKilobytes(telemetry.freeHeapBytes!)} KB`);
     if (Number.isFinite(telemetry.minFreeHeapBytes)) parts.push(`Min ${formatKilobytes(telemetry.minFreeHeapBytes!)} KB`);
+    if (Number.isFinite(telemetry.largestFreeBlockBytes)) parts.push(`Largest ${formatKilobytes(telemetry.largestFreeBlockBytes!)} KB`);
+    if (Number.isFinite(telemetry.loopTimeMs)) parts.push(`Loop ${Math.round(telemetry.loopTimeMs!)} ms`);
     if (Number.isFinite(telemetry.chipTemperatureC)) parts.push(`Chip ${telemetry.chipTemperatureC!.toFixed(1)}°C`);
     return parts.join(" · ");
   }
@@ -97,18 +100,8 @@ export class PanelPageComponent implements OnInit {
   savePanel(): void {
     const current = this.draft();
     if (!current || !this.favoritesValid(current)) return;
-    const panel = structuredClone(current);
-    panel.settings.favorites.buttons = panel.settings.favorites.buttons.map((favorite, index) =>
-      this.favoriteInstance(index)
-        ? { ...favorite, label: favorite.label.trim(), mode: 0 }
-        : favorite
-    );
     this.saving.set(true);
-    from(this.panelBindingOperations(panel)).pipe(
-      concatMap((operation) => operation),
-      toArray(),
-      switchMap(() => this.manager.savePanel(panel))
-    ).subscribe({
+    this.persistPanelDraft(current).subscribe({
       next: ({ panel: saved, published, topic }) => {
         this.setDraft(saved);
         this.saving.set(false);
@@ -236,13 +229,25 @@ export class PanelPageComponent implements OnInit {
     );
   }
 
-  /** Publishes the saved profile to the selected panel over the active broker connection. */
+  /** Saves the current editor draft and publishes it to the selected panel. */
   applyPanel(): void {
     const panel = this.draft();
-    if (!panel) return;
-    this.manager.applyPanel(panel).subscribe({
-      next: ({ topic }) => this.manager.inform(`Settings sent to ${topic}.`),
-      error: (error) => this.manager.inform(error.error?.error || "Could not apply panel settings.", "error")
+    if (!panel || !this.favoritesValid(panel)) return;
+    this.saving.set(true);
+    this.persistPanelDraft(panel).pipe(
+      switchMap(({ panel: saved, published, topic }) => {
+        this.setDraft(saved);
+        return published ? of({ topic }) : this.manager.applyPanel(saved);
+      })
+    ).subscribe({
+      next: ({ topic }) => {
+        this.saving.set(false);
+        this.manager.inform(`Settings sent to ${topic}.`);
+      },
+      error: (error) => {
+        this.saving.set(false);
+        this.manager.inform(error.error?.error || "Could not apply panel settings.", "error");
+      }
     });
   }
 
@@ -286,6 +291,21 @@ export class PanelPageComponent implements OnInit {
       }
     }
     return operations;
+  }
+
+  /** Saves the current editor draft, synchronizing favorite bindings before the panel profile. */
+  private persistPanelDraft(current: Panel): Observable<{ panel: Panel; published: boolean; topic: string }> {
+    const panel = structuredClone(current);
+    panel.settings.favorites.buttons = panel.settings.favorites.buttons.map((favorite, index) =>
+      this.favoriteInstance(index)
+        ? { ...favorite, label: favorite.label.trim(), mode: 0 }
+        : favorite
+    );
+    return from(this.panelBindingOperations(panel)).pipe(
+      concatMap((operation) => operation),
+      toArray(),
+      switchMap(() => this.manager.savePanel(panel))
+    );
   }
 }
 

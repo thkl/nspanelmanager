@@ -1513,6 +1513,7 @@ function readPanelTelemetry(payload: string, receivedAt: number): PanelTelemetry
   if (!record) return null;
 
   const telemetry: PanelTelemetry = { reportedAt: receivedAt };
+  const firmwareVersion = record["firmware_version"];
   const nonNegativeNumber = (key: string): number | undefined => {
     const value = record[key];
     return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
@@ -1520,11 +1521,19 @@ function readPanelTelemetry(payload: string, receivedAt: number): PanelTelemetry
   const uptimeSeconds = nonNegativeNumber("uptime_seconds");
   const freeHeapBytes = nonNegativeNumber("free_heap_bytes");
   const minFreeHeapBytes = nonNegativeNumber("min_free_heap_bytes");
+  const largestFreeBlockBytes = nonNegativeNumber("largest_free_block_bytes");
+  const loopTimeMs = nonNegativeNumber("loop_time_ms");
   const chipTemperatureC = record["chip_temperature_c"];
 
+  if (typeof firmwareVersion === "string") {
+    const normalized = firmwareVersion.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40);
+    if (normalized) telemetry.firmwareVersion = normalized;
+  }
   if (uptimeSeconds !== undefined) telemetry.uptimeSeconds = uptimeSeconds;
   if (freeHeapBytes !== undefined) telemetry.freeHeapBytes = freeHeapBytes;
   if (minFreeHeapBytes !== undefined) telemetry.minFreeHeapBytes = minFreeHeapBytes;
+  if (largestFreeBlockBytes !== undefined) telemetry.largestFreeBlockBytes = largestFreeBlockBytes;
+  if (loopTimeMs !== undefined) telemetry.loopTimeMs = loopTimeMs;
   if (typeof chipTemperatureC === "number" && Number.isFinite(chipTemperatureC)) telemetry.chipTemperatureC = chipTemperatureC;
   return Object.keys(telemetry).length > 1 ? telemetry : null;
 }

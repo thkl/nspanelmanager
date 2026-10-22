@@ -11,6 +11,7 @@ esphome/secrets.yaml
 .impeccable/
 .pnpm-store/
 esphome/*
+!esphome/panel5.yaml
 docs/security*.md
 **/data/
 graphify-out/

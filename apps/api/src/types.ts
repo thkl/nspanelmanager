@@ -48,9 +48,12 @@ export interface PanelResetReport {
 export interface PanelTelemetry {
   /** Time the manager received this telemetry report. */
   reportedAt: number;
+  firmwareVersion?: string;
   uptimeSeconds?: number;
   freeHeapBytes?: number;
   minFreeHeapBytes?: number;
+  largestFreeBlockBytes?: number;
+  loopTimeMs?: number;
   chipTemperatureC?: number;
 }
 
