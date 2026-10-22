@@ -78,6 +78,7 @@ export class MqttRuntime {
       this.connected = false;
       this.activeTopics.clear();
       await new Promise<void>((resolve) => oldClient.end(true, {}, () => resolve()));
+      await Promise.all([...this.pendingMessages]);
     }
     const broker = this.store.get().broker;
     if (!broker.url) return;
@@ -91,6 +92,7 @@ export class MqttRuntime {
         connectTimeout: 10000
       });
       this.client = client;
+      client.handleMessage = (packet, callback) => this.dispatchMqttPacket(packet, callback);
       client.on("connect", () => {
         this.connected = true;
         this.lastError = "";
@@ -103,28 +105,6 @@ export class MqttRuntime {
       client.on("reconnect", () => { this.connected = false; });
       client.on("offline", () => { this.connected = false; });
       client.on("error", (error) => { this.lastError = error.message; });
-      client.on("message", (topic, payload, packet) => {
-        if (this.closing) return;
-        const envelope: MqttMessageEnvelope = {
-          topic,
-          payload: payload.toString(),
-          qos: packet.qos,
-          retain: packet.retain,
-          receivedAt: Date.now()
-        };
-        const processing = this.handleMessage(envelope).catch((error: unknown) => {
-          const detail = error instanceof Error ? error.message : String(error);
-          this.lastError = detail;
-          this.logger.error("MQTT message processing failed.", {
-            component: "mqtt",
-            phase: "dispatch",
-            topic,
-            detail
-          });
-        });
-        this.pendingMessages.add(processing);
-        void processing.finally(() => this.pendingMessages.delete(processing));
-      });
     } catch (error) {
       this.connected = false;
       this.lastError = error instanceof Error ? error.message : String(error);
@@ -141,6 +121,47 @@ export class MqttRuntime {
     for (const id of this.pluginPollTimers.keys()) this.clearPluginPoll(id);
     if (client) await new Promise<void>((resolve) => client.end(true, {}, () => resolve()));
     await Promise.all(this.pendingMessages);
+  }
+
+  /** Processes one broker packet before MQTT.js advances to the next inbound packet. */
+  private dispatchMqttPacket(
+    packet: Parameters<MqttClient["handleMessage"]>[0],
+    callback: Parameters<MqttClient["handleMessage"]>[1]
+  ): void {
+    if (this.closing) {
+      callback();
+      return;
+    }
+
+    const envelope: MqttMessageEnvelope = {
+      topic: packet.topic,
+      payload: packet.payload.toString(),
+      qos: packet.qos,
+      retain: packet.retain ?? false,
+      receivedAt: Date.now()
+    };
+    const processing = (async () => {
+      try {
+        await this.handleMessage(envelope);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.lastError = detail;
+        this.logger.error("MQTT message processing failed.", {
+          component: "mqtt",
+          phase: "dispatch",
+          topic: envelope.topic,
+          detail
+        });
+      } finally {
+        callback();
+      }
+    })();
+
+    this.pendingMessages.add(processing);
+    void processing.then(
+      () => this.pendingMessages.delete(processing),
+      () => this.pendingMessages.delete(processing)
+    );
   }
 
   /** Initializes enabled plugin instances and refreshes their registered MQTT callbacks. */
