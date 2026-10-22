@@ -54,7 +54,7 @@ export interface PluginFavoritePanelPageResult {
   statePatch?: PluginState;
 }
 
-/** Ephemeral in-memory state normalized from plugin messages; scripts persist selected values through scoped storage. */
+/** Normalized device state cached per instance and restored from the last durable runtime snapshot after restart. */
 export type PluginState = Record<string, unknown>;
 
 /** Transport metadata retained when the MQTT client dispatches a source packet. */

@@ -1265,7 +1265,9 @@ export class MqttRuntime {
     const instances = this.resolvePluginInstances(config);
     for (const panel of config.panels) {
       this.publishPanelSettings(panel);
+      await this.publishPanelFavoriteState(panel, config.panelBindings, instances);
       await this.refreshNativePanel(panel);
+      await this.refreshAllHomeTiles(panel);
       await this.restorePanelSession(panel, config.panelBindings, instances);
     }
   }

@@ -88,7 +88,7 @@ Storage scopes are:
 - **Plugin instance:** values shared by pages and panels using that configured instance.
 - **Panel:** values private to one panel, including multi-step flows.
 
-Configuration and secrets remain server-side. The MVP keeps the latest normalized MQTT message state in memory and persists panel flow sessions plus script values only when a script explicitly calls `global.set`, `plugin.set`, or `panel.set`. Script storage mutations update memory immediately and are coalesced into at most one runtime snapshot write per second. Script storage is capped at 4,096 values and 2 MiB total, with a 64 KiB maximum per value, so a changing MQTT stream cannot create one disk write per message or grow the stored values without limit. These durable values live in the private runtime-state file under the configured data directory, separate from panel and broker profiles.
+Configuration and secrets remain server-side. For the MVP, the latest normalized MQTT message state was held in memory while panel flow sessions and script-selected values were persisted. The manager now also persists a bounded last-known state snapshot for device plugin instances, coalesced into at most one runtime snapshot write per second. Device state is capped at 512 instances, 2 MiB total, and 64 KiB per instance; script storage remains capped at 4,096 values and 2 MiB total, with a 64 KiB maximum per value. These durable values live in the private runtime-state file under the configured data directory, separate from panel and broker profiles.
 
 ## Web UI
 

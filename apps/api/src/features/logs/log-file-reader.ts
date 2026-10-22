@@ -79,7 +79,7 @@ export class LogFileReader {
     if (scannedLines >= MAX_SCANNED_LINES && newestFirst.length < wantedMatches) scanLimitReached = true;
 
     return {
-      logs: newestFirst.slice(query.offset, query.offset + query.limit).reverse(),
+      logs: newestFirst.slice(query.offset, query.offset + query.limit),
       categories: [...categories].sort((left, right) => left.localeCompare(right)),
       hasMore: newestFirst.length > query.offset + query.limit,
       scanLimitReached

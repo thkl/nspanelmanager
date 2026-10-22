@@ -8,6 +8,9 @@ const MAX_STORAGE_KEY_LENGTH = 256;
 const MAX_STORAGE_VALUE_BYTES = 64 * 1024;
 const MAX_STORAGE_ENTRIES = 4_096;
 const MAX_STORAGE_BYTES = 2 * 1024 * 1024;
+const MAX_PERSISTED_PLUGIN_STATES = 512;
+const MAX_PLUGIN_STATE_BYTES = 64 * 1024;
+const MAX_PERSISTED_PLUGIN_STATE_BYTES = 2 * 1024 * 1024;
 
 /** Persistent navigation context for an interactive plugin on one panel. */
 export interface PanelFlowSession {
@@ -44,20 +47,25 @@ interface RuntimeSnapshot {
   version: 1;
   panelSessions: Record<string, PanelFlowSession>;
   values: Record<string, unknown>;
+  pluginStates: Record<string, PluginState>;
 }
 
 /**
- * Keeps normalized plugin message state in memory and persists panel flow
- * sessions plus explicitly saved script values. MQTT messages alone do not
- * write runtime snapshots; scripts opt into durable writes through storage APIs.
- * Changes are available in memory immediately and coalesced to a maximum of one
- * snapshot write per second. Script storage is limited to 4,096 values, 2 MiB
- * total, and 64 KiB per value. Call {@link flush} during graceful shutdown.
+ * Keeps normalized plugin state in memory and persists a bounded last-known
+ * device snapshot, panel flow sessions, and explicitly saved script values.
+ * State changes are available in memory immediately and coalesced to a maximum
+ * of one snapshot write per second. Device state is limited to 512 instances,
+ * 2 MiB total, and 64 KiB per instance. Script storage is limited to 4,096
+ * values, 2 MiB total, and 64 KiB per value. Call {@link flush} during graceful
+ * shutdown.
  */
 export class RuntimeStateStore {
   private readonly filePath: string;
   private snapshot: RuntimeSnapshot = emptySnapshot();
   private readonly pluginStates: Record<string, PluginState> = {};
+  private readonly warnedUnpersistedPluginStates = new Set<string>();
+  private persistedPluginStateBytes = 0;
+  private pluginStateCapacityWarningReported = false;
   private storageBytes = 0;
   private dirty = false;
   private writeTimer?: ReturnType<typeof setTimeout>;
@@ -68,7 +76,7 @@ export class RuntimeStateStore {
   /** Creates the runtime store under the manager's durable data directory. */
   constructor(dataDir: string, private readonly logger?: Logger) { this.filePath = path.join(dataDir, "runtime-state.json"); }
 
-  /** Loads durable flow and script values, removing legacy on-disk plugin message state. */
+  /** Loads durable flow, script values, and the bounded last-known device state snapshot. */
   async load(): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
     let serialized: string;
@@ -84,30 +92,85 @@ export class RuntimeStateStore {
     }
     const value: unknown = JSON.parse(serialized);
     if (!isRecord(value)) throw new Error("The runtime state file is invalid; refusing to replace it.");
-    const hadPersistedPluginStates = Object.hasOwn(value, "pluginStates");
+    const rawPluginStates = isRecord(value.pluginStates) ? value.pluginStates : {};
+    const pluginStates = normalizePluginStates(rawPluginStates);
     this.snapshot = {
       version: 1,
       panelSessions: isRecord(value.panelSessions) ? value.panelSessions as Record<string, PanelFlowSession> : {},
-      values: isRecord(value.values) ? value.values : {}
+      values: isRecord(value.values) ? value.values : {},
+      pluginStates
     };
+    for (const key of Object.keys(this.pluginStates)) delete this.pluginStates[key];
+    Object.assign(this.pluginStates, structuredClone(pluginStates));
+    this.persistedPluginStateBytes = measurePluginStateBytes(pluginStates);
     this.storageBytes = measureStorageBytes(this.snapshot.values);
-    if (hadPersistedPluginStates) {
+    const needsSnapshotUpgrade = !Object.hasOwn(value, "pluginStates")
+      || !isRecord(value.pluginStates)
+      || JSON.stringify(value.pluginStates) !== JSON.stringify(pluginStates);
+    if (needsSnapshotUpgrade) {
       this.persist();
       await this.flush();
     }
   }
 
-  /** Returns a defensive copy of one plugin instance's current in-memory state. */
+  /** Returns a defensive copy of one plugin instance's current last-known state. */
   getPluginState(instanceId: string): PluginState { return structuredClone(this.pluginStates[instanceId] ?? {}); }
 
-  /** Updates in-memory plugin state without serializing or writing the runtime snapshot. */
+  /** Updates in-memory state immediately and schedules a bounded durable snapshot. */
   async setPluginState(instanceId: string, state: PluginState): Promise<void> {
-    this.pluginStates[instanceId] = structuredClone(state);
+    const currentState = structuredClone(state);
+    this.pluginStates[instanceId] = currentState;
+
+    let serialized: string | undefined;
+    try { serialized = JSON.stringify(currentState); }
+    catch { /* Non-JSON state remains available in memory but cannot be restored after restart. */ }
+    if (serialized === undefined) {
+      this.dropPersistedPluginState(instanceId);
+      this.warnUnpersistedPluginState(instanceId, "state is not JSON serializable");
+      return;
+    }
+
+    const persistedState = JSON.parse(serialized) as PluginState;
+    const entryBytes = storageEntryBytes(instanceId, persistedState);
+    if (entryBytes > MAX_PLUGIN_STATE_BYTES) {
+      this.dropPersistedPluginState(instanceId);
+      this.warnUnpersistedPluginState(instanceId, `state exceeds ${MAX_PLUGIN_STATE_BYTES} bytes`);
+      return;
+    }
+
+    this.warnedUnpersistedPluginStates.delete(instanceId);
+    this.dropPersistedPluginState(instanceId);
+    this.snapshot.pluginStates[instanceId] = persistedState;
+    this.persistedPluginStateBytes += entryBytes;
+    let capacityReached = false;
+    while (Object.keys(this.snapshot.pluginStates).length > MAX_PERSISTED_PLUGIN_STATES
+      || this.persistedPluginStateBytes > MAX_PERSISTED_PLUGIN_STATE_BYTES) {
+      const oldestInstanceId = Object.keys(this.snapshot.pluginStates).find((key) => key !== instanceId);
+      if (oldestInstanceId) {
+        this.persistedPluginStateBytes -= storageEntryBytes(oldestInstanceId, this.snapshot.pluginStates[oldestInstanceId]);
+        delete this.snapshot.pluginStates[oldestInstanceId];
+        capacityReached = true;
+        continue;
+      }
+      this.persistedPluginStateBytes -= storageEntryBytes(instanceId, this.snapshot.pluginStates[instanceId]);
+      delete this.snapshot.pluginStates[instanceId];
+      capacityReached = true;
+      break;
+    }
+    if (capacityReached && !this.pluginStateCapacityWarningReported) {
+      this.pluginStateCapacityWarningReported = true;
+      this.logger?.warn("Device state snapshot reached its configured capacity; older device state remains in memory only.", {
+        component: "runtime-state"
+      });
+    }
+    this.persist();
   }
 
   /** Removes in-memory device state, active flow context, and scoped values when an instance is deleted. */
   async removePluginInstance(instanceId: string): Promise<void> {
     delete this.pluginStates[instanceId];
+    this.dropPersistedPluginState(instanceId);
+    this.warnedUnpersistedPluginStates.delete(instanceId);
     for (const [panelId, session] of Object.entries(this.snapshot.panelSessions)) {
       if (session.pluginInstanceId === instanceId) delete this.snapshot.panelSessions[panelId];
     }
@@ -115,6 +178,26 @@ export class RuntimeStateStore {
       if (key.startsWith(`plugin:${instanceId}:`)) this.deleteStoredValue(key);
     }
     this.persist();
+  }
+
+  /** Removes an instance's durable snapshot if a later message cannot be saved. */
+  private dropPersistedPluginState(instanceId: string): void {
+    const state = this.snapshot.pluginStates[instanceId];
+    if (state === undefined) return;
+    this.persistedPluginStateBytes -= storageEntryBytes(instanceId, state);
+    delete this.snapshot.pluginStates[instanceId];
+    this.persist();
+  }
+
+  /** Reports once per instance when its latest state cannot survive a restart. */
+  private warnUnpersistedPluginState(instanceId: string, reason: string): void {
+    if (this.warnedUnpersistedPluginStates.has(instanceId)) return;
+    this.warnedUnpersistedPluginStates.add(instanceId);
+    this.logger?.warn("Latest device state will remain in memory only.", {
+      component: "runtime-state",
+      instanceId,
+      reason
+    });
   }
 
   /** Returns a defensive copy of one panel's current interactive screen context. */
@@ -261,7 +344,7 @@ export class RuntimeStateStore {
   }
 }
 
-function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, values: {} }; }
+function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, values: {}, pluginStates: {} }; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function storageKey(scope: PluginStorageScope, ownerId: string, key: string): string { return `${scope}:${ownerId}:${key}`; }
 function storageEntryBytes(key: string, value: unknown): number {
@@ -271,4 +354,27 @@ function storageEntryBytes(key: string, value: unknown): number {
 }
 function measureStorageBytes(values: Record<string, unknown>): number {
   return Object.entries(values).reduce((total, [key, value]) => total + storageEntryBytes(key, value), 0);
+}
+function measurePluginStateBytes(states: Record<string, PluginState>): number {
+  return Object.entries(states).reduce((total, [instanceId, state]) => total + storageEntryBytes(instanceId, state), 0);
+}
+
+/** Keeps the newest valid state entries while enforcing the on-disk state limits. */
+function normalizePluginStates(value: Record<string, unknown>): Record<string, PluginState> {
+  const newestFirst: Array<[string, PluginState]> = [];
+  let storedBytes = 0;
+  for (const [instanceId, candidate] of Object.entries(value).reverse()) {
+    if (!instanceId || !isRecord(candidate)) continue;
+    let serialized: string | undefined;
+    try { serialized = JSON.stringify(candidate); }
+    catch { continue; }
+    if (serialized === undefined) continue;
+    const state = JSON.parse(serialized) as PluginState;
+    const entryBytes = storageEntryBytes(instanceId, state);
+    if (entryBytes > MAX_PLUGIN_STATE_BYTES || newestFirst.length >= MAX_PERSISTED_PLUGIN_STATES
+      || storedBytes + entryBytes > MAX_PERSISTED_PLUGIN_STATE_BYTES) continue;
+    newestFirst.push([instanceId, state]);
+    storedBytes += entryBytes;
+  }
+  return Object.fromEntries(newestFirst.reverse());
 }

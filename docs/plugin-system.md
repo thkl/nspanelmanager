@@ -48,11 +48,11 @@ sequenceDiagram
 
 ## State, Rendering, and Outbound Commands
 
-Normalized device state is cached in memory by plugin instance. `renderPanelState()` can publish assigned summary data, while `renderNativePanelState()` translates state for a firmware-owned page. Native page state is generally sent only while that page is open; integrations can opt into background updates when the firmware needs shared data, as Sonos does for its player list. Weather obtains state through `poll()` on its configured interval instead of an MQTT subscription.
+Normalized device state is cached by plugin instance and restored from a bounded last-known snapshot when the manager restarts. The snapshot is coalesced to at most one disk write per second and is capped at 64 KiB per instance, 512 instances, and 2 MiB total; oversized or evicted state remains available in memory until restart. `renderPanelState()` can publish assigned summary data, while `renderNativePanelState()` translates state for a firmware-owned page. Native page state is generally sent only while that page is open; integrations can opt into background updates when the firmware needs shared data, as Sonos does for its player list. Weather obtains state through `poll()` on its configured interval instead of an MQTT subscription.
 
 Panel actions follow the reverse path: the runtime decodes the firmware event, calls the relevant plugin handler, and publishes returned `PluginCommand`s. Script helpers such as `mqtt.send()` use the same runtime publisher. The runtime also handles firmware setup messages, including panel settings on boot, separately from plugin state rendering.
 
-Ordinary MQTT-derived plugin state is not written to disk. Scripts explicitly persist selected values through global, plugin-instance, or panel storage; those writes are cached and batched. Panel flow sessions are also persisted so an interactive flow can be restored.
+Ordinary MQTT-derived plugin state is now written to the private runtime-state file as a bounded last-known snapshot. State is updated immediately in memory and coalesced to at most one write per second; a forced termination can lose updates since the last successful snapshot. Scripts can still explicitly persist additional values through global, plugin-instance, or panel storage; those writes share the same batched snapshot. Panel flow sessions are also persisted so an interactive flow can be restored.
 
 ## Extending the System
 
