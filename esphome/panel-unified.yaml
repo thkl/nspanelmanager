@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.12"
+  firmware_version: "6.0.14"
 
 esphome:
   name: $hostname
@@ -607,9 +607,10 @@ script:
     then:
       - lambda: |-
             if (id(musicMode)==1) {
-              int player = id(selectedMusicPlayer);
-              if (id(musicPlayer)[player] != -1) {
-                  id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/music/switch").c_str(), esphome::to_string(id(musicPlayer)[player]).c_str());
+              const int player_slot = id(selectedMusicPlayer);
+              if (player_slot >= 0 && player_slot < static_cast<int>(id(musicPlayer).size()) && id(musicPlayer)[player_slot] != -1) {
+                  id(selectedMusicPlayer) = id(musicPlayer)[player_slot];
+                  id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/music/switch").c_str(), esphome::to_string(id(selectedMusicPlayer)).c_str());
                   id(musicMode)=0;
                   id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/page/music").c_str(), esphome::to_string((int)id(selectedMusicPlayer)).c_str());
               }
@@ -816,7 +817,18 @@ script:
                       id(disp1).set_component_text("p3b4", "Favourites");
                       id(disp1).set_component_text("p3b5", "Prevs");
                       id(disp1).set_component_text("p3b6", "Next");
-                      id(disp1).send_command_printf("p3tTitle.txt=pageMusic.vPlayer%d.txt",(int)id(selectedMusicPlayer));
+                      int selected_player_slot = -1;
+                      for (int i = 0; i < static_cast<int>(id(musicPlayer).size()); i++) {
+                        if (id(musicPlayer)[i] == selected_player) {
+                          selected_player_slot = i;
+                          break;
+                        }
+                      }
+                      if (selected_player_slot >= 0) {
+                        id(disp1).send_command_printf("p3tTitle.txt=pageMusic.vPlayer%d.txt", selected_player_slot);
+                      } else {
+                        id(disp1).set_component_text("p3tTitle", "");
+                      }
                   } else {
                       if (id(musicMode)==1) {
                         id(disp1).set_component_text("p3tTitle", " Switch to:");
@@ -1340,7 +1352,8 @@ panel_mqtt:
                   for (auto &player_state : id(sonosPlaybackStateByPlayer)) player_state = 0;
                   for (auto &coordinator : id(sonosCoordinatorByPlayer)) coordinator = -1;
                   for (int i = 0; i < 8 && i < arraySize; i++) {
-                      if (!array[i]["name"].is<std::string>() || !array[i]["id"].is<int>()) continue;
+                      if (!array[i]["name"].is<std::string>() ||
+                          (!array[i]["id"].is<int>() && !array[i]["id"].is<std::string>())) continue;
                         std::string name = array[i]["name"].as<std::string>();
                         id(disp1).send_command_printf("pageMusic.vPlayer%d.txt=\"%s\"",(i), name.c_str());
                         int player_id = array[i]["id"].as<int>();

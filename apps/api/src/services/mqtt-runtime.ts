@@ -410,7 +410,7 @@ export class MqttRuntime {
   }
 
   /** Builds the firmware's player-slot configuration from active shared music-page instances. */
-  private configuredNativePagePlayers(pageId: string, defaultPlayer?:string): Array<{ id: string; name: string; sonos: string; player: string; currentSong?: string }> {
+  private configuredNativePagePlayers(pageId: string, defaultPlayer?:string): Array<{ id: number; name: string; sonos: string; player: string; currentSong?: string }> {
     return this.resolvePluginInstances()
       .filter((instance) => instance.enabled && this.plugins.get(instance.pluginId)?.nativePanelPage === pageId && this.plugins.get(instance.pluginId)?.nativePanelSharedInstances)
       .flatMap((instance) => {
@@ -421,7 +421,7 @@ export class MqttRuntime {
         const state = this.runtimeState.getPluginState(instance.id);
         const currentSong = currentSonosSong(state);
         return [{
-          id: String(id),
+          id: id,
           current: instance.id === defaultPlayer,
           name: firmwareSafeText(instance.name),
           sonos: firmwareSafeText(sonosName),
