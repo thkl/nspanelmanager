@@ -44,7 +44,10 @@
     <section class="panel-section" aria-labelledby="panel-targets-title">
       <div class="section-heading">
         <div><h3 id="panel-targets-title">Choose a panel</h3><p>Send an update prompt, or force the panel to start downloading immediately.</p></div>
-        <span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'MQTT connected' : 'MQTT disconnected' }}</span>
+        <div class="connection-badges">
+          <span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'MQTT connected' : 'MQTT disconnected' }}</span>
+          <span class="live-state" [class.connected]="manager.realtimeConnected()">{{ manager.realtimeConnected() ? 'Live updates' : 'Reconnecting…' }}</span>
+        </div>
       </div>
       <label class="force-option" [class.force-active]="forceUpdate()">
         <input type="checkbox" [checked]="forceUpdate()" (change)="setForceUpdate($event)">
@@ -54,9 +57,16 @@
         <div class="panel-list">
           @for (panel of manager.config().panels; track panel.id) {
             <article class="panel-row">
-              <div class="panel-copy"><h4>{{ panel.name }}</h4><p>{{ panel.nodeName }}/cmnd/updatehmi</p><p class="panel-hmi-version" [class.current-version]="hmiVersionMatches(panel)">{{ hmiVersionLabel(panel) }}</p></div>
-              <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingPanelId() !== ''" (click)="requestUpdate(panel)">
-                {{ updatingPanelId() === panel.id ? 'Sending…' : forceUpdate() ? 'Force update now' : 'Send update prompt' }}
+              <div class="panel-copy">
+                <h4>{{ panel.name }}</h4>
+                <p>{{ panel.nodeName }}/cmnd/updatehmi</p>
+                <p class="panel-hmi-version" [class.current-version]="hmiVersionMatches(panel)">{{ hmiVersionLabel(panel) }}</p>
+                @if (latestUpdate(panel); as job) {
+                  <p class="panel-job-status" [class]="'panel-job-status status-' + job.status">{{ updateStatusLabel(job) }} · {{ formatJobTime(job.updatedAt) }}</p>
+                }
+              </div>
+              <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingPanelId() !== '' || updateInProgress(panel)" (click)="requestUpdate(panel)">
+                {{ updateInProgress(panel) ? 'Update in progress' : updatingPanelId() === panel.id ? 'Sending…' : forceUpdate() ? 'Force update now' : 'Send update prompt' }}
               </button>
             </article>
           }
@@ -71,6 +81,29 @@
       <p>Choose a compatible Nextion <code>.tft</code> file above. It will be stored in the manager's persistent data directory.</p>
     </aside>
   }
+
+  <section class="history-section" aria-labelledby="hmi-history-title">
+    <div class="section-heading history-heading">
+      <div><h3 id="hmi-history-title">Recent HMI updates</h3><p>Panel confirmations and results are saved by the manager.</p></div>
+      <button class="refresh-history" type="button" (click)="refresh()">Refresh</button>
+    </div>
+    @if (manager.hmiUpdateJobs().length) {
+      <div class="job-list">
+        @for (job of manager.hmiUpdateJobs().slice(0, 30); track job.id) {
+          <article class="job-row">
+            <div class="job-copy">
+              <b>{{ job.panelName }} · {{ job.filename }}</b>
+              <small>{{ formatJobTime(job.requestedAt) }} · HMI {{ job.hmiVersion.slice(0, 12) }}{{ job.force ? ' · forced' : '' }}</small>
+              @if (job.message) { <small>{{ job.message }}</small> }
+            </div>
+            <span class="job-status" [class]="'job-status status-' + job.status">{{ updateStatusLabel(job) }}</span>
+          </article>
+        }
+      </div>
+    } @else {
+      <p class="empty-note">No HMI update requests yet.</p>
+    }
+  </section>
 
   <aside class="hmi-notice" role="note">
     <h3>Before sending an update</h3>

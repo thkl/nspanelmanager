@@ -31,6 +31,10 @@ export class MqttRuntime {
   private readonly publishedPanelSettings = new Map<string, string>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
+  private readonly panelConnectionListeners = new Set<(panels: PanelConnectionStatus[]) => void>();
+  private readonly mqttStatusListeners = new Set<(status: { connected: boolean; error: string }) => void>();
+  private readonly hmiUpdateReportListeners = new Set<(panel: Panel, payload: string, receivedAt: number) => void | Promise<void>>();
+  private readonly panelPingListeners = new Set<(panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number) => void | Promise<void>>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
 
@@ -47,9 +51,33 @@ export class MqttRuntime {
   /** Exposes health only; credentials and the client object never leave this service. */
   status(): { connected: boolean; error: string } { return { connected: this.connected, error: this.lastError }; }
 
+  /** Subscribes to broker connection changes for live manager clients. */
+  onMqttStatusChanged(listener: (status: { connected: boolean; error: string }) => void): () => void {
+    this.mqttStatusListeners.add(listener);
+    return () => this.mqttStatusListeners.delete(listener);
+  }
+
+  /** Subscribes to panel LWT and heartbeat changes for live manager clients. */
+  onPanelConnectionsChanged(listener: (panels: PanelConnectionStatus[]) => void): () => void {
+    this.panelConnectionListeners.add(listener);
+    return () => this.panelConnectionListeners.delete(listener);
+  }
+
+  /** Subscribes to panel HMI update lifecycle events received over MQTT. */
+  onHmiUpdateReport(listener: (panel: Panel, payload: string, receivedAt: number) => void | Promise<void>): () => void {
+    this.hmiUpdateReportListeners.add(listener);
+    return () => this.hmiUpdateReportListeners.delete(listener);
+  }
+
+  /** Subscribes to panel heartbeat telemetry after the connection snapshot has been updated. */
+  onPanelPing(listener: (panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number) => void | Promise<void>): () => void {
+    this.panelPingListeners.add(listener);
+    return () => this.panelPingListeners.delete(listener);
+  }
+
   /** Publishes an HMI download URL and artifact checksum, optionally skipping panel confirmation. */
-  publishHmiUpdate(panel: Panel, url: string, hmiVersion: string, force = false): boolean {
-    return this.publish(`${panel.nodeName}/cmnd/updatehmi`, JSON.stringify(force ? { url, version: hmiVersion, force: true } : { url, version: hmiVersion }));
+  publishHmiUpdate(panel: Panel, url: string, hmiVersion: string, jobId: string, force = false): boolean {
+    return this.publish(`${panel.nodeName}/cmnd/updatehmi`, JSON.stringify({ url, version: hmiVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
   }
 
   /** Returns live panel connection state without adding runtime data to saved configuration. */
@@ -79,6 +107,8 @@ export class MqttRuntime {
   async reconnect(): Promise<void> {
     this.closing = false;
     this.lastError = "";
+    this.connected = false;
+    this.notifyMqttStatusChanged();
     await this.refreshPluginInstances();
     if (this.client) {
       const oldClient = this.client;
@@ -104,18 +134,20 @@ export class MqttRuntime {
       client.on("connect", () => {
         this.connected = true;
         this.lastError = "";
+        this.notifyMqttStatusChanged();
         this.syncSubscriptions();
         void this.notifyPluginsConnected();
         void this.restoreAllPanels().catch((error: unknown) => {
           this.lastError = error instanceof Error ? error.message : String(error);
         });
       });
-      client.on("reconnect", () => { this.connected = false; });
-      client.on("offline", () => { this.connected = false; });
-      client.on("error", (error) => { this.lastError = error.message; });
+      client.on("reconnect", () => { this.connected = false; this.notifyMqttStatusChanged(); });
+      client.on("offline", () => { this.connected = false; this.notifyMqttStatusChanged(); });
+      client.on("error", (error) => { this.lastError = error.message; this.notifyMqttStatusChanged(); });
     } catch (error) {
       this.connected = false;
       this.lastError = error instanceof Error ? error.message : String(error);
+      this.notifyMqttStatusChanged();
     }
   }
 
@@ -125,6 +157,7 @@ export class MqttRuntime {
     const client = this.client;
     this.client = undefined;
     this.connected = false;
+    this.notifyMqttStatusChanged();
     this.activeTopics.clear();
     for (const id of this.pluginPollTimers.keys()) this.clearPluginPoll(id);
     if (client) await new Promise<void>((resolve) => client.end(true, {}, () => resolve()));
@@ -154,6 +187,7 @@ export class MqttRuntime {
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         this.lastError = detail;
+        this.notifyMqttStatusChanged();
         this.logger.error("MQTT message processing failed.", {
           component: "mqtt",
           phase: "dispatch",
@@ -454,11 +488,19 @@ export class MqttRuntime {
   private async handleMessage(message: MqttMessageEnvelope): Promise<void> {
     const config = this.store.get();
     const { topic, payload } = message;
-    this.updatePanelConnection(topic, payload, message.receivedAt, config.panels);
+    if (this.updatePanelConnection(topic, payload, message.receivedAt, config.panels)) this.notifyPanelConnectionsChanged();
     const instances = this.resolvePluginInstances(config);
     const eventPanel = config.panels.find((panel) => topic.startsWith(`${panel.nodeName}/event/`));
     if (eventPanel && topic === `${eventPanel.nodeName}/event/reset_reason`) {
       await this.recordPanelResetReport(eventPanel, payload, message.receivedAt);
+      this.notifyPanelConnectionsChanged();
+    }
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/hmi/update`) {
+      for (const listener of this.hmiUpdateReportListeners) await listener(eventPanel, payload, message.receivedAt);
+    }
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/ping`) {
+      const telemetry = readPanelTelemetry(payload, message.receivedAt);
+      for (const listener of this.panelPingListeners) await listener(eventPanel, telemetry, message.receivedAt);
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/page/favs`) {
       this.publishPanelFavorites(eventPanel);
@@ -533,20 +575,20 @@ export class MqttRuntime {
   }
 
   /** Applies panel LWT status and ping packets to the in-memory connection view. */
-  private updatePanelConnection(topic: string, payload: string, receivedAt: number, panels: Panel[]): void {
+  private updatePanelConnection(topic: string, payload: string, receivedAt: number, panels: Panel[]): boolean {
     const panel = panels.find((candidate) => topic === `${candidate.nodeName}/status` || topic === `${candidate.nodeName}/event/ping`);
-    if (!panel) return;
+    if (!panel) return false;
 
     const previous = this.panelConnections.get(panel.nodeName);
     if (topic === `${panel.nodeName}/status`) {
       const normalized = payload.trim().toLowerCase();
-      if (normalized !== "online" && normalized !== "offline") return;
+      if (normalized !== "online" && normalized !== "offline") return false;
       this.panelConnections.set(panel.nodeName, {
         status: normalized,
         lastSeenAt: normalized === "online" ? receivedAt : previous?.lastSeenAt ?? null,
         telemetry: previous?.telemetry ?? null
       });
-      return;
+      return true;
     }
 
     this.panelConnections.set(panel.nodeName, {
@@ -554,6 +596,17 @@ export class MqttRuntime {
       lastSeenAt: receivedAt,
       telemetry: readPanelTelemetry(payload, receivedAt) ?? previous?.telemetry ?? null
     });
+    return true;
+  }
+
+  private notifyPanelConnectionsChanged(): void {
+    const statuses = this.panelConnectionStatuses();
+    for (const listener of this.panelConnectionListeners) listener(statuses);
+  }
+
+  private notifyMqttStatusChanged(): void {
+    const status = this.status();
+    for (const listener of this.mqttStatusListeners) listener(status);
   }
 
   /** Persists the panel's latest reset reason for the device status view. */

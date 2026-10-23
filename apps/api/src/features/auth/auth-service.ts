@@ -184,11 +184,17 @@ export class AuthService {
   async currentUser(request: Request): Promise<PublicUser | undefined> {
     const token = this.sessionToken(request);
     if (!token) return undefined;
-    const resolved = await this.users.resolveSession(token);
-    if (!resolved) return undefined;
-    request.authUser = this.toPublicUser(resolved.user);
+    const user = await this.resolveSessionToken(token);
+    if (!user) return undefined;
+    request.authUser = user;
     request.authSessionToken = token;
     return request.authUser;
+  }
+
+  /** Resolves an opaque session token for authenticated non-HTTP transports such as WebSockets. */
+  async resolveSessionToken(token: string): Promise<PublicUser | undefined> {
+    const resolved = await this.users.resolveSession(token);
+    return resolved ? this.toPublicUser(resolved.user) : undefined;
   }
 
   /** Returns the callback URI derived from APP_PUBLIC_URL for OIDC authorization responses. */

@@ -1,9 +1,7 @@
 import { HttpErrorResponse } from "@angular/common/http";
-import { Component, DestroyRef, ElementRef, OnInit, inject, signal, viewChild } from "@angular/core";
-import { EMPTY, catchError, interval, startWith, switchMap } from "rxjs";
-import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
+import { Component, ElementRef, OnInit, signal, viewChild } from "@angular/core";
 import { ManagerStore } from "../../manager-store.service";
-import type { HmiArtifact, Panel } from "../../models";
+import type { HmiArtifact, HmiUpdateJob, Panel } from "../../models";
 
 /** Uploads a Nextion TFT and requests an HMI update on a selected registered panel. */
 @Component({
@@ -13,7 +11,6 @@ import type { HmiArtifact, Panel } from "../../models";
   styleUrl: "./hmi-page.component.css"
 })
 export class HmiPageComponent implements OnInit {
-  private readonly destroyRef = inject(DestroyRef);
   readonly artifact = signal<HmiArtifact | null>(null);
   readonly selectedFile = signal<File | null>(null);
   readonly loading = signal(true);
@@ -29,16 +26,12 @@ export class HmiPageComponent implements OnInit {
   /** Loads the currently stored TFT metadata when the HMI workspace opens. */
   ngOnInit(): void {
     this.refresh();
-    interval(15_000).pipe(
-      startWith(0),
-      switchMap(() => this.manager.refreshPanelConnections().pipe(catchError(() => EMPTY))),
-      takeUntilDestroyed(this.destroyRef)
-    ).subscribe();
   }
 
   /** Refreshes the latest artifact without reloading editable panel configuration. */
   refresh(): void {
     this.loading.set(true);
+    this.manager.loadHmiUpdateJobs().subscribe({ error: () => this.manager.inform("Could not load HMI update history.", "error") });
     this.manager.loadHmiArtifact().subscribe({
       next: ({ artifact, maxUploadBytes }) => {
         this.artifact.set(artifact);
@@ -121,6 +114,37 @@ export class HmiPageComponent implements OnInit {
   hmiVersionMatches(panel: Panel): boolean {
     const reported = this.manager.panelConnections()[panel.nodeName]?.telemetry?.hmiVersion;
     return Boolean(reported && reported === this.artifact()?.sha256);
+  }
+
+  /** Returns the latest durable update attempt for one configured panel. */
+  latestUpdate(panel: Panel): HmiUpdateJob | undefined {
+    return this.manager.hmiUpdateJobs().find((job) => job.panelId === panel.id);
+  }
+
+  /** Identifies jobs that are still awaiting a panel response or completion. */
+  updateInProgress(panel: Panel): boolean {
+    const status = this.latestUpdate(panel)?.status;
+    return status === "sending" || status === "sent" || status === "awaiting_confirmation" || status === "uploading";
+  }
+
+  /** Provides concise wording for the lifecycle state shown beside each panel. */
+  updateStatusLabel(job: HmiUpdateJob): string {
+    switch (job.status) {
+      case "sending": return "Sending request";
+      case "sent": return "Waiting for panel";
+      case "awaiting_confirmation": return "Awaiting confirmation";
+      case "uploading": return "Updating display";
+      case "succeeded": return "Installed successfully";
+      case "failed": return "Failed";
+      case "cancelled": return "Cancelled";
+      case "timed_out": return "Timed out";
+    }
+  }
+
+  /** Formats the manager's recorded job time using the browser's local timezone. */
+  formatJobTime(value: number): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "Unknown time" : date.toLocaleString();
   }
 
   /** Updates whether the next panel request should bypass the on-panel confirmation. */

@@ -78,6 +78,26 @@ export interface HmiArtifactRecord {
   uploadedAt: string;
 }
 
+export type HmiUpdateJobStatus = "sending" | "sent" | "awaiting_confirmation" | "uploading" | "succeeded" | "failed" | "cancelled" | "timed_out";
+
+/** Durable record of one HMI update attempt for a configured panel. */
+export interface HmiUpdateJob {
+  id: string;
+  panelId: string;
+  panelName: string;
+  nodeName: string;
+  artifactId: string;
+  filename: string;
+  hmiVersion: string;
+  status: HmiUpdateJobStatus;
+  force: boolean;
+  requestedAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  message?: string;
+  requestedBy?: string;
+}
+
 export type RouteDirection = "external-to-panel" | "panel-to-external";
 
 export type RoutePayloadFilter =

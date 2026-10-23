@@ -4,12 +4,17 @@ import type { Logger } from "../../services/logger.js";
 import type { ConfigStore } from "../../services/config-store.js";
 import type { MqttRuntime } from "../../services/mqtt-runtime.js";
 import { HmiArtifactError, HmiArtifactService, MAX_HMI_FILE_BYTES } from "./hmi-artifact-service.js";
+import { HmiUpdateError, HmiUpdateService } from "./hmi-update-service.js";
 
 /** Creates protected HMI upload and panel update endpoints. */
-export function createHmiRouter(hmiService: HmiArtifactService, store: ConfigStore, mqttRuntime: MqttRuntime, logger: Logger): Router {
+export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService: HmiUpdateService, store: ConfigStore, mqttRuntime: MqttRuntime, logger: Logger): Router {
   const router = Router();
 
   router.get("/", (_request, response) => response.json({ artifact: hmiService.currentArtifact(), maxUploadBytes: MAX_HMI_FILE_BYTES }));
+  router.get("/jobs", async (_request, response, next) => {
+    try { response.json({ jobs: await hmiUpdateService.listJobs() }); }
+    catch (error) { next(error); }
+  });
 
   router.post("/upload", express.raw({ type: "application/octet-stream", limit: MAX_HMI_FILE_BYTES }), async (request, response, next) => {
     try {
@@ -41,19 +46,26 @@ export function createHmiRouter(hmiService: HmiArtifactService, store: ConfigSto
     try {
       const download = await hmiService.createDownloadUrl();
       const topic = `${panel.nodeName}/cmnd/updatehmi`;
-      if (!mqttRuntime.publishHmiUpdate(panel, download.url, download.artifact.sha256, force)) return response.status(503).json({ error: "The MQTT broker disconnected before the update request could be sent." });
+      const job = await hmiUpdateService.begin(panel, download.artifact, force, download.expiresAt, request.authUser?.email);
+      if (!mqttRuntime.publishHmiUpdate(panel, download.url, download.artifact.sha256, job.id, force)) {
+        await hmiUpdateService.markPublishFailed(job.id, "The MQTT broker disconnected before the update request could be sent.");
+        return response.status(503).json({ error: "The MQTT broker disconnected before the update request could be sent.", job: hmiUpdateService.getJob(job.id) });
+      }
+      await hmiUpdateService.markPublished(job.id);
       logger.info("HMI update request published.", {
         component: "hmi",
         panel: panel.nodeName,
         artifactId: download.artifact.id,
+        jobId: job.id,
         hmiVersion: download.artifact.sha256,
         force: String(force),
         grantExpiresAt: download.expiresAt,
         requestedBy: request.authUser?.email ?? "unknown"
       });
-      response.json({ published: true, panel: { id: panel.id, name: panel.name }, topic, expiresAt: download.expiresAt, hmiVersion: download.artifact.sha256 });
+      response.json({ published: true, panel: { id: panel.id, name: panel.name }, topic, expiresAt: download.expiresAt, hmiVersion: download.artifact.sha256, job: hmiUpdateService.getJob(job.id) ?? job });
     } catch (error) {
       if (error instanceof HmiArtifactError) response.status(error.statusCode).json({ error: error.message });
+      else if (error instanceof HmiUpdateError) response.status(error.statusCode).json({ error: error.message });
       else next(error);
     }
   });

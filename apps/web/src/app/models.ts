@@ -167,6 +167,31 @@ export interface HmiArtifact {
   uploadedAt: string;
 }
 
+export type HmiUpdateJobStatus = "sending" | "sent" | "awaiting_confirmation" | "uploading" | "succeeded" | "failed" | "cancelled" | "timed_out";
+
+export interface HmiUpdateJob {
+  id: string;
+  panelId: string;
+  panelName: string;
+  nodeName: string;
+  artifactId: string;
+  filename: string;
+  hmiVersion: string;
+  status: HmiUpdateJobStatus;
+  force: boolean;
+  requestedAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  message?: string;
+  requestedBy?: string;
+}
+
+export type ManagerRealtimeEvent =
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; hmiJobs: HmiUpdateJob[]; mqtt: MqttStatus }
+  | { type: "panels"; panels: PanelConnectionStatus[] }
+  | { type: "hmi-job"; job: HmiUpdateJob }
+  | { type: "mqtt"; mqtt: MqttStatus };
+
 export interface ManagerState {
   config: ManagerConfig;
   mqtt: MqttStatus;

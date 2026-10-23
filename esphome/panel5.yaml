@@ -213,6 +213,12 @@ globals:
     max_restore_data_length: 64
     initial_value: '""'
 
+  - id: pending_hmi_job_id
+    type: std::string
+    restore_value: yes
+    max_restore_data_length: 36
+    initial_value: '""'
+
   - id: hmi_update_pending
     type: bool
     restore_value: yes
@@ -291,6 +297,25 @@ script:
             if (id(debug_heap_block).has_state()) root["largest_free_block_bytes"] = id(debug_heap_block).state;
             if (id(debug_loop_time).has_state()) root["loop_time_ms"] = id(debug_loop_time).state;
             if (id(panel_chip_temperature).has_state()) root["chip_temperature_c"] = id(panel_chip_temperature).state;
+
+  - id: publish_hmi_update_status
+    parameters:
+      job_id: std::string
+      status: std::string
+      version: std::string
+      message: std::string
+    then:
+      - if:
+          condition:
+            lambda: return !job_id.empty();
+          then:
+            - mqtt.publish_json:
+                topic: $node_name/event/hmi/update
+                payload: |-
+                  root["job_id"] = job_id;
+                  root["status"] = status;
+                  if (!version.empty()) root["version"] = version;
+                  if (!message.empty()) root["message"] = message;
 
   - id: update_time
     then:
@@ -670,17 +695,41 @@ script:
                 hmi_update_pending->update();
                 esphome::global_preferences->sync();
       - lambda: |-
+          id(publish_hmi_update_status)->execute(id(pending_hmi_job_id), "uploading", id(pending_hmi_version), "");
           id(mqtt_client).disable();
           id(disp1).set_backlight_brightness(1);
           if (!id(disp1).upload_tft()) {
             ESP_LOGE("hmi", "TFT upload failed; clearing the pending HMI version ID");
+            std::string failed_job_id = id(pending_hmi_job_id);
+            std::string failed_version = id(pending_hmi_version);
             id(pending_hmi_version).clear();
             id(hmi_update_pending) = false;
             pending_hmi_version->update();
             hmi_update_pending->update();
             esphome::global_preferences->sync();
             id(mqtt_client).enable();
+            id(report_hmi_update_failure)->execute(failed_job_id, failed_version);
           }
+
+  - id: report_hmi_update_failure
+    parameters:
+      job_id: std::string
+      version: std::string
+    then:
+      - wait_until:
+          condition:
+            mqtt.connected:
+          timeout: 15s
+      - script.execute:
+          id: publish_hmi_update_status
+          job_id: !lambda return job_id;
+          status: failed
+          version: !lambda return version;
+          message: "Nextion TFT upload failed."
+      - lambda: |-
+          id(pending_hmi_job_id).clear();
+          pending_hmi_job_id->update();
+          esphome::global_preferences->sync();
 
 
   - id: do_reset_sonosPlayer
@@ -1189,9 +1238,26 @@ mqtt:
                 }
                 id(disp1).set_tft_url(update_url);
               }
+              std::string job_id = x.containsKey("job_id") ? x["job_id"].as<std::string>() : "";
+              if (!job_id.empty()) {
+                bool valid_job_id = job_id.size() == 36;
+                for (size_t i = 0; valid_job_id && i < job_id.size(); i++) {
+                  if (i == 8 || i == 13 || i == 18 || i == 23) valid_job_id = job_id[i] == '-';
+                  else {
+                    const char c = job_id[i];
+                    valid_job_id = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+                  }
+                }
+                if (!valid_job_id) {
+                  ESP_LOGW("hmi", "Rejected an invalid HMI update job ID");
+                  return;
+                }
+              }
               id(pending_hmi_version) = hmi_version;
+              id(pending_hmi_job_id) = job_id;
               id(hmi_update_pending) = false;
               pending_hmi_version->update();
+              pending_hmi_job_id->update();
               hmi_update_pending->update();
               esphome::global_preferences->sync();
               if (x.containsKey("force") && x["force"].is<bool>() && x["force"].as<bool>()) {
@@ -1209,6 +1275,7 @@ mqtt:
                 id(disp1).send_command_printf("pageList.b%d.txt=\"%s\"",3,"UPDATE");
                 id(disp1).send_command_printf("vis pageList.b3,1");
                 id(hmiupdate) = 1;
+                id(publish_hmi_update_status)->execute(job_id, "awaiting_confirmation", hmi_version, "Confirm the update on the panel.");
               }
 
 
@@ -1216,9 +1283,14 @@ mqtt:
       then:
         - lambda: |-
               id(hmiupdate) = 0;
+              if (!id(pending_hmi_job_id).empty()) {
+                id(publish_hmi_update_status)->execute(id(pending_hmi_job_id), "cancelled", id(pending_hmi_version), "The panel update prompt was cancelled.");
+              }
               id(pending_hmi_version).clear();
+              id(pending_hmi_job_id).clear();
               id(hmi_update_pending) = false;
               pending_hmi_version->update();
+              pending_hmi_job_id->update();
               hmi_update_pending->update();
               esphome::global_preferences->sync();
               if (id(currentPage) != "pageList") {
@@ -3181,12 +3253,17 @@ display:
               lambda: return id(hmi_update_pending) && !id(pending_hmi_version).empty();
             then:
               - lambda: |-
+                  std::string completed_job_id = id(pending_hmi_job_id);
+                  std::string completed_version = id(pending_hmi_version);
                   id(hmi_version) = id(pending_hmi_version);
                   id(pending_hmi_version).clear();
+                  id(pending_hmi_job_id).clear();
                   id(hmi_update_pending) = false;
                   ESP_LOGI("hmi", "Nextion reconnected after TFT update; recording HMI version %s", id(hmi_version).c_str());
                   hmi_version->update();
                   pending_hmi_version->update();
+                  pending_hmi_job_id->update();
                   hmi_update_pending->update();
                   esphome::global_preferences->sync();
+                  id(publish_hmi_update_status)->execute(completed_job_id, "succeeded", completed_version, "The display reconnected with the requested HMI.");
               - script.execute: publish_panel_ping

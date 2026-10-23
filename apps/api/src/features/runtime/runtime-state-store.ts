@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PluginState, PluginStorageScope } from "../plugins/plugin-contract.js";
-import type { PanelResetReport } from "../../types.js";
+import type { HmiUpdateJob, PanelResetReport } from "../../types.js";
 import type { Logger } from "../../services/logger.js";
 
 const MIN_PERSIST_INTERVAL_MS = 1_000;
@@ -12,6 +12,7 @@ const MAX_STORAGE_BYTES = 2 * 1024 * 1024;
 const MAX_PERSISTED_PLUGIN_STATES = 512;
 const MAX_PLUGIN_STATE_BYTES = 64 * 1024;
 const MAX_PERSISTED_PLUGIN_STATE_BYTES = 2 * 1024 * 1024;
+const MAX_PERSISTED_HMI_UPDATE_JOBS = 200;
 
 /** Persistent navigation context for an interactive plugin on one panel. */
 export interface PanelFlowSession {
@@ -48,6 +49,7 @@ interface RuntimeSnapshot {
   version: 1;
   panelSessions: Record<string, PanelFlowSession>;
   panelResetReports: Record<string, PanelResetReport>;
+  hmiUpdateJobs: HmiUpdateJob[];
   values: Record<string, unknown>;
   pluginStates: Record<string, PluginState>;
 }
@@ -97,10 +99,12 @@ export class RuntimeStateStore {
     const rawPluginStates = isRecord(value.pluginStates) ? value.pluginStates : {};
     const pluginStates = normalizePluginStates(rawPluginStates);
     const panelResetReports = normalizePanelResetReports(value.panelResetReports);
+    const hmiUpdateJobs = normalizeHmiUpdateJobs(value.hmiUpdateJobs);
     this.snapshot = {
       version: 1,
       panelSessions: isRecord(value.panelSessions) ? value.panelSessions as Record<string, PanelFlowSession> : {},
       panelResetReports,
+      hmiUpdateJobs,
       values: isRecord(value.values) ? value.values : {},
       pluginStates
     };
@@ -112,7 +116,9 @@ export class RuntimeStateStore {
       || !isRecord(value.pluginStates)
       || JSON.stringify(value.pluginStates) !== JSON.stringify(pluginStates)
       || !Object.hasOwn(value, "panelResetReports")
-      || JSON.stringify(value.panelResetReports) !== JSON.stringify(panelResetReports);
+      || JSON.stringify(value.panelResetReports) !== JSON.stringify(panelResetReports)
+      || !Array.isArray(value.hmiUpdateJobs)
+      || JSON.stringify(value.hmiUpdateJobs) !== JSON.stringify(hmiUpdateJobs);
     if (needsSnapshotUpgrade) {
       this.persist();
       await this.flush();
@@ -228,6 +234,18 @@ export class RuntimeStateStore {
   /** Saves the latest reboot report independently from panel configuration and script values. */
   async setPanelResetReport(panelId: string, report: PanelResetReport): Promise<void> {
     this.snapshot.panelResetReports[panelId] = structuredClone(report);
+    this.persist();
+  }
+
+  /** Returns the recent durable HMI update history, newest activity first. */
+  getHmiUpdateJobs(): HmiUpdateJob[] { return structuredClone(this.snapshot.hmiUpdateJobs); }
+
+  /** Inserts or replaces an HMI update record and bounds retained history. */
+  async upsertHmiUpdateJob(job: HmiUpdateJob): Promise<void> {
+    const jobs = this.snapshot.hmiUpdateJobs.filter((item) => item.id !== job.id);
+    jobs.push(structuredClone(job));
+    jobs.sort((left, right) => right.updatedAt - left.updatedAt);
+    this.snapshot.hmiUpdateJobs = jobs.slice(0, MAX_PERSISTED_HMI_UPDATE_JOBS);
     this.persist();
   }
 
@@ -363,7 +381,7 @@ export class RuntimeStateStore {
   }
 }
 
-function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, values: {}, pluginStates: {} }; }
+function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, hmiUpdateJobs: [], values: {}, pluginStates: {} }; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 
 function normalizePanelResetReports(value: unknown): Record<string, PanelResetReport> {
@@ -373,6 +391,45 @@ function normalizePanelResetReports(value: unknown): Record<string, PanelResetRe
     const reason = candidate.reason.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 80);
     return reason ? [[panelId, { reason, reportedAt: candidate.reportedAt }]] : [];
   }));
+}
+
+function normalizeHmiUpdateJobs(value: unknown): HmiUpdateJob[] {
+  if (!Array.isArray(value)) return [];
+  const validStatuses = new Set<HmiUpdateJob["status"]>(["sending", "sent", "awaiting_confirmation", "uploading", "succeeded", "failed", "cancelled", "timed_out"]);
+  const jobs = value.flatMap((candidate): HmiUpdateJob[] => {
+    if (!isRecord(candidate)
+      || typeof candidate.id !== "string" || !/^[0-9a-f-]{36}$/i.test(candidate.id)
+      || typeof candidate.panelId !== "string" || !candidate.panelId
+      || typeof candidate.panelName !== "string" || !candidate.panelName
+      || typeof candidate.nodeName !== "string" || !candidate.nodeName
+      || typeof candidate.artifactId !== "string" || !/^[0-9a-f-]{36}$/i.test(candidate.artifactId)
+      || typeof candidate.filename !== "string" || !candidate.filename
+      || typeof candidate.hmiVersion !== "string" || !/^[0-9a-f]{64}$/.test(candidate.hmiVersion)
+      || typeof candidate.status !== "string" || !validStatuses.has(candidate.status as HmiUpdateJob["status"])
+      || typeof candidate.force !== "boolean"
+      || typeof candidate.requestedAt !== "number" || !Number.isFinite(candidate.requestedAt) || candidate.requestedAt < 0
+      || typeof candidate.updatedAt !== "number" || !Number.isFinite(candidate.updatedAt) || candidate.updatedAt < 0
+      || typeof candidate.expiresAt !== "number" || !Number.isFinite(candidate.expiresAt) || candidate.expiresAt < 0) return [];
+    const message = typeof candidate.message === "string" ? candidate.message.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160) : "";
+    const requestedBy = typeof candidate.requestedBy === "string" ? candidate.requestedBy.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160) : "";
+    return [{
+      id: candidate.id,
+      panelId: candidate.panelId.slice(0, 80),
+      panelName: candidate.panelName.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120),
+      nodeName: candidate.nodeName.slice(0, 100),
+      artifactId: candidate.artifactId,
+      filename: candidate.filename.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 180),
+      hmiVersion: candidate.hmiVersion,
+      status: candidate.status as HmiUpdateJob["status"],
+      force: candidate.force,
+      requestedAt: candidate.requestedAt,
+      updatedAt: candidate.updatedAt,
+      expiresAt: candidate.expiresAt,
+      ...(message ? { message } : {}),
+      ...(requestedBy ? { requestedBy } : {})
+    }];
+  });
+  return jobs.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_PERSISTED_HMI_UPDATE_JOBS);
 }
 
 function storageKey(scope: PluginStorageScope, ownerId: string, key: string): string { return `${scope}:${ownerId}:${key}`; }

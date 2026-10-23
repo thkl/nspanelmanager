@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
-import { Observable, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, ManagerConfig, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import { Observable, finalize, tap } from "rxjs";
+import type { AuthStatus, AuthUser, BrokerInput, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -27,9 +27,15 @@ export class ManagerStore {
   });
   readonly mqtt = signal<MqttStatus>({ connected: false, error: "" });
   readonly panelConnections = signal<Record<string, PanelConnectionStatus>>({});
+  readonly hmiUpdateJobs = signal<HmiUpdateJob[]>([]);
+  readonly realtimeConnected = signal(false);
   readonly notice = signal<ManagerNotice | null>(null);
   readonly authStatus = signal<AuthStatus | null>(null);
   readonly authUser = signal<AuthUser | null>(null);
+  private realtimeSocket?: WebSocket;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private reconnectDelayMs = 1000;
+  private realtimeGeneration = 0;
 
   /** Creates the shared state boundary for all feature components. */
   constructor(private readonly http: HttpClient) {}
@@ -39,12 +45,17 @@ export class ManagerStore {
     return this.http.get<AuthStatus>("/api/auth/status").pipe(tap((status) => {
       this.authStatus.set(status);
       this.authUser.set(status.user ?? null);
+      if (status.authenticated) this.connectRealtime();
+      else this.disconnectRealtime();
     }));
   }
 
   /** Signs in with a local email/password account and stores its safe display record. */
   login(email: string, password: string): Observable<{ user: AuthUser }> {
-    return this.http.post<{ user: AuthUser }>("/api/auth/login", { email, password }).pipe(tap(({ user }) => this.authUser.set(user)));
+    return this.http.post<{ user: AuthUser }>("/api/auth/login", { email, password }).pipe(tap(({ user }) => {
+      this.authUser.set(user);
+      this.connectRealtime();
+    }));
   }
 
   /** Requests a PKCE-protected OIDC authorization URL before navigating to the provider. */
@@ -60,12 +71,17 @@ export class ManagerStore {
     return this.http.post<{ user: AuthUser }>("/api/auth/setup", { email, password, bootstrapToken }).pipe(tap(({ user }) => {
       this.authUser.set(user);
       this.authStatus.update((status) => ({ authenticated: true, user, hasUsers: true, ssoEnabled: status?.ssoEnabled ?? false }));
+      this.connectRealtime();
     }));
   }
 
   /** Signs out and clears the browser's authenticated manager state. */
   logout(): Observable<void> {
-    return this.http.post<void>("/api/auth/logout", {}).pipe(tap(() => this.authUser.set(null)));
+    return this.http.post<void>("/api/auth/logout", {}).pipe(finalize(() => {
+      this.authUser.set(null);
+      this.authStatus.update((status) => status ? { ...status, authenticated: false, user: undefined } : status);
+      this.disconnectRealtime();
+    }));
   }
 
   /** Fetches local administrator accounts without password hashes. */
@@ -106,6 +122,11 @@ export class ManagerStore {
     }));
   }
 
+  /** Loads durable HMI update history for the history view and manual refresh action. */
+  loadHmiUpdateJobs(): Observable<{ jobs: HmiUpdateJob[] }> {
+    return this.http.get<{ jobs: HmiUpdateJob[] }>("/api/hmi/jobs").pipe(tap(({ jobs }) => this.hmiUpdateJobs.set(jobs)));
+  }
+
   /** Loads the latest uploaded HMI artifact and the API upload limit. */
   loadHmiArtifact(): Observable<{ artifact: HmiArtifact | null; maxUploadBytes: number }> {
     return this.http.get<{ artifact: HmiArtifact | null; maxUploadBytes: number }>("/api/hmi");
@@ -122,8 +143,84 @@ export class ManagerStore {
   }
 
   /** Sends an HMI update request, optionally bypassing the panel's confirmation screen. */
-  requestHmiUpdate(panelId: string, force = false): Observable<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string }> {
-    return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string }>(`/api/hmi/panels/${panelId}/update`, { force });
+  requestHmiUpdate(panelId: string, force = false): Observable<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string; job: HmiUpdateJob }> {
+    return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string; job: HmiUpdateJob }>(`/api/hmi/panels/${panelId}/update`, { force }).pipe(tap(({ job }) => this.upsertHmiUpdateJob(job)));
+  }
+
+  /** Opens the authenticated same-origin realtime channel and retries transient disconnects. */
+  connectRealtime(): void {
+    if (typeof window === "undefined" || !this.authUser() || this.realtimeSocket || this.reconnectTimer) return;
+    const generation = this.realtimeGeneration;
+    const url = new URL("/api/events", window.location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(url);
+    this.realtimeSocket = socket;
+    socket.onopen = () => {
+      if (generation !== this.realtimeGeneration || this.realtimeSocket !== socket) return;
+      this.realtimeConnected.set(true);
+      this.reconnectDelayMs = 1000;
+    };
+    socket.onmessage = (event) => {
+      if (generation !== this.realtimeGeneration) return;
+      try { this.acceptRealtimeEvent(JSON.parse(String(event.data)) as unknown); } catch { /* Ignore malformed or unsupported API frames. */ }
+    };
+    socket.onclose = (event) => {
+      if (generation !== this.realtimeGeneration || this.realtimeSocket !== socket) return;
+      this.realtimeSocket = undefined;
+      this.realtimeConnected.set(false);
+      if (event.code === 4401) {
+        this.authUser.set(null);
+        this.authStatus.update((status) => status ? { ...status, authenticated: false, user: undefined } : status);
+        return;
+      }
+      this.scheduleRealtimeReconnect();
+    };
+  }
+
+  /** Closes the live channel and cancels pending reconnects when the browser signs out. */
+  disconnectRealtime(): void {
+    this.realtimeGeneration += 1;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+    const socket = this.realtimeSocket;
+    this.realtimeSocket = undefined;
+    this.realtimeConnected.set(false);
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "Signed out.");
+  }
+
+  private scheduleRealtimeReconnect(): void {
+    if (!this.authUser() || this.reconnectTimer || typeof window === "undefined") return;
+    const delay = this.reconnectDelayMs;
+    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 30_000);
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.connectRealtime();
+    }, delay);
+  }
+
+  private acceptRealtimeEvent(value: unknown): void {
+    if (!isRecord(value) || typeof value["type"] !== "string") return;
+    const event = value as unknown as ManagerRealtimeEvent;
+    if (event.type === "snapshot") {
+      this.setPanelConnections(event.panels);
+      this.hmiUpdateJobs.set(event.hmiJobs);
+      this.mqtt.set(event.mqtt);
+    } else if (event.type === "panels") {
+      this.setPanelConnections(event.panels);
+    } else if (event.type === "hmi-job") {
+      this.upsertHmiUpdateJob(event.job);
+    } else if (event.type === "mqtt") {
+      this.mqtt.set(event.mqtt);
+    }
+  }
+
+  private setPanelConnections(panels: PanelConnectionStatus[]): void {
+    if (!Array.isArray(panels)) return;
+    this.panelConnections.set(Object.fromEntries(panels.map((panel) => [panel.nodeName, panel])));
+  }
+
+  private upsertHmiUpdateJob(job: HmiUpdateJob): void {
+    this.hmiUpdateJobs.update((jobs) => [job, ...jobs.filter((item) => item.id !== job.id)].sort((left, right) => right.updatedAt - left.updatedAt));
   }
 
   /** Reads a bounded, optionally filtered set of recent records from rotated manager log files. */
@@ -306,4 +403,8 @@ export class ManagerStore {
     this.config.set(state.config);
     this.mqtt.set(state.mqtt);
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

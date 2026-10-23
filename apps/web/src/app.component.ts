@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, signal, viewChild } from "@angular/core";
+import { Component, OnInit, signal, viewChild } from "@angular/core";
 import { BrokerPageComponent } from "./app/features/broker/broker-page.component";
 import { PanelPageComponent } from "./app/features/panels/panel-page.component";
 import { RoutesPageComponent } from "./app/features/routes/routes-page.component";
@@ -25,7 +25,7 @@ type WorkspaceView = "panels" | "plugins" | "routes" | "broker" | "users" | "log
   templateUrl: "./app.component.html",
   styleUrl: "./app.component.css"
 })
-export class AppComponent implements OnInit, OnDestroy {
+export class AppComponent implements OnInit {
   readonly view = signal<WorkspaceView>("panels");
   readonly theme = signal<"light" | "dark">("light");
   readonly settingsExpanded = signal(false);
@@ -38,7 +38,6 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly hmiPage = viewChild(HmiPageComponent);
   readonly authLoaded = signal(false);
   readonly authError = signal(false);
-  private healthTimer?: ReturnType<typeof setInterval>;
 
   /** Receives shared manager state and restores the saved or system color theme. */
   constructor(readonly manager: ManagerStore) {
@@ -72,23 +71,13 @@ export class AppComponent implements OnInit, OnDestroy {
     try { window.localStorage.setItem("nspanel-manager-theme", theme); } catch { /* Theme remains active for this page view. */ }
   }
 
-  /** Loads authentication state before revealing manager controls and polls status while signed in. */
+  /** Loads authentication state and opens the live API channel for signed-in administrators. */
   ngOnInit(): void {
     this.manager.loadAuthStatus().subscribe({
       next: () => { this.authLoaded.set(true); },
       error: () => { this.authLoaded.set(true); this.authError.set(true); }
     });
-    this.healthTimer = setInterval(() => {
-      if (!this.manager.authUser()) return;
-      this.manager.loadAuthStatus().subscribe({
-        next: () => this.manager.refreshHealth().subscribe({ error: () => this.manager.inform("Manager API is unavailable.", "error") }),
-        error: () => this.manager.authUser.set(null)
-      });
-    }, 15000);
   }
-
-  /** Stops the browser timer when the workspace shell is destroyed. */
-  ngOnDestroy(): void { if (this.healthTimer) clearInterval(this.healthTimer); }
 
   /** Changes the visible feature page and opens Settings when one of its pages is selected. */
   show(view: WorkspaceView): void {

@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import { createApp } from "./app.js";
 import { ConfigStore } from "./services/config-store.js";
 import { MqttRuntime } from "./services/mqtt-runtime.js";
@@ -12,6 +12,8 @@ import { CredentialEncryption } from "./features/security/credential-encryption.
 import { LogFileReader } from "./features/logs/log-file-reader.js";
 import { BackupArchiveService } from "./features/backups/backup-archive-service.js";
 import { HmiArtifactService } from "./features/hmi/hmi-artifact-service.js";
+import { HmiUpdateService } from "./features/hmi/hmi-update-service.js";
+import { RealtimeWebSocketServer } from "./features/realtime/realtime-websocket.js";
 
 const logger = new Logger();
 
@@ -70,19 +72,35 @@ async function startServer(): Promise<void> {
   });
   const pluginRegistry = createDefaultPluginRegistry();
   const mqttRuntime = new MqttRuntime(store, pluginRegistry, runtimeState, logger);
+  let realtimeServer: RealtimeWebSocketServer | undefined;
+  const hmiUpdateService = new HmiUpdateService(runtimeState, (job) => realtimeServer?.broadcast({ type: "hmi-job", job }), logger);
+  const app = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, hmiService, hmiUpdateService);
+  const httpServer = createServer(app);
+  realtimeServer = new RealtimeWebSocketServer(httpServer, authService, async () => ({
+    panels: mqttRuntime.panelConnectionStatuses(),
+    hmiJobs: await hmiUpdateService.listJobs(),
+    mqtt: mqttRuntime.status()
+  }), logger);
+  mqttRuntime.onPanelConnectionsChanged((panels) => realtimeServer?.broadcast({ type: "panels", panels }));
+  mqttRuntime.onMqttStatusChanged((mqtt) => realtimeServer?.broadcast({ type: "mqtt", mqtt }));
+  mqttRuntime.onHmiUpdateReport((panel, payload, receivedAt) => hmiUpdateService.handlePanelReport(panel, payload, receivedAt));
+  mqttRuntime.onPanelPing((panel, telemetry, receivedAt) => hmiUpdateService.observePanelPing(panel, telemetry, receivedAt));
+  hmiUpdateService.start();
   await mqttRuntime.reconnect();
-  const httpServer = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, hmiService).listen(port, () => logger.info(`NSPanel Manager listening on port ${port}`, { component: "server" }));
-  registerShutdownHandlers(httpServer, mqttRuntime, runtimeState, logger);
+  httpServer.listen(port, () => logger.info(`NSPanel Manager listening on port ${port}`, { component: "server" }));
+  registerShutdownHandlers(httpServer, realtimeServer, hmiUpdateService, mqttRuntime, runtimeState, logger);
 }
 
 /** Flushes the coalesced runtime snapshot after stopping new HTTP and MQTT work. */
-function registerShutdownHandlers(httpServer: Server, mqttRuntime: MqttRuntime, runtimeState: RuntimeStateStore, logger: Logger): void {
+function registerShutdownHandlers(httpServer: Server, realtimeServer: RealtimeWebSocketServer, hmiUpdateService: HmiUpdateService, mqttRuntime: MqttRuntime, runtimeState: RuntimeStateStore, logger: Logger): void {
   let shutdownStarted = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shutdownStarted) return;
     shutdownStarted = true;
     logger.info("Stopping NSPanel Manager.", { component: "server", signal });
     try {
+      hmiUpdateService.close();
+      await realtimeServer.close();
       await new Promise<void>((resolve, reject) => {
         httpServer.close((error) => error ? reject(error) : resolve());
       });
