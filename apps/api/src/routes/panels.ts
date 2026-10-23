@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { randomUUID } from "node:crypto";
 import { normalizePanelSettings, validNodeName } from "../domain/panel-settings.js";
 import { defaultPanelSettings, type Panel } from "../types.js";
 import type { ConfigStore } from "../services/config-store.js";
@@ -19,14 +18,37 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
 
   router.get("/status", (_request, response) => response.json({ panels: mqttRuntime.panelConnectionStatuses() }));
 
+  router.post("/discover", (_request, response) => {
+    if (!mqttRuntime.requestPanelDiscovery()) return response.status(503).json({ error: "The MQTT broker is not connected." });
+    response.json({ requested: true });
+  });
+
   router.post("/", async (request, response) => {
     const name = stringValue(request.body?.name).trim();
     const nodeName = stringValue(request.body?.nodeName).trim();
+    const macInput = request.body?.macAddress;
+    const macAddress = macInput === undefined || macInput === null || macInput === "" ? undefined : normalizeMacAddress(macInput);
     if (!name || !validNodeName(nodeName)) return response.status(400).json({ error: "Name and a valid MQTT node name are required." });
+    if (macInput !== undefined && macInput !== null && macInput !== "" && !macAddress) return response.status(400).json({ error: "Enter a valid 12-character MAC address." });
     if (store.get().panels.some((panel) => panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
-    const panel = await store.addPanel({ name, nodeName, settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {} });
+    if (macAddress && store.get().panels.some((panel) => normalizeMacAddress(panel.macAddress) === macAddress)) return response.status(409).json({ error: "That device MAC address is already assigned to a panel." });
+    const panel = await store.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}), settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {} });
     mqttRuntime.syncSubscriptions();
     response.status(201).json({ panel });
+  });
+
+  router.patch("/:id/identity", async (request, response) => {
+    const current = store.get().panels.find((panel) => panel.id === request.params.id);
+    if (!current) return response.status(404).json({ error: "Panel not found." });
+    const macInput = request.body?.macAddress;
+    const macAddress = macInput === null || macInput === "" ? undefined : normalizeMacAddress(macInput);
+    if (macInput !== null && macInput !== "" && !macAddress) return response.status(400).json({ error: "Enter a valid 12-character MAC address or clear the assignment." });
+    if (macAddress && store.get().panels.some((panel) => panel.id !== current.id && normalizeMacAddress(panel.macAddress) === macAddress)) {
+      return response.status(409).json({ error: "That device MAC address is already assigned to another panel." });
+    }
+    const panel: Panel = { ...current, macAddress };
+    await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
+    response.json({ panel });
   });
 
   router.put("/:id", async (request, response) => {
@@ -102,6 +124,12 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
 }
 
 function stringValue(value: unknown): string { return typeof value === "string" ? value : ""; }
+
+function normalizeMacAddress(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/[:-]/g, "").toLowerCase();
+  return /^[a-f0-9]{12}$/.test(normalized) ? normalized : undefined;
+}
 
 function normalizeNativePluginInstances(input: unknown): Record<string, string> {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};

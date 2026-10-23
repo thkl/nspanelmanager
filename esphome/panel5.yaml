@@ -1,6 +1,6 @@
 # Performance-tuned panel firmware, included by nsp-livingroom.yaml.
 substitutions:
-  firmware_version: "5.0.7"
+  firmware_version: "5.0.8"
 
 esphome:
   name: $hostname
@@ -219,6 +219,48 @@ globals:
     max_restore_data_length: 36
     initial_value: '""'
 
+  - id: pending_firmware_version
+    type: std::string
+    restore_value: yes
+    max_restore_data_length: 40
+    initial_value: '""'
+
+  - id: pending_firmware_job_id
+    type: std::string
+    restore_value: yes
+    max_restore_data_length: 36
+    initial_value: '""'
+
+  - id: requested_firmware_url
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: requested_firmware_md5
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: requested_firmware_version
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: requested_firmware_job_id
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: firmware_update_waiting_for_confirmation
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: firmware_update_last_progress
+    type: int
+    restore_value: no
+    initial_value: "0"
+
   - id: hmi_update_pending
     type: bool
     restore_value: yes
@@ -316,6 +358,78 @@ script:
                   root["status"] = status;
                   if (!version.empty()) root["version"] = version;
                   if (!message.empty()) root["message"] = message;
+
+  - id: publish_firmware_update_status
+    parameters:
+      job_id: std::string
+      status: std::string
+      version: std::string
+      message: std::string
+      progress: int
+    then:
+      - if:
+          condition:
+            lambda: return !job_id.empty();
+          then:
+            - mqtt.publish_json:
+                topic: $node_name/event/firmware/update
+                payload: |-
+                  root["job_id"] = job_id;
+                  root["status"] = status;
+                  if (!version.empty()) root["version"] = version;
+                  if (!message.empty()) root["message"] = message;
+                  if (progress >= 0) root["progress"] = progress;
+
+  - id: start_firmware_update
+    then:
+      - if:
+          condition:
+            lambda: return !id(requested_firmware_url).empty() && !id(requested_firmware_md5).empty();
+          then:
+            - lambda: |-
+                id(pending_firmware_job_id) = id(requested_firmware_job_id);
+                id(pending_firmware_version) = id(requested_firmware_version);
+                id(firmware_update_last_progress) = 0;
+                id(firmware_update_waiting_for_confirmation) = false;
+                pending_firmware_job_id->update();
+                pending_firmware_version->update();
+                esphome::global_preferences->sync();
+            - script.execute:
+                id: publish_firmware_update_status
+                job_id: !lambda return id(requested_firmware_job_id);
+                status: uploading
+                version: !lambda return id(requested_firmware_version);
+                message: Panel accepted the firmware update.
+                progress: 0
+            - delay: 500ms
+            - ota.http_request.flash:
+                url: !lambda return id(requested_firmware_url);
+                md5: !lambda return id(requested_firmware_md5);
+      - lambda: |-
+          id(requested_firmware_url).clear();
+          id(requested_firmware_md5).clear();
+          id(requested_firmware_version).clear();
+          id(requested_firmware_job_id).clear();
+
+  - id: cancel_firmware_update_prompt
+    then:
+      - if:
+          condition:
+            lambda: return id(firmware_update_waiting_for_confirmation);
+          then:
+            - script.execute:
+                id: publish_firmware_update_status
+                job_id: !lambda return id(requested_firmware_job_id);
+                status: cancelled
+                version: !lambda return id(requested_firmware_version);
+                message: The panel update prompt was cancelled.
+                progress: -1
+            - lambda: |-
+                id(firmware_update_waiting_for_confirmation) = false;
+                id(requested_firmware_url).clear();
+                id(requested_firmware_md5).clear();
+                id(requested_firmware_version).clear();
+                id(requested_firmware_job_id).clear();
 
   - id: update_time
     then:
@@ -486,7 +600,10 @@ script:
       index: int
     then:
       - lambda: |-
-          if ((index==3) && (id(hmiupdate)==1)) {
+          if ((index==3) && id(firmware_update_waiting_for_confirmation)) {
+            id(start_firmware_update).execute();
+          }
+          else if ((index==3) && (id(hmiupdate)==1)) {
             id(proceed_hmi_update).execute();
           }
           else {
@@ -757,11 +874,47 @@ mqtt:
   password: !secret mqtt_password
   id: mqtt_client
   discovery: true
+  discover_ip: true
   on_connect:
     then:
       - mqtt.publish:
           topic: $node_name/event/reset_reason
           payload: !lambda 'return id(debug_reset_reason).state;'
+      - if:
+          condition:
+            lambda: return !id(pending_firmware_version).empty();
+          then:
+            - if:
+                condition:
+                  lambda: return id(pending_firmware_version) == "$firmware_version";
+                then:
+                  - script.execute:
+                      id: publish_firmware_update_status
+                      job_id: !lambda return id(pending_firmware_job_id);
+                      status: succeeded
+                      version: !lambda return id(pending_firmware_version);
+                      message: Panel rebooted with the requested firmware version.
+                      progress: 100
+                else:
+                  - if:
+                      condition:
+                        lambda: return !id(pending_firmware_job_id).empty();
+                      then:
+                        - script.execute:
+                            id: publish_firmware_update_status
+                            job_id: !lambda return id(pending_firmware_job_id);
+                            status: failed
+                            version: !lambda return id(pending_firmware_version);
+                            message: The panel rebooted without the requested firmware version.
+                            progress: -1
+            - delay: 500ms
+            - lambda: |-
+                id(pending_firmware_job_id).clear();
+                id(pending_firmware_version).clear();
+                id(firmware_update_last_progress) = 0;
+                pending_firmware_job_id->update();
+                pending_firmware_version->update();
+                esphome::global_preferences->sync();
 
   on_json_message:
 
@@ -1220,6 +1373,10 @@ mqtt:
     - topic: $node_name/cmnd/updatehmi
       then:
         - lambda: |-
+              if (id(firmware_update_waiting_for_confirmation) || !id(pending_firmware_job_id).empty() || !id(requested_firmware_job_id).empty()) {
+                ESP_LOGW("hmi", "Rejected HMI update while a firmware update is pending");
+                return;
+              }
               std::string hmi_version = "";
               if (x.containsKey("version")) {
                 hmi_version = x["version"].as<std::string>();
@@ -1284,10 +1441,97 @@ mqtt:
                 id(publish_hmi_update_status)->execute(job_id, "awaiting_confirmation", hmi_version, "Confirm the update on the panel.");
               }
 
+    - topic: $node_name/cmnd/updatefirmware
+      then:
+        - lambda: |-
+              if (id(hmiupdate) == 1 || id(hmi_update_pending) || !id(pending_hmi_job_id).empty()) {
+                ESP_LOGW("firmware", "Rejected firmware update while an HMI update is pending");
+                return;
+              }
+              if (id(firmware_update_waiting_for_confirmation) || !id(pending_firmware_job_id).empty() || !id(requested_firmware_job_id).empty()) {
+                ESP_LOGW("firmware", "Rejected a second firmware update request");
+                return;
+              }
+              if (!x.containsKey("url") || !x["url"].is<std::string>() ||
+                  !x.containsKey("md5") || !x["md5"].is<std::string>() ||
+                  !x.containsKey("version") || !x["version"].is<std::string>()) {
+                ESP_LOGW("firmware", "Rejected firmware update without URL, MD5, and version");
+                return;
+              }
+              std::string update_url = x["url"].as<std::string>();
+              std::string update_md5 = x["md5"].as<std::string>();
+              std::string update_version = x["version"].as<std::string>();
+              if (update_url.empty() || update_url.size() > 512 ||
+                  (update_url.rfind("http://", 0) != 0 && update_url.rfind("https://", 0) != 0)) {
+                ESP_LOGW("firmware", "Rejected an invalid firmware download URL");
+                return;
+              }
+              bool valid_md5 = update_md5.size() == 32;
+              for (char c : update_md5) {
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                  valid_md5 = false;
+                  break;
+                }
+              }
+              bool valid_version = !update_version.empty() && update_version.size() <= 40;
+              for (char c : update_version) {
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-' || c == '_' || c == '+')) {
+                  valid_version = false;
+                  break;
+                }
+              }
+              if (!valid_md5 || !valid_version) {
+                ESP_LOGW("firmware", "Rejected invalid firmware MD5 or version");
+                return;
+              }
+              std::string job_id = x.containsKey("job_id") && x["job_id"].is<std::string>() ? x["job_id"].as<std::string>() : "";
+              if (!job_id.empty()) {
+                bool valid_job_id = job_id.size() == 36;
+                for (size_t i = 0; valid_job_id && i < job_id.size(); i++) {
+                  if (i == 8 || i == 13 || i == 18 || i == 23) valid_job_id = job_id[i] == '-';
+                  else {
+                    const char c = job_id[i];
+                    valid_job_id = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+                  }
+                }
+                if (!valid_job_id) {
+                  ESP_LOGW("firmware", "Rejected an invalid firmware update job ID");
+                  return;
+                }
+              }
+              if (x.containsKey("force") && !x["force"].is<bool>()) {
+                ESP_LOGW("firmware", "Rejected a firmware update with a non-boolean force option");
+                return;
+              }
+              id(requested_firmware_url) = update_url;
+              id(requested_firmware_md5) = update_md5;
+              id(requested_firmware_version) = update_version;
+              id(requested_firmware_job_id) = job_id;
+              if (x.containsKey("force") && x["force"].as<bool>()) {
+                id(start_firmware_update).execute();
+                return;
+              }
+              id(disp1).set_backlight_brightness(1);
+              id(disp1).send_command_printf("pageList.tTitle.txt=\"%s\"", "Firmware Update");
+              id(disp1).send_command_printf("pageList.vaMessage.txt=\"%s\"", "Press UPDATE to install firmware");
+              id(disp1).send_command_printf("pageList.vLevel.val=0");
+              id(disp1).send_command_printf("pageList.vMaxLevel.val=0");
+              id(disp1).send_command_printf("page pageList");
+              id(disp1).send_command_printf("pageList.b%d.txt=\"%s\"", 0, "");
+              id(disp1).send_command_printf("pageList.b%d.txt=\"%s\"", 1, "");
+              id(disp1).send_command_printf("pageList.b%d.txt=\"%s\"", 2, "");
+              id(disp1).send_command_printf("pageList.b%d.txt=\"%s\"", 3, "UPDATE");
+              id(disp1).send_command_printf("vis pageList.b3,1");
+              id(hmiupdate) = 0;
+              id(firmware_update_waiting_for_confirmation) = true;
+              id(publish_firmware_update_status)->execute(job_id, "awaiting_confirmation", update_version, "Confirm the firmware update on the panel.", -1);
 
     - topic: $node_name/cmnd/info
       then:
         - lambda: |-
+              if (id(firmware_update_waiting_for_confirmation)) {
+                id(cancel_firmware_update_prompt).execute();
+              }
               id(hmiupdate) = 0;
               if (!id(pending_hmi_job_id).empty()) {
                 id(publish_hmi_update_status)->execute(id(pending_hmi_job_id), "cancelled", id(pending_hmi_version), "The panel update prompt was cancelled.");

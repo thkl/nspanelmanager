@@ -28,9 +28,22 @@ export interface Panel {
   id: string;
   name: string;
   nodeName: string;
+  macAddress?: string;
   settings: PanelSettings;
   nativePluginInstances?: Record<string, string>;
   panelEventPluginInstances?: Record<string, string>;
+}
+
+export interface DiscoveredPanel {
+  macAddress: string;
+  name: string;
+  friendlyName?: string;
+  version?: string;
+  ip?: string;
+  platform?: string;
+  board?: string;
+  network?: string;
+  lastSeenAt: number;
 }
 
 export type RouteDirection = "external-to-panel" | "panel-to-external";
@@ -187,8 +200,9 @@ export interface HmiUpdateJob {
 }
 
 export type ManagerRealtimeEvent =
-  | { type: "snapshot"; panels: PanelConnectionStatus[]; hmiJobs: HmiUpdateJob[]; mqtt: MqttStatus }
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; hmiJobs: HmiUpdateJob[]; mqtt: MqttStatus }
   | { type: "panels"; panels: PanelConnectionStatus[] }
+  | { type: "discovered-panels"; panels: DiscoveredPanel[] }
   | { type: "hmi-job"; job: HmiUpdateJob }
   | { type: "mqtt"; mqtt: MqttStatus };
 

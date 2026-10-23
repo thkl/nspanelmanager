@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BrokerInput, DiscoveredPanel, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -27,6 +27,7 @@ export class ManagerStore {
   });
   readonly mqtt = signal<MqttStatus>({ connected: false, error: "" });
   readonly panelConnections = signal<Record<string, PanelConnectionStatus>>({});
+  readonly discoveredPanels = signal<DiscoveredPanel[]>([]);
   readonly hmiUpdateJobs = signal<HmiUpdateJob[]>([]);
   readonly realtimeConnected = signal(false);
   readonly notice = signal<ManagerNotice | null>(null);
@@ -198,10 +199,13 @@ export class ManagerStore {
     const event = value as unknown as ManagerRealtimeEvent;
     if (event.type === "snapshot") {
       this.setPanelConnections(event.panels);
+      this.discoveredPanels.set(Array.isArray(event.discoveredPanels) ? event.discoveredPanels : []);
       this.mergeHmiUpdateJobs(event.hmiJobs);
       this.mqtt.set(event.mqtt);
     } else if (event.type === "panels") {
       this.setPanelConnections(event.panels);
+    } else if (event.type === "discovered-panels") {
+      this.discoveredPanels.set(Array.isArray(event.panels) ? event.panels : []);
     } else if (event.type === "hmi-job") {
       this.upsertHmiUpdateJob(event.job);
     } else if (event.type === "mqtt") {
@@ -247,9 +251,21 @@ export class ManagerStore {
   }
 
   /** Adds a panel profile using its human label and firmware MQTT node name. */
-  addPanel(input: { name: string; nodeName: string }): Observable<{ panel: Panel }> {
+  addPanel(input: { name: string; nodeName: string; macAddress?: string }): Observable<{ panel: Panel }> {
     return this.http.post<{ panel: Panel }>("/api/panels", input).pipe(tap(({ panel }) => {
       this.config.update((config) => ({ ...config, panels: [...config.panels, panel] }));
+    }));
+  }
+
+  /** Requests an immediate ESPHome MQTT discovery response from connected devices. */
+  requestPanelDiscovery(): Observable<{ requested: boolean }> {
+    return this.http.post<{ requested: boolean }>("/api/panels/discover", {});
+  }
+
+  /** Assigns or clears a discovered device MAC on a saved panel profile. */
+  setPanelMacAddress(panelId: string, macAddress: string | null): Observable<{ panel: Panel }> {
+    return this.http.patch<{ panel: Panel }>(`/api/panels/${panelId}/identity`, { macAddress }).pipe(tap(({ panel }) => {
+      this.config.update((config) => ({ ...config, panels: config.panels.map((item) => item.id === panel.id ? panel : item) }));
     }));
   }
 

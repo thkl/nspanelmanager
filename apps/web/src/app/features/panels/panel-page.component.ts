@@ -3,7 +3,7 @@ import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { concatMap, from, of, switchMap, toArray, type Observable } from "rxjs";
 import { ManagerStore } from "../../manager-store.service";
-import type { Panel, PanelBinding, PanelTelemetry, PluginDefinition } from "../../models";
+import type { DiscoveredPanel, Panel, PanelBinding, PanelTelemetry, PluginDefinition } from "../../models";
 import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
 
 /**
@@ -29,6 +29,8 @@ export class PanelPageComponent implements OnInit {
   readonly addingPanel = signal(false);
   readonly newName = signal("");
   readonly newNodeName = signal("");
+  readonly newMacAddress = signal("");
+  readonly discoveryAssignmentTargets = signal<Record<string, string>>({});
   readonly saving = signal(false);
 
   /** Receives the shared API store used to load and persist panel profiles. */
@@ -78,16 +80,74 @@ export class PanelPageComponent implements OnInit {
   addPanel(): void {
     const name = this.newName().trim();
     const nodeName = this.newNodeName().trim();
-    this.manager.addPanel({ name, nodeName }).subscribe({
+    const macAddress = this.newMacAddress().trim();
+    this.manager.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}) }).subscribe({
       next: ({ panel }) => {
         this.setDraft(panel);
         this.newName.set("");
         this.newNodeName.set("");
+        this.newMacAddress.set("");
         this.addingPanel.set(false);
         this.manager.inform("Panel added. Save its settings, then apply them when the panel is online.");
       },
       error: (error) => this.manager.inform(error.error?.error || "Could not add panel.", "error")
     });
+  }
+
+  /** Requests a fresh discovery broadcast from ESPHome devices on the connected broker. */
+  discoverPanels(): void {
+    this.manager.requestPanelDiscovery().subscribe({
+      next: () => this.manager.inform("Discovery requested. Devices will appear here when they respond."),
+      error: (error) => this.manager.inform(error.error?.error || "Could not request device discovery.", "error")
+    });
+  }
+
+  /** Returns the configured panel currently associated with a discovered device. */
+  assignedPanel(device: DiscoveredPanel): Panel | undefined {
+    return this.manager.config().panels.find((panel) => normalizeMacAddress(panel.macAddress) === device.macAddress);
+  }
+
+  /** Lists profiles that can receive this device, including a profile already assigned to it. */
+  availableAssignmentPanels(device: DiscoveredPanel): Panel[] {
+    return this.manager.config().panels.filter((panel) => !panel.macAddress || normalizeMacAddress(panel.macAddress) === device.macAddress);
+  }
+
+  /** Stores the panel selected for a discovered device before the assignment is saved. */
+  setDiscoveryAssignment(macAddress: string, panelId: string): void {
+    this.discoveryAssignmentTargets.update((targets) => ({ ...targets, [macAddress]: panelId }));
+  }
+
+  /** Persists the selected device MAC on its manager panel profile. */
+  assignDiscoveredPanel(device: DiscoveredPanel): void {
+    const panelId = this.discoveryAssignmentTargets()[device.macAddress];
+    if (!panelId) return;
+    this.manager.setPanelMacAddress(panelId, device.macAddress).subscribe({
+      next: ({ panel }) => {
+        this.discoveryAssignmentTargets.update((targets) => ({ ...targets, [device.macAddress]: "" }));
+        if (this.draft()?.id === panel.id) this.setDraft(panel);
+        this.manager.inform(`${device.macAddress} assigned to ${panel.name}.`);
+      },
+      error: (error) => this.manager.inform(error.error?.error || "Could not assign the device to this panel.", "error")
+    });
+  }
+
+  /** Clears the hardware identity from the currently selected manager panel. */
+  clearPanelMacAddress(panel: Panel): void {
+    this.manager.setPanelMacAddress(panel.id, null).subscribe({
+      next: ({ panel: saved }) => {
+        if (this.draft()?.id === saved.id) this.setDraft(saved);
+        this.manager.inform(`Device assignment cleared for ${saved.name}.`);
+      },
+      error: (error) => this.manager.inform(error.error?.error || "Could not clear the device assignment.", "error")
+    });
+  }
+
+  /** Starts a panel profile form prefilled with the discovered device identity. */
+  createPanelFromDiscovery(device: DiscoveredPanel): void {
+    this.newName.set(device.friendlyName || device.name);
+    this.newNodeName.set(device.name);
+    this.newMacAddress.set(device.macAddress);
+    this.addingPanel.set(true);
   }
 
   /** Synchronizes favorite bindings, saves the profile, and refreshes the draft. */
@@ -315,4 +375,10 @@ function formatUptime(seconds: number): string {
 
 function formatKilobytes(bytes: number): string {
   return (bytes / 1_024).toFixed(1);
+}
+
+function normalizeMacAddress(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().replace(/[:-]/g, "").toLowerCase();
+  return /^[a-f0-9]{12}$/.test(normalized) ? normalized : undefined;
 }

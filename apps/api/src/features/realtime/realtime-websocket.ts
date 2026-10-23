@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AuthService } from "../auth/auth-service.js";
-import type { HmiUpdateJob, PanelConnectionStatus } from "../../types.js";
+import type { DiscoveredPanel, HmiUpdateJob, PanelConnectionStatus } from "../../types.js";
 import type { Logger } from "../../services/logger.js";
 
 const SOCKET_PATH = "/api/events";
@@ -13,13 +13,15 @@ const PANEL_STATUS_REFRESH_INTERVAL_MS = 15 * 1000;
 
 export interface RealtimeSnapshot {
   panels: PanelConnectionStatus[];
+  discoveredPanels: DiscoveredPanel[];
   hmiJobs: HmiUpdateJob[];
   mqtt: { connected: boolean; error: string };
 }
 
 export type RealtimeEvent =
-  | { type: "snapshot"; panels: PanelConnectionStatus[]; hmiJobs: HmiUpdateJob[]; mqtt: { connected: boolean; error: string } }
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; hmiJobs: HmiUpdateJob[]; mqtt: { connected: boolean; error: string } }
   | { type: "panels"; panels: PanelConnectionStatus[] }
+  | { type: "discovered-panels"; panels: DiscoveredPanel[] }
   | { type: "hmi-job"; job: HmiUpdateJob }
   | { type: "mqtt"; mqtt: { connected: boolean; error: string } };
 

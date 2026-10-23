@@ -66,6 +66,7 @@ export class ConfigStore {
         },
         panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
           ...panel,
+          ...(normalizeMacAddress(panel.macAddress) ? { macAddress: normalizeMacAddress(panel.macAddress) } : { macAddress: undefined }),
           nativePluginInstances: normalizeNativePluginInstances(panel.nativePluginInstances),
           panelEventPluginInstances: normalizeNativePluginInstances(panel.panelEventPluginInstances),
           settings: normalizePanelSettings(panel.settings, panel.name)
@@ -182,6 +183,12 @@ function normalizePluginVariables(value: unknown): Record<string, string> {
 function normalizeNativePluginInstances(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string" && Boolean(entry[1].trim())));
+}
+
+function normalizeMacAddress(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/[:-]/g, "").toLowerCase();
+  return /^[a-f0-9]{12}$/.test(normalized) ? normalized : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

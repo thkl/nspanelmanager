@@ -201,6 +201,87 @@ nspanel-screen-preview { margin-bottom: 22px; }
   background: var(--paper);
 }
 
+.discovery-box {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas-soft);
+}
+
+.discovery-heading,
+.discovery-assigned,
+.discovery-assign,
+.panel-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.discovery-heading b,
+.panel-identity b {
+  display: block;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.discovery-heading small,
+.discovery-device small,
+.panel-identity small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.discovery-device {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.discovery-device > b {
+  display: block;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.discovery-assign {
+  margin-top: 8px;
+}
+
+.discovery-assign select {
+  min-width: 0;
+  flex: 1;
+}
+
+.discovery-assigned {
+  margin-top: 8px;
+  color: var(--green-text);
+  font-size: 10px;
+}
+
+.discovery-new {
+  width: 100%;
+  margin-top: 7px;
+}
+
+.discovery-empty {
+  margin-top: 10px;
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.panel-identity {
+  margin-bottom: 18px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--canvas-soft);
+}
+
 .inline-actions {
   display: flex;
   justify-content: flex-end;

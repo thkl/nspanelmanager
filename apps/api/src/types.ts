@@ -30,11 +30,26 @@ export interface Panel {
   id: string;
   name: string;
   nodeName: string;
+  /** Stable hardware identity reported by ESPHome MQTT discovery. */
+  macAddress?: string;
   settings: PanelSettings;
   /** Reusable plugin instances assigned to firmware-native pages by page ID. */
   nativePluginInstances?: Record<string, string>;
   /** Reusable plugin instances that observe every firmware page-change event, keyed by plugin ID. */
   panelEventPluginInstances?: Record<string, string>;
+}
+
+/** Recently discovered ESPHome device awaiting a manager panel assignment. */
+export interface DiscoveredPanel {
+  macAddress: string;
+  name: string;
+  friendlyName?: string;
+  version?: string;
+  ip?: string;
+  platform?: string;
+  board?: string;
+  network?: string;
+  lastSeenAt: number;
 }
 
 /** Latest reboot reason reported by one panel, with the manager's receipt time. */

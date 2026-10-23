@@ -1,7 +1,7 @@
 import mqtt, { type MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store.js";
-import type { ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelTelemetry, ResolvedPluginInstance } from "../types.js";
+import type { DiscoveredPanel, ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelTelemetry, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
 import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
@@ -17,6 +17,8 @@ import { Logger } from "./logger.js";
  */
 export class MqttRuntime {
   private static readonly PANEL_HEARTBEAT_TIMEOUT_MS = 150_000;
+  private static readonly DISCOVERED_PANEL_TIMEOUT_MS = 5 * 60 * 1000;
+  private static readonly DISCOVERED_PANEL_LIMIT = 64;
   private client?: MqttClient;
   private connected = false;
   private lastError = "";
@@ -31,12 +33,15 @@ export class MqttRuntime {
   private readonly publishedPanelSettings = new Map<string, string>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
+  private readonly discoveredPanels = new Map<string, DiscoveredPanel>();
   private readonly panelConnectionListeners = new Set<(panels: PanelConnectionStatus[]) => void>();
+  private readonly discoveredPanelListeners = new Set<(panels: DiscoveredPanel[]) => void>();
   private readonly mqttStatusListeners = new Set<(status: { connected: boolean; error: string }) => void>();
   private readonly hmiUpdateReportListeners = new Set<(panel: Panel, payload: string, receivedAt: number) => void | Promise<void>>();
   private readonly panelPingListeners = new Set<(panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number) => void | Promise<void>>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
+  private readonly discoveryCleanupTimer: NodeJS.Timeout;
 
   /** Creates the runtime around saved config, registered plugins, and runtime storage. */
   constructor(
@@ -46,6 +51,8 @@ export class MqttRuntime {
     private readonly logger: Logger = new Logger()
   ) {
     this.panelProtocol = new PanelProtocolAdapter((topic, payload) => this.publish(topic, payload));
+    this.discoveryCleanupTimer = setInterval(() => this.expireDiscoveredPanels(), 15_000);
+    this.discoveryCleanupTimer.unref();
   }
 
   /** Exposes health only; credentials and the client object never leave this service. */
@@ -61,6 +68,23 @@ export class MqttRuntime {
   onPanelConnectionsChanged(listener: (panels: PanelConnectionStatus[]) => void): () => void {
     this.panelConnectionListeners.add(listener);
     return () => this.panelConnectionListeners.delete(listener);
+  }
+
+  /** Subscribes to ESPHome discovery changes for live manager clients. */
+  onDiscoveredPanelsChanged(listener: (panels: DiscoveredPanel[]) => void): () => void {
+    this.discoveredPanelListeners.add(listener);
+    return () => this.discoveredPanelListeners.delete(listener);
+  }
+
+  /** Returns recently discovered ESPHome devices, dropping entries older than five minutes. */
+  discoveredPanelStatuses(): DiscoveredPanel[] {
+    this.expireDiscoveredPanels();
+    return [...this.discoveredPanels.values()].sort((left, right) => right.lastSeenAt - left.lastSeenAt);
+  }
+
+  /** Requests a fresh ESPHome MQTT discovery response from devices on the broker. */
+  requestPanelDiscovery(): boolean {
+    return this.publish("esphome/discover", "");
   }
 
   /** Subscribes to panel HMI update lifecycle events received over MQTT. */
@@ -135,6 +159,9 @@ export class MqttRuntime {
         this.connected = true;
         this.lastError = "";
         this.notifyMqttStatusChanged();
+        // Force a fresh subscribe acknowledgement before requesting discovery,
+        // including after MQTT.js reconnects an existing client.
+        this.activeTopics.delete("esphome/discover/#");
         this.syncSubscriptions();
         void this.notifyPluginsConnected();
         void this.restoreAllPanels().catch((error: unknown) => {
@@ -159,6 +186,7 @@ export class MqttRuntime {
     this.connected = false;
     this.notifyMqttStatusChanged();
     this.activeTopics.clear();
+    clearInterval(this.discoveryCleanupTimer);
     for (const id of this.pluginPollTimers.keys()) this.clearPluginPoll(id);
     if (client) await new Promise<void>((resolve) => client.end(true, {}, () => resolve()));
     await Promise.all(this.pendingMessages);
@@ -258,6 +286,7 @@ export class MqttRuntime {
     const config = this.store.get();
     const instances = this.resolvePluginInstances(config);
     const desiredTopics = new Set<string>();
+    desiredTopics.add("esphome/discover/#");
     const panelNodeNames = new Set(config.panels.map((panel) => panel.nodeName));
     for (const nodeName of this.panelConnections.keys()) {
       if (!panelNodeNames.has(nodeName)) this.panelConnections.delete(nodeName);
@@ -290,9 +319,11 @@ export class MqttRuntime {
             });
             return;
           }
+          let discoverySubscriptionAccepted = true;
           for (const grant of granted ?? []) {
             if (grant.qos === 128) {
               this.activeTopics.delete(grant.topic);
+              if (grant.topic === "esphome/discover/#") discoverySubscriptionAccepted = false;
               const detail = `Broker refused subscription to '${grant.topic}'.`;
               this.lastError = detail;
               this.logger.error(detail, { component: "mqtt", topic: grant.topic });
@@ -300,6 +331,7 @@ export class MqttRuntime {
               this.logger.info("MQTT subscription acknowledged.", { component: "mqtt", topic: grant.topic });
             }
           }
+          if (additions.includes("esphome/discover/#") && discoverySubscriptionAccepted) this.requestPanelDiscovery();
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -486,6 +518,10 @@ export class MqttRuntime {
    * panel protocol handlers, then preserving configured route forwarding.
    */
   private async handleMessage(message: MqttMessageEnvelope): Promise<void> {
+    if (message.topic.startsWith("esphome/discover/")) {
+      this.recordDiscoveredPanel(message.topic, message.payload, message.receivedAt);
+      return;
+    }
     const config = this.store.get();
     const { topic, payload } = message;
     if (this.updatePanelConnection(topic, payload, message.receivedAt, config.panels)) this.notifyPanelConnectionsChanged();
@@ -602,6 +638,52 @@ export class MqttRuntime {
   private notifyPanelConnectionsChanged(): void {
     const statuses = this.panelConnectionStatuses();
     for (const listener of this.panelConnectionListeners) listener(statuses);
+  }
+
+  private recordDiscoveredPanel(topic: string, payload: string, receivedAt: number): void {
+    let parsed: unknown;
+    try { parsed = JSON.parse(payload); }
+    catch { return; }
+    if (!isRecord(parsed)) return;
+    const macAddress = normalizeMacAddress(parsed["mac"]);
+    const name = typeof parsed["name"] === "string" ? parsed["name"].trim() : topic.slice("esphome/discover/".length);
+    if (!macAddress || !name) return;
+    const panel: DiscoveredPanel = {
+      macAddress,
+      name: name.slice(0, 80),
+      ...(stringField(parsed["friendly_name"]) ? { friendlyName: stringField(parsed["friendly_name"])!.slice(0, 80) } : {}),
+      ...(stringField(parsed["version"]) ? { version: stringField(parsed["version"])!.slice(0, 40) } : {}),
+      ...(stringField(parsed["ip"]) ? { ip: stringField(parsed["ip"])!.slice(0, 64) } : {}),
+      ...(stringField(parsed["platform"]) ? { platform: stringField(parsed["platform"])!.slice(0, 40) } : {}),
+      ...(stringField(parsed["board"]) ? { board: stringField(parsed["board"])!.slice(0, 80) } : {}),
+      ...(stringField(parsed["network"]) ? { network: stringField(parsed["network"])!.slice(0, 40) } : {}),
+      lastSeenAt: receivedAt
+    };
+    this.discoveredPanels.delete(macAddress);
+    this.discoveredPanels.set(macAddress, panel);
+    while (this.discoveredPanels.size > MqttRuntime.DISCOVERED_PANEL_LIMIT) {
+      const oldestMac = [...this.discoveredPanels.entries()].sort((left, right) => left[1].lastSeenAt - right[1].lastSeenAt)[0]?.[0];
+      if (!oldestMac) break;
+      this.discoveredPanels.delete(oldestMac);
+    }
+    this.notifyDiscoveredPanelsChanged();
+  }
+
+  private expireDiscoveredPanels(): void {
+    const cutoff = Date.now() - MqttRuntime.DISCOVERED_PANEL_TIMEOUT_MS;
+    let changed = false;
+    for (const [macAddress, panel] of this.discoveredPanels) {
+      if (panel.lastSeenAt < cutoff) {
+        this.discoveredPanels.delete(macAddress);
+        changed = true;
+      }
+    }
+    if (changed) this.notifyDiscoveredPanelsChanged();
+  }
+
+  private notifyDiscoveredPanelsChanged(): void {
+    const panels = [...this.discoveredPanels.values()].sort((left, right) => right.lastSeenAt - left.lastSeenAt);
+    for (const listener of this.discoveredPanelListeners) listener(panels);
   }
 
   private notifyMqttStatusChanged(): void {
@@ -1531,6 +1613,20 @@ export class MqttRuntime {
 }
 
 function isPublishableTopic(topic: string): boolean { return Boolean(topic.trim()) && !/[+#\u0000]/.test(topic); }
+
+function normalizeMacAddress(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/[:-]/g, "").toLowerCase();
+  return /^[a-f0-9]{12}$/.test(normalized) ? normalized : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
 
 /** Builds an HMI-safe initial song label from the cached Sonos state. */
 function currentSonosSong(state: PluginState): string | undefined {
