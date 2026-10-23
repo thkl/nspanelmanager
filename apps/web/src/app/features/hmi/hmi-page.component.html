@@ -16,18 +16,15 @@
   <article class="hmi-card upload-card">
     <div class="hmi-icon" aria-hidden="true">↻</div>
     <div class="card-copy">
-      <h3>Upload firmware binary</h3>
-      <p>Upload the unified ESPHome OTA <code>.bin</code> built from <code>esphome/nspanel-unified.yaml</code> and enter the exact <code>firmware_version</code> compiled into it. <code>pnpm firmware:compile</code> copies it to <code>esphome/nspanel-unified.bin</code>. Factory or merged images are not suitable for HTTP OTA.</p>
+      <h3>Upload firmware package</h3>
+      <p>Upload the versioned package produced by <code>pnpm firmware:compile</code>. It contains the ESPHome OTA image and a manifest, so the manager reads the compiled version automatically. The standalone <code>.bin</code> is still available for other workflows.</p>
       <div class="file-picker firmware-file-picker">
-        <label for="firmware-file">Firmware .bin</label>
-        <input #firmwareFileInput id="firmware-file" type="file" accept=".bin,application/octet-stream" [disabled]="uploadingFirmware()" (change)="selectFirmwareFile($event)">
+        <label for="firmware-file">Firmware package .zip</label>
+        <input #firmwareFileInput id="firmware-file" type="file" accept=".zip,application/zip,application/octet-stream" [disabled]="uploadingFirmware()" (change)="selectFirmwareFile($event)">
         @if (selectedFirmwareFile(); as file) {
           <div class="selected-file"><span>{{ file.name }}</span><span>{{ formatSize(file.size) }}</span></div>
         }
-        <label class="firmware-version-input" for="firmware-version">Compiled firmware version
-          <input id="firmware-version" type="text" maxlength="40" autocomplete="off" [value]="firmwareVersion()" (input)="setFirmwareVersion($event)" placeholder="6.0.1">
-        </label>
-        <button class="primary-button" type="button" [disabled]="!selectedFirmwareFile() || !firmwareVersionValid() || uploadingFirmware()" (click)="uploadFirmware()">
+        <button class="primary-button" type="button" [disabled]="!selectedFirmwareFile() || uploadingFirmware()" (click)="uploadFirmware()">
           {{ uploadingFirmware() ? 'Uploading…' : 'Upload firmware' }}
         </button>
       </div>
@@ -79,7 +76,7 @@
       }
     </section>
   } @else {
-    <aside class="empty-artifact" role="note"><h3>No firmware binary uploaded</h3><p>Upload the ESPHome OTA <code>.bin</code> output to push firmware from the manager.</p></aside>
+    <aside class="empty-artifact" role="note"><h3>No firmware package uploaded</h3><p>Upload the versioned ESPHome OTA <code>.zip</code> package to push firmware from the manager.</p></aside>
   }
   </div>
 

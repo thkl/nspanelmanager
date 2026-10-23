@@ -4,9 +4,9 @@ import type { Logger } from "../../services/logger.js";
 import type { ConfigStore } from "../../services/config-store.js";
 import type { MqttRuntime } from "../../services/mqtt-runtime.js";
 import type { HmiUpdateService } from "../hmi/hmi-update-service.js";
-import { FirmwareArtifactError, FirmwareArtifactService, MAX_FIRMWARE_FILE_BYTES } from "./firmware-artifact-service.js";
+import { FirmwareArtifactError, FirmwareArtifactService, MAX_FIRMWARE_UPLOAD_BYTES } from "./firmware-artifact-service.js";
 import { FirmwareUpdateError, FirmwareUpdateService } from "./firmware-update-service.js";
-import { panelTopicRoot } from "../../domain/panel-topics.js";
+import { panelBootstrapTopicRoot } from "../../domain/panel-topics.js";
 
 /** Creates authenticated firmware upload/update APIs and the public capability download endpoint. */
 export function createFirmwareRouter(
@@ -19,11 +19,11 @@ export function createFirmwareRouter(
 ): Router {
   const router = Router();
 
-  router.get("/", (_request, response) => response.json({ artifact: firmwareService.currentArtifact(), maxUploadBytes: MAX_FIRMWARE_FILE_BYTES }));
+  router.get("/", (_request, response) => response.json({ artifact: firmwareService.currentArtifact(), maxUploadBytes: MAX_FIRMWARE_UPLOAD_BYTES }));
 
-  router.post("/upload", express.raw({ type: "application/octet-stream", limit: MAX_FIRMWARE_FILE_BYTES }), async (request, response, next) => {
+  router.post("/upload", express.raw({ type: "application/octet-stream", limit: MAX_FIRMWARE_UPLOAD_BYTES }), async (request, response, next) => {
     try {
-      if (!Buffer.isBuffer(request.body)) return response.status(415).json({ error: "Upload the firmware binary as application/octet-stream." });
+      if (!Buffer.isBuffer(request.body)) return response.status(415).json({ error: "Upload the versioned firmware package as application/octet-stream." });
       const artifact = await firmwareService.upload(
         request.body,
         decodeHeader(request.get("x-firmware-filename") ?? ""),
@@ -56,7 +56,7 @@ export function createFirmwareRouter(
 
     try {
       const download = await firmwareService.createDownloadUrl();
-      const topic = `${panelTopicRoot(panel)}/cmnd/updatefirmware`;
+      const topic = `${panelBootstrapTopicRoot(panel)}/cmnd/updatefirmware`;
       const job = await firmwareUpdateService.begin(panel, download.artifact, force, download.expiresAt, request.authUser?.email);
       if (!mqttRuntime.publishFirmwareUpdate(panel, download.url, download.artifact.md5, download.artifact.version, job.id, force)) {
         await firmwareUpdateService.markPublishFailed(job.id, "The MQTT broker disconnected before the firmware request could be sent.");

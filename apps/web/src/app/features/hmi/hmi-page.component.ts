@@ -18,7 +18,6 @@ export class HmiPageComponent implements OnInit {
   readonly firmwareArtifact = signal<FirmwareArtifact | null>(null);
   readonly selectedFile = signal<File | null>(null);
   readonly selectedFirmwareFile = signal<File | null>(null);
-  readonly firmwareVersion = signal("");
   readonly loading = signal(true);
   readonly firmwareLoading = signal(true);
   readonly uploading = signal(false);
@@ -28,7 +27,7 @@ export class HmiPageComponent implements OnInit {
   readonly forceUpdate = signal(false);
   readonly forceFirmwareUpdate = signal(false);
   readonly maxUploadBytes = signal(32 * 1024 * 1024);
-  readonly maxFirmwareUploadBytes = signal(8 * 1024 * 1024);
+  readonly maxFirmwareUploadBytes = signal(8 * 1024 * 1024 + 64 * 1024);
   readonly fileInput = viewChild<ElementRef<HTMLInputElement>>("fileInput");
   readonly firmwareFileInput = viewChild<ElementRef<HTMLInputElement>>("firmwareFileInput");
   readonly firmwareTab = viewChild<ElementRef<HTMLButtonElement>>("firmwareTab");
@@ -128,31 +127,30 @@ export class HmiPageComponent implements OnInit {
     });
   }
 
-  /** Keeps one selected ESPHome OTA binary and checks its configured size limit. */
+  /** Keeps one versioned firmware package and checks its configured size limit. */
   selectFirmwareFile(event: Event): void {
     const input = event.target;
     const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined;
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".bin")) {
+    if (!file.name.toLowerCase().endsWith(".zip")) {
       this.clearFirmwareFileSelection();
-      this.manager.inform("Choose an ESPHome OTA file with the .bin extension.", "error");
+      this.manager.inform("Choose the versioned unified firmware .zip package.", "error");
       return;
     }
     if (file.size === 0 || file.size > this.maxFirmwareUploadBytes()) {
       this.clearFirmwareFileSelection();
-      this.manager.inform(`Choose a non-empty firmware file smaller than ${this.formatSize(this.maxFirmwareUploadBytes())}.`, "error");
+      this.manager.inform(`Choose a non-empty firmware package smaller than ${this.formatSize(this.maxFirmwareUploadBytes())}.`, "error");
       return;
     }
     this.selectedFirmwareFile.set(file);
   }
 
-  /** Uploads the selected binary with the exact firmware version embedded at compile time. */
+  /** Uploads the selected package; the manager reads its firmware version from manifest.json. */
   uploadFirmware(): void {
     const file = this.selectedFirmwareFile();
-    const version = this.firmwareVersion().trim();
-    if (!file || !version || this.uploadingFirmware()) return;
+    if (!file || this.uploadingFirmware()) return;
     this.uploadingFirmware.set(true);
-    this.manager.uploadFirmware(file, version).subscribe({
+    this.manager.uploadFirmware(file).subscribe({
       next: ({ artifact }) => {
         this.firmwareArtifact.set(artifact);
         this.uploadingFirmware.set(false);
@@ -300,17 +298,6 @@ export class HmiPageComponent implements OnInit {
   setForceFirmwareUpdate(event: Event): void {
     const target = event.target;
     if (target instanceof HTMLInputElement) this.forceFirmwareUpdate.set(target.checked);
-  }
-
-  /** Keeps the compiled firmware version associated with the selected binary. */
-  setFirmwareVersion(event: Event): void {
-    const target = event.target;
-    if (target instanceof HTMLInputElement) this.firmwareVersion.set(target.value);
-  }
-
-  /** Checks the version syntax accepted by the firmware update command. */
-  firmwareVersionValid(): boolean {
-    return /^[0-9A-Za-z._+-]{1,40}$/.test(this.firmwareVersion().trim());
   }
 
   /** Formats artifact size for the uploaded-file summary. */

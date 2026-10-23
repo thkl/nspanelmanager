@@ -32,6 +32,8 @@ export class MqttRuntime {
   private readonly nativePanelPages = new Map<string, string>();
   private readonly panelHomeTilePages = new Map<string, { page: "home" | "light" | "level"; index?: number }>();
   private readonly publishedPanelSettings = new Map<string, string>();
+  private readonly unifiedInitSettingsSentAt = new Map<string, number>();
+  private readonly unifiedInitSuppressed = new Set<string>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
   private readonly discoveredPanels = new Map<string, DiscoveredPanel>();
@@ -114,7 +116,7 @@ export class MqttRuntime {
 
   /** Publishes a manager-hosted firmware binary URL and integrity data to one panel. */
   publishFirmwareUpdate(panel: Panel, url: string, md5: string, firmwareVersion: string, jobId: string, force = false): boolean {
-    return this.publish(`${panelTopicRoot(panel)}/cmnd/updatefirmware`, JSON.stringify({ url, md5, version: firmwareVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
+    return this.publish(`${panelBootstrapTopicRoot(panel)}/cmnd/updatefirmware`, JSON.stringify({ url, md5, version: firmwareVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
   }
 
   /** Returns live panel connection state without adding runtime data to saved configuration. */
@@ -384,7 +386,13 @@ export class MqttRuntime {
     });
     if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) return true;
     const published = this.publish(`${panelBootstrapTopicRoot(panel)}/cmnd/settings`, JSON.stringify(settings));
-    if (published) this.publishedPanelSettings.set(panel.id, configFingerprint);
+    if (published) {
+      this.publishedPanelSettings.set(panel.id, configFingerprint);
+      if (panel.unifiedFirmware) {
+        this.unifiedInitSettingsSentAt.set(panel.id, Date.now());
+        this.unifiedInitSuppressed.delete(panel.id);
+      }
+    }
     return published;
   }
 
@@ -574,6 +582,25 @@ export class MqttRuntime {
         });
         return;
       }
+      if (this.unifiedInitSuppressed.has(eventPanelRecord.id)) {
+        this.logger.warn("Suppressed panel settings after a repeated unified panel boot; use firmware update or apply settings to recover.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic
+        });
+        return;
+      }
+      const previousSettingsAt = this.unifiedInitSettingsSentAt.get(eventPanelRecord.id);
+      if (previousSettingsAt !== undefined && Date.now() - previousSettingsAt < 60_000) {
+        this.unifiedInitSuppressed.add(eventPanelRecord.id);
+        this.logger.error("Detected a rapid unified panel reboot after settings; stopped automatic settings to break the boot loop.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic,
+          retryAfterFirmwareUpdate: "true"
+        });
+        return;
+      }
       this.publishPanelSettings(eventPanelRecord, true);
       return;
     }
@@ -608,11 +635,11 @@ export class MqttRuntime {
       for (const listener of this.hmiUpdateReportListeners) await listener(eventPanel, payload, message.receivedAt);
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/firmware/update`) {
-      for (const listener of this.firmwareUpdateReportListeners) await listener(eventPanel, payload, message.receivedAt);
+      for (const listener of this.firmwareUpdateReportListeners) await listener(eventPanelRecord ?? eventPanel, payload, message.receivedAt);
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/ping`) {
       const telemetry = readPanelTelemetry(payload, message.receivedAt);
-      for (const listener of this.panelPingListeners) await listener(eventPanel, telemetry, message.receivedAt);
+      for (const listener of this.panelPingListeners) await listener(eventPanelRecord ?? eventPanel, telemetry, message.receivedAt);
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/page/favs`) {
       this.publishPanelFavorites(eventPanel);
@@ -1522,7 +1549,6 @@ export class MqttRuntime {
     const instances = this.resolvePluginInstances(config);
     for (const panel of config.panels) {
       if (panel.unifiedFirmware) {
-        this.publishPanelSettings(panel, true);
         continue;
       }
       this.requestPanelResetReport(panel);

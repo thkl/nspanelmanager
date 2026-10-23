@@ -19,9 +19,6 @@
 .file-picker label { color: var(--ink-soft); font-size: 12px; font-weight: 700; }
 .file-picker input { max-width: 100%; color: var(--ink-soft); font-size: 12px; }
 .file-picker input::file-selector-button { min-height: 36px; margin-right: 9px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--field-bg); color: var(--ink); font-size: 12px; font-weight: 650; cursor: pointer; }
-.firmware-version-input { display: grid; min-width: 190px; gap: 5px; }
-.firmware-version-input input { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--field-bg); color: var(--ink); }
-.firmware-version-input input::placeholder { color: var(--ink-faint); }
 .selected-file { display: flex; min-width: 160px; flex: 1; justify-content: space-between; gap: 12px; color: var(--ink-soft); font-size: 12px; }
 .selected-file span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .selected-file span:last-child { white-space: nowrap; }

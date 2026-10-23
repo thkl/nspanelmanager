@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.3"
+  firmware_version: "6.0.6"
 
 esphome:
   name: $hostname
@@ -1269,6 +1269,7 @@ panel_mqtt:
                     if (id(sleeping) == false) {
                       id(disp1).send_command_printf("page 0");
                     }
+        - delay: 100ms
         - script.execute: publish_panel_ready
         - script.execute: publish_panel_ping
                     

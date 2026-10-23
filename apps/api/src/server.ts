@@ -92,9 +92,15 @@ async function startServer(): Promise<void> {
   mqttRuntime.onDiscoveredPanelsChanged((panels) => realtimeServer?.broadcast({ type: "discovered-panels", panels }));
   mqttRuntime.onMqttStatusChanged((mqtt) => realtimeServer?.broadcast({ type: "mqtt", mqtt }));
   mqttRuntime.onHmiUpdateReport((panel, payload, receivedAt) => hmiUpdateService.handlePanelReport(panel, payload, receivedAt));
-  mqttRuntime.onFirmwareUpdateReport((panel, payload, receivedAt) => firmwareUpdateService.handlePanelReport(panel, payload, receivedAt));
+  mqttRuntime.onFirmwareUpdateReport(async (panel, payload, receivedAt) => {
+    const recovered = await firmwareUpdateService.handlePanelReport(panel, payload, receivedAt);
+    if (recovered && panel.unifiedFirmware) mqttRuntime.publishPanelSettings(panel, true);
+  });
   mqttRuntime.onPanelPing((panel, telemetry, receivedAt) => hmiUpdateService.observePanelPing(panel, telemetry, receivedAt));
-  mqttRuntime.onPanelPing((panel, telemetry, receivedAt) => firmwareUpdateService.observePanelPing(panel, telemetry, receivedAt));
+  mqttRuntime.onPanelPing(async (panel, telemetry, receivedAt) => {
+    const recovered = await firmwareUpdateService.observePanelPing(panel, telemetry, receivedAt);
+    if (recovered && panel.unifiedFirmware) mqttRuntime.publishPanelSettings(panel, true);
+  });
   hmiUpdateService.start();
   firmwareUpdateService.start();
   await mqttRuntime.reconnect();

@@ -27,14 +27,14 @@ class PanelMqttComponent : public Component {
 
   float get_setup_priority() const override { return setup_priority::AFTER_CONNECTION; }
 
-  /** Rebinds dynamic panel subscriptions and outgoing topics to the assigned node name. */
+  /** Switches outgoing topics immediately and schedules subscriptions to rebind on the main loop. */
   bool set_active_topic_prefix(const std::string &topic_prefix) {
     if (!this->is_valid_topic_prefix_(topic_prefix)) return false;
     if (this->mqtt_client_ == nullptr) return false;
 
     this->active_topic_prefix_ = topic_prefix;
     const std::string alias = topic_prefix == this->bootstrap_topic_prefix_ ? "" : topic_prefix;
-    DynamicTopicAliasRegistry::set_alias(alias);
+    this->defer("panel_mqtt_alias", [alias]() { DynamicTopicAliasRegistry::set_alias(alias); });
     return true;
   }
 

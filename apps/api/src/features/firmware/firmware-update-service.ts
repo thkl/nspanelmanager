@@ -102,50 +102,52 @@ export class FirmwareUpdateService {
     await this.update(job, { status: "failed", message });
   }
 
-  /** Validates and applies one firmware lifecycle report received from a panel. */
-  async handlePanelReport(panel: Panel, payload: string, receivedAt: number): Promise<void> {
+  /** Applies a firmware lifecycle report and returns true when the requested version succeeds. */
+  async handlePanelReport(panel: Panel, payload: string, receivedAt: number): Promise<boolean> {
     const report = parsePanelReport(payload);
-    if (!report) return;
+    if (!report) return false;
     const job = this.findJob(report.jobId);
-    if (!job || job.panelId !== panel.id || isTerminal(job.status)) return;
+    if (!job || job.panelId !== panel.id || isTerminal(job.status)) return false;
     if (report.status === "awaiting_confirmation") {
       if (job.status === "sending" || job.status === "sent" || job.status === "awaiting_confirmation") {
         await this.update(job, { status: "awaiting_confirmation", message: "Confirm the firmware update on the panel." }, receivedAt);
       }
-      return;
+      return false;
     }
     if (report.status === "uploading") {
       await this.update(job, { status: "uploading", message: report.message || "The panel is downloading and installing firmware.", progress: report.progress }, receivedAt);
-      return;
+      return false;
     }
     if (report.status === "rebooting") {
       await this.update(job, { status: "rebooting", message: report.message || "Firmware installed; waiting for the panel to restart.", progress: report.progress ?? 100 }, receivedAt);
-      return;
+      return false;
     }
     if (report.status === "failed") {
       await this.update(job, { status: "failed", message: report.message || "The panel reported that the firmware update failed." }, receivedAt);
-      return;
+      return false;
     }
     if (report.status === "cancelled") {
       await this.update(job, { status: "cancelled", message: report.message || "The panel update prompt was cancelled." }, receivedAt);
-      return;
+      return false;
     }
     if (report.version !== job.firmwareVersion) {
       await this.update(job, { status: "failed", message: `The panel restarted with firmware ${report.version || "unknown"}, not the requested ${job.firmwareVersion}.` }, receivedAt);
-      return;
+      return false;
     }
     await this.update(job, { status: "succeeded", message: "The panel restarted with the requested firmware version.", progress: 100 }, receivedAt);
+    return true;
   }
 
-  /** Confirms a job from panel telemetry if the heartbeat reports the requested version. */
-  async observePanelPing(panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number): Promise<void> {
+  /** Confirms a job from heartbeat telemetry and returns true when the requested version succeeds. */
+  async observePanelPing(panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number): Promise<boolean> {
     const reportedVersion = telemetry?.firmwareVersion;
-    if (!reportedVersion) return;
+    if (!reportedVersion) return false;
     const job = this.runtimeState.getFirmwareUpdateJobs().find((candidate) => candidate.panelId === panel.id
       && isActive(candidate.status)
       && candidate.firmwareVersion === reportedVersion);
-    if (!job) return;
+    if (!job) return false;
     await this.update(job, { status: "succeeded", message: "The panel heartbeat confirms the requested firmware version.", progress: 100 }, receivedAt);
+    return true;
   }
 
   private findJob(id: string): FirmwareUpdateJob | undefined {

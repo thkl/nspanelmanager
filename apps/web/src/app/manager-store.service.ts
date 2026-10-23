@@ -149,13 +149,12 @@ export class ManagerStore {
     return this.http.get<{ artifact: FirmwareArtifact | null; maxUploadBytes: number }>("/api/firmware");
   }
 
-  /** Uploads a firmware .bin and the version string compiled into it. */
-  uploadFirmware(file: File, version: string): Observable<{ artifact: FirmwareArtifact }> {
+  /** Uploads a versioned firmware package whose manifest supplies the compiled version. */
+  uploadFirmware(file: File): Observable<{ artifact: FirmwareArtifact }> {
     return this.http.post<{ artifact: FirmwareArtifact }>("/api/firmware/upload", file, {
       headers: {
         "Content-Type": "application/octet-stream",
-        "X-Firmware-Filename": encodeURIComponent(file.name),
-        "X-Firmware-Version": encodeURIComponent(version)
+        "X-Firmware-Filename": encodeURIComponent(file.name)
       }
     });
   }
