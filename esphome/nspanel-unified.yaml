@@ -21,6 +21,7 @@ http_request:
 ota:
   - platform: esphome
     password: !secret ota_password
+    allow_partition_access: true
   - platform: http_request
     on_begin:
       then:

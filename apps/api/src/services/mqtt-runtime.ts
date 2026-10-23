@@ -1,4 +1,4 @@
-import mqtt, { type MqttClient } from "mqtt";
+import mqtt, { type ISubscriptionMap, type MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store.js";
 import type { DiscoveredPanel, ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelTelemetry, ResolvedPluginInstance } from "../types.js";
@@ -46,6 +46,7 @@ export class MqttRuntime {
   private readonly hmiUpdateReportListeners = new Set<(panel: Panel, payload: string, receivedAt: number) => void | Promise<void>>();
   private readonly firmwareUpdateReportListeners = new Set<(panel: Panel, payload: string, receivedAt: number) => void | Promise<void>>();
   private readonly panelPingListeners = new Set<(panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number) => void | Promise<void>>();
+  private readonly panelCoreDumpListeners = new Set<(panel: Panel, topic: string, payload: string, receivedAt: number) => string | void | Promise<string | void>>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
   private readonly discoveryCleanupTimer: NodeJS.Timeout;
@@ -110,6 +111,21 @@ export class MqttRuntime {
   onPanelPing(listener: (panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number) => void | Promise<void>): () => void {
     this.panelPingListeners.add(listener);
     return () => this.panelPingListeners.delete(listener);
+  }
+
+  /** Receives the chunked crash dump report from a compatible panel. */
+  onPanelCoreDump(listener: (panel: Panel, topic: string, payload: string, receivedAt: number) => string | void | Promise<string | void>): () => void {
+    this.panelCoreDumpListeners.add(listener);
+    return () => this.panelCoreDumpListeners.delete(listener);
+  }
+
+  /** Confirms that a complete core dump was durably stored by the manager. */
+  publishPanelCoreDumpAck(panel: Panel, dumpId: string, topicRoot = panelTopicRoot(panel)): boolean {
+    if (!/^[0-9a-f]{8}$/i.test(dumpId)) return false;
+    const topic = `${topicRoot}/cmnd/crashdump/ack`;
+    if (!this.client?.connected || !isPublishableTopic(topic)) return false;
+    this.client.publish(topic, JSON.stringify({ dump_id: dumpId }), { qos: 1, retain: false });
+    return true;
   }
 
   /** Publishes an HMI download URL and artifact checksum, optionally skipping panel confirmation. */
@@ -313,6 +329,7 @@ export class MqttRuntime {
       for (const root of panelTopicRoots(panel)) {
         desiredTopics.add(`${root}/status`);
         desiredTopics.add(`${root}/event/#`);
+        desiredTopics.add(`${root}/event/crashdump/#`);
       }
     }
     for (const route of config.routes) desiredTopics.add(panelRouteSourceTopic(route, config.panels));
@@ -327,7 +344,10 @@ export class MqttRuntime {
     if (additions.length) {
       const client = this.client;
       try {
-        client.subscribe(additions, (error, granted) => {
+        const subscriptions: ISubscriptionMap = Object.fromEntries(additions.map((topic) => [topic, {
+          qos: topic.endsWith("/event/crashdump/#") ? 1 as const : 0 as const
+        }]));
+        client.subscribe(subscriptions, (error, granted) => {
           if (client !== this.client) return;
           if (error) {
             for (const topic of additions) this.activeTopics.delete(topic);
@@ -586,6 +606,15 @@ export class MqttRuntime {
     const eventPanel = eventPanelRecord && eventRoot
       ? { ...eventPanelRecord, nodeName: eventRoot, ...(eventRoot !== eventPanelRecord.nodeName ? { unifiedFirmware: true } : {}) }
       : undefined;
+    const coreDumpTopicPrefix = eventPanel ? `${eventPanel.nodeName}/event/crashdump/` : "";
+    if (eventPanel && topic.startsWith(coreDumpTopicPrefix)) {
+      const suffix = topic.slice(coreDumpTopicPrefix.length);
+      for (const listener of this.panelCoreDumpListeners) {
+        const dumpId = await listener(eventPanelRecord ?? eventPanel, suffix, payload, message.receivedAt);
+        if (suffix === "complete" && dumpId) this.publishPanelCoreDumpAck(eventPanelRecord ?? eventPanel, dumpId, eventRoot ?? panelTopicRoot(eventPanel));
+      }
+      return;
+    }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
       const lastHandledAt = this.panelBootedEventLastHandledAt.get(eventPanel.id);
       if (lastHandledAt !== undefined && message.receivedAt - lastHandledAt < 5_000) return;

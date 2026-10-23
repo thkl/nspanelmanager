@@ -7,6 +7,7 @@ import type { HmiUpdateService } from "../hmi/hmi-update-service.js";
 import { FirmwareArtifactError, FirmwareArtifactService, MAX_FIRMWARE_UPLOAD_BYTES } from "./firmware-artifact-service.js";
 import { FirmwareUpdateError, FirmwareUpdateService } from "./firmware-update-service.js";
 import { panelBootstrapTopicRoot } from "../../domain/panel-topics.js";
+import type { CoreDumpStore } from "./core-dump-store.js";
 
 /** Creates authenticated firmware upload/update APIs and the public capability download endpoint. */
 export function createFirmwareRouter(
@@ -15,11 +16,45 @@ export function createFirmwareRouter(
   hmiUpdateService: HmiUpdateService,
   store: ConfigStore,
   mqttRuntime: MqttRuntime,
-  logger: Logger
+  logger: Logger,
+  coreDumpStore: CoreDumpStore
 ): Router {
   const router = Router();
 
   router.get("/", (_request, response) => response.json({ artifact: firmwareService.currentArtifact(), maxUploadBytes: MAX_FIRMWARE_UPLOAD_BYTES }));
+
+  router.get("/panels/:panelId/crash-dump", (request, response) => {
+    const panel = store.get().panels.find((item) => item.id === request.params.panelId);
+    if (!panel) return response.status(404).json({ error: "Panel not found." });
+    response.json({ dump: coreDumpStore.latest(panel.id) ?? null });
+  });
+
+  router.get("/panels/:panelId/crash-dump/download", (request, response, next) => {
+    const panel = store.get().panels.find((item) => item.id === request.params.panelId);
+    if (!panel) return response.status(404).json({ error: "Panel not found." });
+    const stored = coreDumpStore.fileFor(panel.id);
+    if (!stored) return response.status(404).json({ error: "This panel has no captured crash dump." });
+
+    const safeNodeName = panel.nodeName.replace(/[^a-zA-Z0-9_-]/g, "-");
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("Content-Type", "application/octet-stream");
+    response.setHeader("Content-Disposition", `attachment; filename="nspanel-${safeNodeName}-${stored.record.dumpId}.bin"`);
+    response.setHeader("Content-Length", String(stored.record.sizeBytes));
+    const stream = createReadStream(stored.filePath);
+    response.on("close", () => { if (!response.writableEnded) stream.destroy(); });
+    response.on("finish", () => logger.info("Panel crash dump downloaded.", {
+      component: "firmware",
+      panel: panel.name,
+      dumpId: stored.record.dumpId,
+      requestedBy: request.authUser?.email ?? "unknown"
+    }));
+    stream.on("error", (error) => {
+      if (response.headersSent) response.destroy(error);
+      else next(error);
+    });
+    stream.pipe(response);
+  });
 
   router.post("/upload", express.raw({ type: "application/octet-stream", limit: MAX_FIRMWARE_UPLOAD_BYTES }), async (request, response, next) => {
     try {

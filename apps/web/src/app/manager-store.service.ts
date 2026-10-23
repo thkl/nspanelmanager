@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, DiscoveredPanel, FirmwareArtifact, FirmwareUpdateJob, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareUpdateJob, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -30,6 +30,7 @@ export class ManagerStore {
   readonly discoveredPanels = signal<DiscoveredPanel[]>([]);
   readonly hmiUpdateJobs = signal<HmiUpdateJob[]>([]);
   readonly firmwareUpdateJobs = signal<FirmwareUpdateJob[]>([]);
+  readonly panelCoreDumps = signal<Record<string, CoreDumpRecord>>({});
   readonly realtimeConnected = signal(false);
   readonly notice = signal<ManagerNotice | null>(null);
   readonly authStatus = signal<AuthStatus | null>(null);
@@ -164,6 +165,25 @@ export class ManagerStore {
     return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; firmwareVersion: string; job: FirmwareUpdateJob }>(`/api/firmware/panels/${panelId}/update`, { force }).pipe(tap(({ job }) => this.upsertFirmwareUpdateJob(job)));
   }
 
+  /** Loads the most recent crash dump metadata for one configured panel. */
+  loadPanelCoreDump(panelId: string): Observable<{ dump: CoreDumpRecord | null }> {
+    return this.http.get<{ dump: CoreDumpRecord | null }>(`/api/firmware/panels/${encodeURIComponent(panelId)}/crash-dump`).pipe(tap(({ dump }) => {
+      this.panelCoreDumps.update((current) => {
+        if (!dump) {
+          const next = { ...current };
+          delete next[panelId];
+          return next;
+        }
+        return { ...current, [panelId]: dump };
+      });
+    }));
+  }
+
+  /** Downloads the manager's retained ESP-IDF core dump for one panel. */
+  downloadPanelCoreDump(panelId: string): Observable<Blob> {
+    return this.http.get(`/api/firmware/panels/${encodeURIComponent(panelId)}/crash-dump/download`, { responseType: "blob" });
+  }
+
   /** Opens the authenticated same-origin realtime channel and retries transient disconnects. */
   connectRealtime(): void {
     if (typeof window === "undefined" || !this.authUser() || this.realtimeSocket || this.reconnectTimer) return;
@@ -232,6 +252,8 @@ export class ManagerStore {
       this.upsertHmiUpdateJob(event.job);
     } else if (event.type === "firmware-job") {
       this.upsertFirmwareUpdateJob(event.job);
+    } else if (event.type === "core-dump") {
+      this.panelCoreDumps.update((dumps) => ({ ...dumps, [event.dump.panelId]: event.dump }));
     } else if (event.type === "mqtt") {
       this.mqtt.set(event.mqtt);
     }

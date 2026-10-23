@@ -10,6 +10,7 @@
     "dev": "pnpm --parallel --filter @nspanel/api --filter @nspanel/web dev",
     "build": "pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api build",
     "firmware:compile": "node scripts/compile-unified-firmware.mjs",
+    "firmware:partition-table": "node scripts/update-unified-partition-table.mjs",
     "security:keygen": "pnpm --filter @nspanel/api security:keygen"
   }
 }

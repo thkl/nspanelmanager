@@ -76,6 +76,23 @@
       <div class="editor-actions"><button class="button ghost" (click)="removePanel()">Remove</button><button class="button primary" [disabled]="saving() || !favoritesValid(panel)" (click)="savePanel()">{{ saving() ? 'Saving…' : 'Save changes' }}</button></div></div>
       <div class="settings-scroll">
         <div class="panel-identity"><div><b>Hardware identity</b><small>{{ panel.macAddress || 'No device assigned' }}</small></div>@if (panel.macAddress) { <button class="button ghost small" (click)="clearPanelMacAddress(panel)">Unassign device</button> }</div>
+        <section class="panel-crash-dump" aria-label="Panel crash dump">
+          <div>
+            <b>Crash dump</b>
+            @if (coreDumpLoading()) {
+              <small>Checking manager storage…</small>
+            } @else if (coreDumpForSelectedPanel(); as dump) {
+              <small>Captured {{ dump.capturedAt | date:'short' }} · FW {{ dump.firmwareVersion }} · {{ (dump.sizeBytes / 1024).toFixed(1) }} KB</small>
+              @if (dump.panicReason) { <small>Reason: {{ dump.panicReason }}</small> }
+              <small>SHA-256 {{ dump.sha256 }}</small>
+            } @else {
+              <small>No crash dump has been captured for this panel.</small>
+            }
+          </div>
+          @if (coreDumpForSelectedPanel(); as dump) {
+            <button class="button ghost small" [disabled]="downloadingCoreDump()" (click)="downloadCoreDump()">{{ downloadingCoreDump() ? 'Downloading…' : 'Download dump' }}</button>
+          }
+        </section>
         <nspanel-screen-preview [panel]="panel" [config]="manager.config()" [favoriteAssignments]="favoriteInstances()" />
         <div class="section-title"><span class="section-number">01</span><div><h3>Display settings</h3><p>Basic labels and appearance.</p></div></div>
         <div class="form-grid three-col">

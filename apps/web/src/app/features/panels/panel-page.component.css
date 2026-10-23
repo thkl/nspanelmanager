@@ -292,6 +292,33 @@ nspanel-screen-preview { margin-bottom: 22px; }
   background: var(--canvas-soft);
 }
 
+.panel-crash-dump {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -8px 0 18px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--canvas-soft);
+}
+
+.panel-crash-dump > div { min-width: 0; }
+
+.panel-crash-dump b,
+.panel-crash-dump small { display: block; }
+
+.panel-crash-dump b { color: var(--ink); font-size: 11px; }
+
+.panel-crash-dump small {
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .inline-actions {
   display: flex;
   justify-content: flex-end;

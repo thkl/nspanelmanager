@@ -3,7 +3,7 @@ import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { concatMap, from, of, switchMap, toArray, type Observable } from "rxjs";
 import { ManagerStore } from "../../manager-store.service";
-import type { DiscoveredPanel, Panel, PanelBinding, PanelTelemetry, PluginDefinition } from "../../models";
+import type { CoreDumpRecord, DiscoveredPanel, Panel, PanelBinding, PanelTelemetry, PluginDefinition } from "../../models";
 import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
 
 /**
@@ -34,6 +34,9 @@ export class PanelPageComponent implements OnInit {
   readonly newMacAddress = signal("");
   readonly discoveryAssignmentTargets = signal<Record<string, string>>({});
   readonly saving = signal(false);
+  readonly coreDump = signal<CoreDumpRecord | null>(null);
+  readonly coreDumpLoading = signal(false);
+  readonly downloadingCoreDump = signal(false);
 
   /** Receives the shared API store used to load and persist panel profiles. */
   constructor(readonly manager: ManagerStore) {}
@@ -328,16 +331,64 @@ export class PanelPageComponent implements OnInit {
     });
   }
 
+  /** Downloads the latest crash dump saved by the manager for the selected panel. */
+  downloadCoreDump(): void {
+    const panel = this.draft();
+    const dump = this.coreDumpForSelectedPanel();
+    if (!panel || !dump || this.downloadingCoreDump()) return;
+    this.downloadingCoreDump.set(true);
+    this.manager.downloadPanelCoreDump(panel.id).subscribe({
+      next: (file) => {
+        const url = URL.createObjectURL(file);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `nspanel-${panel.nodeName}-${dump.dumpId}-coredump.bin`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        this.downloadingCoreDump.set(false);
+      },
+      error: () => {
+        this.downloadingCoreDump.set(false);
+        this.manager.inform("Could not download the panel crash dump.", "error");
+      }
+    });
+  }
+
+  /** Returns the local lookup or the newer dump announced over WebSocket. */
+  coreDumpForSelectedPanel(): CoreDumpRecord | null {
+    const panelId = this.selectedPanelId();
+    return panelId ? this.manager.panelCoreDumps()[panelId] ?? this.coreDump() : null;
+  }
+
   private setDraft(panel: Panel | null): void {
     this.selectedPanelId.set(panel?.id ?? null);
     this.panelSelectionChange.emit(panel?.id ?? null);
     this.draft.set(panel ? structuredClone(panel) : null);
+    this.loadCoreDump(panel?.id ?? null);
     const assignments = panel
       ? this.manager.config().panelBindings
         .filter((binding) => binding.panelId === panel.id && binding.trigger.type === "favorite")
         .map((binding) => [binding.trigger.index, binding.pluginInstanceId] as const)
       : [];
     this.favoriteInstances.set(Object.fromEntries(assignments));
+  }
+
+  private loadCoreDump(panelId: string | null): void {
+    this.coreDump.set(null);
+    this.coreDumpLoading.set(Boolean(panelId));
+    if (!panelId) return;
+    this.manager.loadPanelCoreDump(panelId).subscribe({
+      next: ({ dump }) => {
+        if (this.selectedPanelId() !== panelId) return;
+        this.coreDump.set(dump);
+        this.coreDumpLoading.set(false);
+      },
+      error: () => {
+        if (this.selectedPanelId() === panelId) this.coreDumpLoading.set(false);
+      }
+    });
   }
 
   /** Builds sequential add/remove requests for changed favorite assignments. */

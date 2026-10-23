@@ -77,7 +77,11 @@ export class MqttSonosPlugin implements PluginDefinition {
     }
     if (message.topic !== `${SONOS_TOPIC_PREFIX}/${playerName}/state`) return undefined;
     const state = parseSonosState(message.payload);
-    return state ? { ...state } : undefined;
+    if (!state) return undefined;
+    const changed = Object.fromEntries(
+      Object.entries(state).filter(([key, value]) => currentState[key] !== value)
+    );
+    return Object.keys(changed).length > 0 ? changed : undefined;
   }
 
   /** Uses the firmware-owned page rather than a universal plugin info page. */

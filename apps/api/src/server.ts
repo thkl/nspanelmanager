@@ -15,6 +15,7 @@ import { HmiArtifactService } from "./features/hmi/hmi-artifact-service.js";
 import { HmiUpdateService } from "./features/hmi/hmi-update-service.js";
 import { FirmwareArtifactService } from "./features/firmware/firmware-artifact-service.js";
 import { FirmwareUpdateService } from "./features/firmware/firmware-update-service.js";
+import { CoreDumpStore } from "./features/firmware/core-dump-store.js";
 import { RealtimeWebSocketServer } from "./features/realtime/realtime-websocket.js";
 
 const logger = new Logger();
@@ -49,6 +50,8 @@ async function startServer(): Promise<void> {
   await hmiService.load();
   const firmwareService = new FirmwareArtifactService(dataDir, hmiPublicUrl);
   await firmwareService.load();
+  const coreDumpStore = new CoreDumpStore(dataDir);
+  await coreDumpStore.load();
   const setUserStorePermissions = process.env.USER_STORE_SET_PERMISSIONS?.trim().toLowerCase() !== "false";
   const userStore = new UserStore(dataDir, setUserStorePermissions);
   await userStore.load();
@@ -79,7 +82,7 @@ async function startServer(): Promise<void> {
   let realtimeServer: RealtimeWebSocketServer | undefined;
   const hmiUpdateService = new HmiUpdateService(runtimeState, (job) => realtimeServer?.broadcast({ type: "hmi-job", job }), logger);
   const firmwareUpdateService = new FirmwareUpdateService(runtimeState, (job) => realtimeServer?.broadcast({ type: "firmware-job", job }), logger);
-  const app = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, hmiService, hmiUpdateService, firmwareService, firmwareUpdateService);
+  const app = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, hmiService, hmiUpdateService, firmwareService, firmwareUpdateService, coreDumpStore);
   const httpServer = createServer(app);
   realtimeServer = new RealtimeWebSocketServer(httpServer, authService, async () => ({
     panels: mqttRuntime.panelConnectionStatuses(),
@@ -98,6 +101,24 @@ async function startServer(): Promise<void> {
   mqttRuntime.onPanelPing((panel, telemetry, receivedAt) => hmiUpdateService.observePanelPing(panel, telemetry, receivedAt));
   mqttRuntime.onPanelPing(async (panel, telemetry, receivedAt) => {
     await firmwareUpdateService.observePanelPing(panel, telemetry, receivedAt);
+  });
+  mqttRuntime.onPanelCoreDump(async (panel, topic, payload, receivedAt) => {
+    const dumpId = await coreDumpStore.receive(panel, topic, payload, receivedAt);
+    if (!dumpId) return;
+    const dump = coreDumpStore.latest(panel.id);
+    if (dump) {
+      logger.info("Panel crash dump stored.", {
+        component: "firmware",
+        panel: panel.name,
+        nodeName: panel.nodeName,
+        dumpId: dump.dumpId,
+        firmwareVersion: dump.firmwareVersion,
+        sizeBytes: String(dump.sizeBytes),
+        sha256: dump.sha256
+      });
+      realtimeServer?.broadcast({ type: "core-dump", dump });
+    }
+    return dumpId;
   });
   hmiUpdateService.start();
   firmwareUpdateService.start();

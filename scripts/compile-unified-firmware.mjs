@@ -9,8 +9,14 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const panelConfigPath = resolve(projectRoot, "esphome/panel-unified.yaml");
 const firmwareEntryPath = "esphome/nspanel-unified.yaml";
 const firmwareOutputPath = resolve(projectRoot, "esphome/.esphome/build/nspanel/build/firmware.ota.bin");
+const firmwareElfOutputPath = resolve(projectRoot, "esphome/.esphome/build/nspanel/build/firmware.elf");
+const partitionTableOutputPath = resolve(projectRoot, "esphome/.esphome/build/nspanel/build/partition_table/partition-table.bin");
 const visibleFirmwarePath = resolve(projectRoot, "esphome/nspanel-unified.bin");
+const visibleFirmwareElfPath = resolve(projectRoot, "esphome/nspanel-unified.elf");
+const visiblePartitionTablePath = resolve(projectRoot, "esphome/nspanel-unified.partitions.bin");
 const temporaryFirmwarePath = resolve(projectRoot, "esphome/.nspanel-unified.bin.tmp");
+const temporaryFirmwareElfPath = resolve(projectRoot, "esphome/.nspanel-unified.elf.tmp");
+const temporaryPartitionTablePath = resolve(projectRoot, "esphome/.nspanel-unified.partitions.bin.tmp");
 const firmwareBundlePath = resolve(projectRoot, "esphome/nspanel-unified.zip");
 const temporaryBundlePath = resolve(projectRoot, "esphome/.nspanel-unified.zip.tmp");
 const source = readFileSync(panelConfigPath, "utf8");
@@ -36,8 +42,16 @@ if (compile.status !== 0) process.exit(compile.status ?? 1);
 try {
   const firmware = statSync(firmwareOutputPath);
   if (!firmware.isFile() || firmware.size === 0) throw new Error("The compiled OTA image is missing or empty.");
+  const firmwareElf = statSync(firmwareElfOutputPath);
+  if (!firmwareElf.isFile() || firmwareElf.size === 0) throw new Error("The compiled ELF symbols are missing or empty.");
+  const partitionTable = statSync(partitionTableOutputPath);
+  if (!partitionTable.isFile() || partitionTable.size === 0) throw new Error("The compiled partition table is missing or empty.");
   copyFileSync(firmwareOutputPath, temporaryFirmwarePath);
   renameSync(temporaryFirmwarePath, visibleFirmwarePath);
+  copyFileSync(firmwareElfOutputPath, temporaryFirmwareElfPath);
+  renameSync(temporaryFirmwareElfPath, visibleFirmwareElfPath);
+  copyFileSync(partitionTableOutputPath, temporaryPartitionTablePath);
+  renameSync(temporaryPartitionTablePath, visiblePartitionTablePath);
   const firmwareBytes = readFileSync(visibleFirmwarePath);
   const manifestBytes = Buffer.from(JSON.stringify({
     format: "nspanel-unified-firmware",
@@ -54,6 +68,8 @@ try {
   renameSync(temporaryBundlePath, firmwareBundlePath);
 } catch (error) {
   rmSync(temporaryFirmwarePath, { force: true });
+  rmSync(temporaryFirmwareElfPath, { force: true });
+  rmSync(temporaryPartitionTablePath, { force: true });
   rmSync(temporaryBundlePath, { force: true });
   console.error(`Could not prepare the firmware upload files: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
@@ -63,6 +79,8 @@ const updatedSource = source.replace(versionLine[0], `${versionLine[1]}"${nextVe
 writeFileSync(panelConfigPath, updatedSource);
 console.log(`Unified firmware version advanced to ${nextVersion}.`);
 console.log("OTA image copied to esphome/nspanel-unified.bin.");
+console.log("Matching ELF symbols copied to esphome/nspanel-unified.elf for crash dump analysis.");
+console.log("Partition table copied to esphome/nspanel-unified.partitions.bin.");
 console.log("Versioned firmware package created at esphome/nspanel-unified.zip.");
 
 function createZip(entries) {

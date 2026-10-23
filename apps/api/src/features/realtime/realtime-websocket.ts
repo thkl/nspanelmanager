@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AuthService } from "../auth/auth-service.js";
 import type { DiscoveredPanel, FirmwareUpdateJob, HmiUpdateJob, PanelConnectionStatus } from "../../types.js";
+import type { CoreDumpRecord } from "../firmware/core-dump-store.js";
 import type { Logger } from "../../services/logger.js";
 
 const SOCKET_PATH = "/api/events";
@@ -25,6 +26,7 @@ export type RealtimeEvent =
   | { type: "discovered-panels"; panels: DiscoveredPanel[] }
   | { type: "hmi-job"; job: HmiUpdateJob }
   | { type: "firmware-job"; job: FirmwareUpdateJob }
+  | { type: "core-dump"; dump: CoreDumpRecord }
   | { type: "mqtt"; mqtt: { connected: boolean; error: string } };
 
 interface RealtimeClient {

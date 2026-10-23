@@ -211,6 +211,19 @@ export interface FirmwareArtifact {
   uploadedAt: string;
 }
 
+/** Metadata for the latest crash dump retained by the manager for a panel. */
+export interface CoreDumpRecord {
+  panelId: string;
+  dumpId: string;
+  firmwareVersion: string;
+  sizeBytes: number;
+  chunkCount: number;
+  panicReason?: string;
+  sha256: string;
+  capturedAt: string;
+  filename: string;
+}
+
 export type FirmwareUpdateJobStatus = "sending" | "sent" | "awaiting_confirmation" | "uploading" | "rebooting" | "succeeded" | "failed" | "cancelled" | "timed_out";
 
 export interface FirmwareUpdateJob {
@@ -237,6 +250,7 @@ export type ManagerRealtimeEvent =
   | { type: "discovered-panels"; panels: DiscoveredPanel[] }
   | { type: "hmi-job"; job: HmiUpdateJob }
   | { type: "firmware-job"; job: FirmwareUpdateJob }
+  | { type: "core-dump"; dump: CoreDumpRecord }
   | { type: "mqtt"; mqtt: MqttStatus };
 
 export interface ManagerState {
