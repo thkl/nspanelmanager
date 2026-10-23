@@ -64,6 +64,21 @@ globals:
     type: std::string
     initial_value: ""
 
+  - id: sonosTrackByPlayer
+    type: std::vector<std::string>
+    restore_value: no
+    initial_value: '{"", "", "", "", "", "", "", "", "", "", ""}'
+
+  - id: sonosPlaybackStateByPlayer
+    type: std::vector<int>
+    restore_value: no
+    initial_value: "{0,0,0,0,0,0,0,0,0,0,0}"
+
+  - id: sonosCoordinatorByPlayer
+    type: std::vector<int>
+    restore_value: no
+    initial_value: "{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1}"
+
   - id: sonosIsCoordinator
     type: bool
     restore_value: no
@@ -693,7 +708,13 @@ script:
 
     then:
       - lambda: |-
-                
+                const int selected_player = id(selectedMusicPlayer);
+                if (selected_player >= 0 && selected_player < static_cast<int>(id(sonosTrackByPlayer).size())) {
+                  id(sonosTrack) = id(sonosTrackByPlayer)[selected_player];
+                  if (id(sonosTrack).empty()) id(sonosTrack) = "[STOP]";
+                  id(sonosIsCoordinator) = id(sonosCoordinatorByPlayer)[selected_player] == 1;
+                }
+
                 if (id(currentPage)=="page0") {
                   id(disp1).send_command_printf("page0.vCurrentSong.txt=\"%s\"",id(sonosTrack).c_str());
                   id(disp1).set_component_text("p0bMusic", id(sonosTrack).c_str());
@@ -705,7 +726,10 @@ script:
                   if (id(musicMode)==0) {
                       id(disp1).set_component_text("p3b0", "");
 
-                      if ((id(sonosTrack)=="[PAUSE]") || (id(sonosTrack)=="[S T O P]")) {
+                      const bool selected_player_playing = selected_player >= 0 &&
+                        selected_player < static_cast<int>(id(sonosPlaybackStateByPlayer).size()) &&
+                        id(sonosPlaybackStateByPlayer)[selected_player] == 1;
+                      if (!selected_player_playing) {
                         id(disp1).set_component_text("p3b1", "Play");
                       } else {
                         id(disp1).set_component_text("p3b1", "Pause");
@@ -1192,8 +1216,11 @@ mqtt:
                 JsonArrayConst array = x["music"];
                   int arraySize =  array.size();
                   for (auto &player_id : id(musicPlayer)) player_id = -1;
+                  for (auto &player_track : id(sonosTrackByPlayer)) player_track = "[STOP]";
+                  for (auto &player_state : id(sonosPlaybackStateByPlayer)) player_state = 0;
+                  for (auto &coordinator : id(sonosCoordinatorByPlayer)) coordinator = -1;
                   for (int i = 0; i < 8 && i < arraySize; i++) {
-                        if (!array[i].containsKey("name") || !array[i].containsKey("id")) continue;
+                        if (!array[i]["name"].is<std::string>() || !array[i]["id"].is<int>()) continue;
                         std::string name = array[i]["name"].as<std::string>();
                         id(disp1).send_command_printf("pageMusic.vPlayer%d.txt=\"%s\"",(i), name.c_str());
                         int player_id = array[i]["id"].as<int>();
@@ -1203,19 +1230,20 @@ mqtt:
                           id(selectedMusicPlayer) = player_id;
                         }
                         
-                        if (player_id >= 0 && player_id < id(musicPlayerNames).size()) {
+                        if (player_id >= 0 && player_id < static_cast<int>(id(musicPlayerNames).size()) &&
+                            player_id < static_cast<int>(id(sonosTrackByPlayer).size())) {
                           id(musicPlayerNames)[player_id] = name;
-                        }
-                        
-                        if (player_id==id(selectedMusicPlayer)) {
-                         if (array[i].containsKey("currentSong")) {
-                            id(sonosTrack) = array[i]["currentSong"].as<std::string>();;
-                         }
+                          if (array[i]["currentSong"].is<std::string>()) {
+                            id(sonosTrackByPlayer)[player_id] = array[i]["currentSong"].as<std::string>();
+                          }
                         }
                   }
               }
 
         -  script.execute: update_display
+        -  script.execute:
+            id: update_music
+            single: false
         -  lambda: |-
                     if (id(sleeping) == false) {
                       id(disp1).send_command_printf("page 0");
@@ -1328,34 +1356,28 @@ mqtt:
     - topic: $node_name/cmnd/music
       then:
         - lambda: |-
-                    if (x.containsKey("status")) {
-                    JsonArrayConst player = x["status"];
-                    int arraySize =  player.size();
-                    int selected = id(selectedMusicPlayer);
-                    if (selected < 0 || selected >= id(musicPlayerNames).size()) return;
-                    std::string selPlayerName = id(musicPlayerNames)[selected];
-                    for (int i = 0; i < arraySize; i++) {
-                        if (!player[i].containsKey("player") || !player[i].containsKey("currenttrack")) continue;
-                        std::string pl = player[i]["player"].as<std::string>();
-                        if (pl == selPlayerName) {
-                          id(sonosTrack) = player[i]["currenttrack"].as<std::string>();
-                        }
+                    if (!x["status"].is<JsonArrayConst>()) return;
+                    JsonArrayConst players = x["status"];
+                    for (auto &track : id(sonosTrackByPlayer)) track = "[STOP]";
+                    for (auto &state : id(sonosPlaybackStateByPlayer)) state = 0;
+                    for (auto &coordinator : id(sonosCoordinatorByPlayer)) coordinator = -1;
+
+                    for (JsonVariantConst player_value : players) {
+                      const JsonObjectConst player = player_value.as<JsonObjectConst>();
+                      if (!player["playerid"].is<int>()) continue;
+                      const int player_id = player["playerid"].as<int>();
+                      if (player_id < 0 || player_id >= static_cast<int>(id(sonosTrackByPlayer).size())) continue;
+                      if (player["currenttrack"].is<std::string>()) {
+                        id(sonosTrackByPlayer)[player_id] = player["currenttrack"].as<std::string>();
+                      }
+                      if (player["currentstate"].is<int>()) {
+                        id(sonosPlaybackStateByPlayer)[player_id] = player["currentstate"].as<int>();
+                      }
+                      if (player["isCoordinator"].is<bool>()) {
+                        id(sonosCoordinatorByPlayer)[player_id] = player["isCoordinator"].as<bool>() ? 1 : 0;
+                      }
                     }
                     id(update_music)->execute(false);
-                    }
-
-
-    - topic: $node_name/cmnd/music/state
-      then:
-        - lambda: |-
-              bool coordinator = false;
-
-              if (x.containsKey("isCoordinator")){
-                  coordinator = x["isCoordinator"];
-                  id(sonosIsCoordinator) = coordinator;
-              }
-
-              id(update_music)->execute(false);
 
     - topic: $node_name/cmnd/queryplayer
       then:
@@ -3377,20 +3399,6 @@ text_sensor:
     on_value:
       then:
         - script.execute: update_display
-
-#the current music track
-  - platform: mqtt_subscribe
-    name: $device_name update music track name
-    id: sonos_lr_track
-    internal: true
-    topic: $node_name/cmnd/music/currenttrack
-    on_value:
-      then:
-        - lambda: |-
-            id(sonosTrack) = id(sonos_lr_track).state;
-        - script.execute:
-            id: update_music
-            single: true
 
 #reacts on a level message and updates the level page
   - platform: mqtt_subscribe

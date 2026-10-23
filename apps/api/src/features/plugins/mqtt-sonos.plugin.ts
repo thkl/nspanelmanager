@@ -151,7 +151,7 @@ export class MqttSonosPlugin implements PluginDefinition {
     return command ? { commands: [command] } : undefined;
   }
 
-  /** Sends only the currently selected room's track, playback, and coordinator state to the panel. */
+  /** Sends one full, player-ID-keyed snapshot so shared panels can keep each room's state separate. */
   renderNativePanelState(
     instance: ResolvedPluginInstance,
     panel: Panel,
@@ -170,31 +170,18 @@ export class MqttSonosPlugin implements PluginDefinition {
       }))
       .filter((player): player is { id: number; name: string; state: SonosState } => player.id !== undefined && Boolean(player.name))
       .sort((left, right) => left.id - right.id);
-    const selectedId = finiteNumber(state.selectedPlayerId);
-    const selected = players.find((player) => player.id === selectedId);
-    if (!selected) return [];
-
-    const selectedState = selected.state;
-    const selectedStatus = {
-      player: hmiSafeText(selected.name),
-      currenttrack: currentTrackLabel(selectedState),
-      currentstate: playbackStateCode(selectedState.playbackState),
-      isCoordinator: selectedState.isCoordinator
-    };
-    return [
-      {
-        topic: `${panel.nodeName}/cmnd/music`,
-        payload: JSON.stringify({ status: [selectedStatus] })
-      },
-      {
-        topic: `${panel.nodeName}/cmnd/music/state`,
-        payload: JSON.stringify({
-          title: currentTrackLabel(selectedState),
-          state: selectedState.playbackState === "playing",
-          isCoordinator: selectedState.isCoordinator
-        })
-      }
-    ];
+    if (players.length === 0) return [];
+    const status = players.map(({ id, name, state: playerState }) => ({
+      playerid: id,
+      player: hmiSafeText(name),
+      currenttrack: currentTrackLabel(playerState),
+      currentstate: playbackStateCode(playerState.playbackState),
+      ...(typeof playerState.isCoordinator === "boolean" ? { isCoordinator: playerState.isCoordinator } : {})
+    }));
+    return [{
+      topic: `${panel.nodeName}/cmnd/music`,
+      payload: JSON.stringify({ status })
+    }];
   }
 }
 
@@ -348,10 +335,6 @@ function playbackStateCode(state: SonosState["playbackState"]): number {
 
 function hmiSafeText(value: string): string {
   return value.replaceAll('"', "'").replaceAll("\\", " ").replace(/[\r\n\u0000-\u001f]/g, " ").trim();
-}
-
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function stringValue(value: unknown): string { return typeof value === "string" ? value : ""; }

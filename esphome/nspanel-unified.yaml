@@ -13,7 +13,7 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   fast_connect: true
-#  use_address: 192.168.3.24
+  use_address: 192.168.178.27
 
 http_request:
   verify_ssl: true
