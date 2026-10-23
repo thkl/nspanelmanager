@@ -34,6 +34,7 @@ export class MqttRuntime {
   private readonly publishedPanelSettings = new Map<string, string>();
   private readonly unifiedInitSettingsSentAt = new Map<string, number>();
   private readonly unifiedInitSuppressed = new Set<string>();
+  private readonly panelBootedEventLastHandledAt = new Map<string, number>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
   private readonly discoveredPanels = new Map<string, DiscoveredPanel>();
@@ -366,7 +367,7 @@ export class MqttRuntime {
   }
 
   /** Publishes changed settings, or always publishes when boot/apply explicitly requests a refresh. */
-  publishPanelSettings(panel: Panel, force = false): boolean {
+  publishPanelSettings(panel: Panel, force = false, topicRoot = panelBootstrapTopicRoot(panel)): boolean {
     const defaultPlayer = panel.nativePluginInstances ? panel.nativePluginInstances['music'] : undefined;
     const configuredPlayers = this.configuredNativePagePlayers("music",defaultPlayer);
 
@@ -378,14 +379,14 @@ export class MqttRuntime {
     };
     const configFingerprint = JSON.stringify({
       nodeName: panel.nodeName,
-      topicRoot: panelBootstrapTopicRoot(panel),
+      topicRoot,
       settings: {
         ...settings,
         music: configuredPlayers.map(({ id, name, sonos, player }) => ({ id, name, sonos, player }))
       }
     });
     if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) return true;
-    const published = this.publish(`${panelBootstrapTopicRoot(panel)}/cmnd/settings`, JSON.stringify(settings));
+    const published = this.publish(`${topicRoot}/cmnd/settings`, JSON.stringify(settings));
     if (published) {
       this.publishedPanelSettings.set(panel.id, configFingerprint);
       if (panel.unifiedFirmware) {
@@ -513,6 +514,9 @@ export class MqttRuntime {
     this.nativePanelPages.delete(panelId);
     this.panelHomeTilePages.delete(panelId);
     this.publishedPanelSettings.delete(panelId);
+    this.unifiedInitSettingsSentAt.delete(panelId);
+    this.unifiedInitSuppressed.delete(panelId);
+    this.panelBootedEventLastHandledAt.delete(panelId);
     this.publishedPanelFavoriteStates.delete(panelId);
     await this.runtimeState.removePanel(panelId);
   }
@@ -569,6 +573,11 @@ export class MqttRuntime {
     const eventPanel = eventPanelRecord && eventRoot
       ? { ...eventPanelRecord, nodeName: eventRoot, ...(eventRoot !== eventPanelRecord.nodeName ? { unifiedFirmware: true } : {}) }
       : undefined;
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
+      const lastHandledAt = this.panelBootedEventLastHandledAt.get(eventPanel.id);
+      if (lastHandledAt !== undefined && message.receivedAt - lastHandledAt < 5_000) return;
+      this.panelBootedEventLastHandledAt.set(eventPanel.id, message.receivedAt);
+    }
     if (eventPanelRecord && eventRoot && topic === `${eventRoot}/event/init`) {
       const reportedMac = parsePanelMacAddress(payload);
       const assignedMac = normalizeMacAddress(eventPanelRecord.macAddress);
@@ -687,7 +696,7 @@ export class MqttRuntime {
 
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
       this.requestPanelResetReport(eventPanel);
-      if (!eventPanelRecord?.unifiedFirmware) this.publishPanelSettings(eventPanel, true);
+      this.publishPanelSettings(eventPanelRecord ?? eventPanel, true, eventPanel.nodeName);
       await this.refreshNativePanel(eventPanel);
       this.panelHomeTilePages.set(eventPanel.id, { page: "home" });
       await this.refreshAllHomeTiles(eventPanel);
