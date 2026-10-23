@@ -18,6 +18,8 @@ export class HmiUpdateError extends Error {
 /** Tracks durable panel-specific HMI update attempts and publishes their state changes. */
 export class HmiUpdateService {
   private expiryTimer?: ReturnType<typeof setInterval>;
+  private readonly startingPanels = new Set<string>();
+  private expiryRun?: Promise<void>;
 
   constructor(
     private readonly runtimeState: RuntimeStateStore,
@@ -51,28 +53,34 @@ export class HmiUpdateService {
 
   /** Creates a persisted update record before its MQTT command is published. */
   async begin(panel: Panel, artifact: HmiArtifactRecord, force: boolean, expiresAt: string, requestedBy?: string): Promise<HmiUpdateJob> {
-    await this.expireJobs();
-    const active = this.runtimeState.getHmiUpdateJobs().find((job) => job.panelId === panel.id && isActive(job.status));
-    if (active) throw new HmiUpdateError(`An HMI update for ${panel.name} is already ${statusPhrase(active.status)}.`);
+    if (this.startingPanels.has(panel.id)) throw new HmiUpdateError(`An HMI update for ${panel.name} is already being requested.`);
+    this.startingPanels.add(panel.id);
+    try {
+      await this.expireJobs();
+      const active = this.runtimeState.getHmiUpdateJobs().find((job) => job.panelId === panel.id && isActive(job.status));
+      if (active) throw new HmiUpdateError(`An HMI update for ${panel.name} is already ${statusPhrase(active.status)}.`);
 
-    const now = Date.now();
-    const job: HmiUpdateJob = {
-      id: randomUUID(),
-      panelId: panel.id,
-      panelName: panel.name,
-      nodeName: panel.nodeName,
-      artifactId: artifact.id,
-      filename: artifact.filename,
-      hmiVersion: artifact.sha256,
-      status: "sending",
-      force,
-      requestedAt: now,
-      updatedAt: now,
-      expiresAt: Date.parse(expiresAt),
-      ...(requestedBy ? { requestedBy } : {})
-    };
-    await this.save(job);
-    return job;
+      const now = Date.now();
+      const job: HmiUpdateJob = {
+        id: randomUUID(),
+        panelId: panel.id,
+        panelName: panel.name,
+        nodeName: panel.nodeName,
+        artifactId: artifact.id,
+        filename: artifact.filename,
+        hmiVersion: artifact.sha256,
+        status: "sending",
+        force,
+        requestedAt: now,
+        updatedAt: now,
+        expiresAt: Date.parse(expiresAt),
+        ...(requestedBy ? { requestedBy } : {})
+      };
+      await this.save(job);
+      return job;
+    } finally {
+      this.startingPanels.delete(panel.id);
+    }
   }
 
   /** Records broker publication unless an early device acknowledgement already advanced the job. */
@@ -163,6 +171,12 @@ export class HmiUpdateService {
   }
 
   private async expireJobs(): Promise<void> {
+    if (this.expiryRun) return this.expiryRun;
+    this.expiryRun = this.expireStaleJobs().finally(() => { this.expiryRun = undefined; });
+    return this.expiryRun;
+  }
+
+  private async expireStaleJobs(): Promise<void> {
     const now = Date.now();
     for (const job of this.runtimeState.getHmiUpdateJobs()) {
       if (job.status === "sending" && now - job.updatedAt >= MAX_PENDING_ACK_MS) {

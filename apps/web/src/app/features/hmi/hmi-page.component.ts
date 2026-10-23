@@ -31,7 +31,7 @@ export class HmiPageComponent implements OnInit {
   /** Refreshes the latest artifact without reloading editable panel configuration. */
   refresh(): void {
     this.loading.set(true);
-    this.manager.loadHmiUpdateJobs().subscribe({ error: () => this.manager.inform("Could not load HMI update history.", "error") });
+    this.refreshHistory();
     this.manager.loadHmiArtifact().subscribe({
       next: ({ artifact, maxUploadBytes }) => {
         this.artifact.set(artifact);
@@ -43,6 +43,11 @@ export class HmiPageComponent implements OnInit {
         this.manager.inform(this.errorMessage(error), "error");
       }
     });
+  }
+
+  /** Refreshes saved update history without reloading the selected HMI artifact. */
+  refreshHistory(): void {
+    this.manager.loadHmiUpdateJobs().subscribe({ error: () => this.manager.inform("Could not load HMI update history.", "error") });
   }
 
   /** Keeps one selected `.tft` file and checks the configured size limit in the browser. */

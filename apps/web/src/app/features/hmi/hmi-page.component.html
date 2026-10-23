@@ -85,7 +85,7 @@
   <section class="history-section" aria-labelledby="hmi-history-title">
     <div class="section-heading history-heading">
       <div><h3 id="hmi-history-title">Recent HMI updates</h3><p>Panel confirmations and results are saved by the manager.</p></div>
-      <button class="refresh-history" type="button" (click)="refresh()">Refresh</button>
+      <button class="refresh-history" type="button" (click)="refreshHistory()">Refresh history</button>
     </div>
     @if (manager.hmiUpdateJobs().length) {
       <div class="job-list">

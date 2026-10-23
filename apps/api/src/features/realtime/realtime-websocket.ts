@@ -27,13 +27,17 @@ interface RealtimeClient {
   socket: WebSocket;
   sessionToken: string;
   alive: boolean;
+  initialized: boolean;
+  pendingEvents: RealtimeEvent[];
 }
 
 /** Serves same-origin authenticated WebSocket snapshots and live manager events. */
 export class RealtimeWebSocketServer {
   private readonly webSockets = new WebSocketServer({ noServer: true, maxPayload: 1024 });
   private readonly clients = new Set<RealtimeClient>();
-  private readonly expectedOrigin = process.env.APP_PUBLIC_URL?.trim() ? new URL(process.env.APP_PUBLIC_URL).origin : undefined;
+  private readonly expectedOrigin = process.env.NODE_ENV !== "development" && process.env.APP_PUBLIC_URL?.trim()
+    ? new URL(process.env.APP_PUBLIC_URL).origin
+    : undefined;
   private readonly sessionTimer: ReturnType<typeof setInterval>;
   private readonly panelStatusTimer: ReturnType<typeof setInterval>;
   private lastPanelSnapshot = "";
@@ -41,8 +45,8 @@ export class RealtimeWebSocketServer {
   private readonly handleUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
     let pathname: string;
     try { pathname = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`).pathname; }
-    catch { return; }
-    if (pathname !== SOCKET_PATH) return;
+    catch { return rejectUpgrade(socket, 400, "Bad Request"); }
+    if (pathname !== SOCKET_PATH) return rejectUpgrade(socket, 404, "Not Found");
     void this.authenticateUpgrade(request, socket, head);
   };
 
@@ -63,9 +67,7 @@ export class RealtimeWebSocketServer {
     if (event.type === "panels") this.lastPanelSnapshot = JSON.stringify(event.panels);
     const serialized = JSON.stringify(event);
     for (const client of this.clients) {
-      if (client.socket.readyState !== WebSocket.OPEN) continue;
-      try { client.socket.send(serialized); }
-      catch { client.socket.terminate(); }
+      this.sendEvent(client, event, serialized);
     }
   }
 
@@ -84,12 +86,19 @@ export class RealtimeWebSocketServer {
     if (!this.isSameOrigin(request)) return rejectUpgrade(socket, 403, "Forbidden");
     if (this.clients.size >= MAX_CLIENTS) return rejectUpgrade(socket, 503, "Too many connections");
     const sessionToken = readSessionCookie(request.headers.cookie);
-    const user = sessionToken ? await this.auth.resolveSessionToken(sessionToken) : undefined;
+    let user;
+    try { user = sessionToken ? await this.auth.resolveSessionToken(sessionToken) : undefined; }
+    catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn("Could not authenticate realtime WebSocket connection.", { component: "realtime", detail });
+      return rejectUpgrade(socket, 401, "Unauthorized");
+    }
     if (!sessionToken || !user) return rejectUpgrade(socket, 401, "Unauthorized");
 
     if (this.closed || socket.destroyed) return;
     this.webSockets.handleUpgrade(request, socket, head, (webSocket) => {
-      const client: RealtimeClient = { socket: webSocket, sessionToken, alive: true };
+      const client: RealtimeClient = { socket: webSocket, sessionToken, alive: true, initialized: false, pendingEvents: [] };
+      this.clients.add(client);
       webSocket.on("pong", () => { client.alive = true; });
       webSocket.on("message", () => webSocket.close(1008, "This connection is read-only."));
       webSocket.on("close", () => this.clients.delete(client));
@@ -104,10 +113,10 @@ export class RealtimeWebSocketServer {
   private async sendSnapshot(client: RealtimeClient): Promise<void> {
     try {
       const snapshot = await this.getSnapshot();
-      this.lastPanelSnapshot = JSON.stringify(snapshot.panels);
       if (client.socket.readyState === WebSocket.OPEN) {
-        this.clients.add(client);
         client.socket.send(JSON.stringify({ type: "snapshot", ...snapshot } satisfies RealtimeEvent));
+        client.initialized = true;
+        for (const event of client.pendingEvents.splice(0)) this.sendEvent(client, event, JSON.stringify(event));
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -117,7 +126,7 @@ export class RealtimeWebSocketServer {
   }
 
   private async refreshPanelSnapshot(): Promise<void> {
-    if (this.closed) return;
+    if (this.closed || this.clients.size === 0) return;
     try {
       const panels = (await this.getSnapshot()).panels;
       const serialized = JSON.stringify(panels);
@@ -126,6 +135,17 @@ export class RealtimeWebSocketServer {
       const detail = error instanceof Error ? error.message : String(error);
       this.logger.warn("Could not refresh realtime panel status.", { component: "realtime", detail });
     }
+  }
+
+  private sendEvent(client: RealtimeClient, event: RealtimeEvent, serialized: string): void {
+    if (client.socket.readyState !== WebSocket.OPEN) return;
+    if (!client.initialized) {
+      client.pendingEvents.push(event);
+      if (client.pendingEvents.length > 100) client.socket.close(1013, "Realtime snapshot is taking too long.");
+      return;
+    }
+    try { client.socket.send(serialized); }
+    catch { client.socket.terminate(); }
   }
 
   private async checkClients(): Promise<void> {
@@ -168,7 +188,7 @@ function readSessionCookie(header: string | undefined): string | undefined {
   return session && /^[a-f0-9]{64}$/.test(session) ? session : undefined;
 }
 
-function rejectUpgrade(socket: Duplex, status: 401 | 403 | 503, message: string): void {
+function rejectUpgrade(socket: Duplex, status: 400 | 401 | 403 | 404 | 503, message: string): void {
   if (socket.destroyed) return;
   socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
   socket.destroy();

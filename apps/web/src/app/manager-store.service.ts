@@ -124,7 +124,7 @@ export class ManagerStore {
 
   /** Loads durable HMI update history for the history view and manual refresh action. */
   loadHmiUpdateJobs(): Observable<{ jobs: HmiUpdateJob[] }> {
-    return this.http.get<{ jobs: HmiUpdateJob[] }>("/api/hmi/jobs").pipe(tap(({ jobs }) => this.hmiUpdateJobs.set(jobs)));
+    return this.http.get<{ jobs: HmiUpdateJob[] }>("/api/hmi/jobs").pipe(tap(({ jobs }) => this.mergeHmiUpdateJobs(jobs)));
   }
 
   /** Loads the latest uploaded HMI artifact and the API upload limit. */
@@ -203,7 +203,7 @@ export class ManagerStore {
     const event = value as unknown as ManagerRealtimeEvent;
     if (event.type === "snapshot") {
       this.setPanelConnections(event.panels);
-      this.hmiUpdateJobs.set(event.hmiJobs);
+      this.mergeHmiUpdateJobs(event.hmiJobs);
       this.mqtt.set(event.mqtt);
     } else if (event.type === "panels") {
       this.setPanelConnections(event.panels);
@@ -220,7 +220,22 @@ export class ManagerStore {
   }
 
   private upsertHmiUpdateJob(job: HmiUpdateJob): void {
-    this.hmiUpdateJobs.update((jobs) => [job, ...jobs.filter((item) => item.id !== job.id)].sort((left, right) => right.updatedAt - left.updatedAt));
+    this.hmiUpdateJobs.update((jobs) => {
+      const current = jobs.find((item) => item.id === job.id);
+      if (current && current.updatedAt > job.updatedAt) return jobs;
+      return [job, ...jobs.filter((item) => item.id !== job.id)].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 200);
+    });
+  }
+
+  private mergeHmiUpdateJobs(incoming: HmiUpdateJob[]): void {
+    this.hmiUpdateJobs.update((current) => {
+      const jobs = new Map(current.map((job) => [job.id, job]));
+      for (const job of incoming) {
+        const existing = jobs.get(job.id);
+        if (!existing || job.updatedAt >= existing.updatedAt) jobs.set(job.id, job);
+      }
+      return [...jobs.values()].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 200);
+    });
   }
 
   /** Reads a bounded, optionally filtered set of recent records from rotated manager log files. */

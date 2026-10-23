@@ -1,6 +1,6 @@
 # Performance-tuned panel firmware, included by nsp-livingroom.yaml.
 substitutions:
-  firmware_version: "5.0.5"
+  firmware_version: "5.0.7"
 
 esphome:
   name: $hostname
@@ -694,8 +694,14 @@ script:
                 pending_hmi_version->update();
                 hmi_update_pending->update();
                 esphome::global_preferences->sync();
+      - script.execute:
+          id: publish_hmi_update_status
+          job_id: !lambda return id(pending_hmi_job_id);
+          status: uploading
+          version: !lambda return id(pending_hmi_version);
+          message: ""
+      - delay: 500ms
       - lambda: |-
-          id(publish_hmi_update_status)->execute(id(pending_hmi_job_id), "uploading", id(pending_hmi_version), "");
           id(mqtt_client).disable();
           id(disp1).set_backlight_brightness(1);
           if (!id(disp1).upload_tft()) {
