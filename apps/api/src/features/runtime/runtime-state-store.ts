@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PluginState, PluginStorageScope } from "../plugins/plugin-contract.js";
-import type { HmiUpdateJob, PanelResetReport } from "../../types.js";
+import type { FirmwareUpdateJob, HmiUpdateJob, PanelResetReport } from "../../types.js";
 import type { Logger } from "../../services/logger.js";
 
 const MIN_PERSIST_INTERVAL_MS = 1_000;
@@ -13,6 +13,7 @@ const MAX_PERSISTED_PLUGIN_STATES = 512;
 const MAX_PLUGIN_STATE_BYTES = 64 * 1024;
 const MAX_PERSISTED_PLUGIN_STATE_BYTES = 2 * 1024 * 1024;
 const MAX_PERSISTED_HMI_UPDATE_JOBS = 200;
+const MAX_PERSISTED_FIRMWARE_UPDATE_JOBS = 200;
 
 /** Persistent navigation context for an interactive plugin on one panel. */
 export interface PanelFlowSession {
@@ -50,6 +51,7 @@ interface RuntimeSnapshot {
   panelSessions: Record<string, PanelFlowSession>;
   panelResetReports: Record<string, PanelResetReport>;
   hmiUpdateJobs: HmiUpdateJob[];
+  firmwareUpdateJobs: FirmwareUpdateJob[];
   values: Record<string, unknown>;
   pluginStates: Record<string, PluginState>;
 }
@@ -100,11 +102,13 @@ export class RuntimeStateStore {
     const pluginStates = normalizePluginStates(rawPluginStates);
     const panelResetReports = normalizePanelResetReports(value.panelResetReports);
     const hmiUpdateJobs = normalizeHmiUpdateJobs(value.hmiUpdateJobs);
+    const firmwareUpdateJobs = normalizeFirmwareUpdateJobs(value.firmwareUpdateJobs);
     this.snapshot = {
       version: 1,
       panelSessions: isRecord(value.panelSessions) ? value.panelSessions as Record<string, PanelFlowSession> : {},
       panelResetReports,
       hmiUpdateJobs,
+      firmwareUpdateJobs,
       values: isRecord(value.values) ? value.values : {},
       pluginStates
     };
@@ -118,7 +122,9 @@ export class RuntimeStateStore {
       || !Object.hasOwn(value, "panelResetReports")
       || JSON.stringify(value.panelResetReports) !== JSON.stringify(panelResetReports)
       || !Array.isArray(value.hmiUpdateJobs)
-      || JSON.stringify(value.hmiUpdateJobs) !== JSON.stringify(hmiUpdateJobs);
+      || JSON.stringify(value.hmiUpdateJobs) !== JSON.stringify(hmiUpdateJobs)
+      || !Array.isArray(value.firmwareUpdateJobs)
+      || JSON.stringify(value.firmwareUpdateJobs) !== JSON.stringify(firmwareUpdateJobs);
     if (needsSnapshotUpgrade) {
       this.persist();
       await this.flush();
@@ -246,6 +252,18 @@ export class RuntimeStateStore {
     jobs.push(structuredClone(job));
     jobs.sort((left, right) => right.updatedAt - left.updatedAt);
     this.snapshot.hmiUpdateJobs = jobs.slice(0, MAX_PERSISTED_HMI_UPDATE_JOBS);
+    this.persist();
+  }
+
+  /** Returns recent durable firmware update jobs, newest activity first. */
+  getFirmwareUpdateJobs(): FirmwareUpdateJob[] { return structuredClone(this.snapshot.firmwareUpdateJobs); }
+
+  /** Inserts or replaces a firmware update record and bounds retained history. */
+  async upsertFirmwareUpdateJob(job: FirmwareUpdateJob): Promise<void> {
+    const jobs = this.snapshot.firmwareUpdateJobs.filter((item) => item.id !== job.id);
+    jobs.push(structuredClone(job));
+    jobs.sort((left, right) => right.updatedAt - left.updatedAt);
+    this.snapshot.firmwareUpdateJobs = jobs.slice(0, MAX_PERSISTED_FIRMWARE_UPDATE_JOBS);
     this.persist();
   }
 
@@ -381,7 +399,7 @@ export class RuntimeStateStore {
   }
 }
 
-function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, hmiUpdateJobs: [], values: {}, pluginStates: {} }; }
+function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, hmiUpdateJobs: [], firmwareUpdateJobs: [], values: {}, pluginStates: {} }; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 
 function normalizePanelResetReports(value: unknown): Record<string, PanelResetReport> {
@@ -430,6 +448,47 @@ function normalizeHmiUpdateJobs(value: unknown): HmiUpdateJob[] {
     }];
   });
   return jobs.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_PERSISTED_HMI_UPDATE_JOBS);
+}
+
+function normalizeFirmwareUpdateJobs(value: unknown): FirmwareUpdateJob[] {
+  if (!Array.isArray(value)) return [];
+  const validStatuses = new Set<FirmwareUpdateJob["status"]>(["sending", "sent", "awaiting_confirmation", "uploading", "rebooting", "succeeded", "failed", "cancelled", "timed_out"]);
+  const jobs = value.flatMap((candidate): FirmwareUpdateJob[] => {
+    if (!isRecord(candidate)
+      || typeof candidate.id !== "string" || !/^[0-9a-f-]{36}$/i.test(candidate.id)
+      || typeof candidate.panelId !== "string" || !candidate.panelId
+      || typeof candidate.panelName !== "string" || !candidate.panelName
+      || typeof candidate.nodeName !== "string" || !candidate.nodeName
+      || typeof candidate.artifactId !== "string" || !/^[0-9a-f-]{36}$/i.test(candidate.artifactId)
+      || typeof candidate.filename !== "string" || !candidate.filename.toLowerCase().endsWith(".bin")
+      || typeof candidate.firmwareVersion !== "string" || !/^[0-9A-Za-z._+-]{1,40}$/.test(candidate.firmwareVersion)
+      || typeof candidate.status !== "string" || !validStatuses.has(candidate.status as FirmwareUpdateJob["status"])
+      || typeof candidate.force !== "boolean"
+      || typeof candidate.requestedAt !== "number" || !Number.isFinite(candidate.requestedAt) || candidate.requestedAt < 0
+      || typeof candidate.updatedAt !== "number" || !Number.isFinite(candidate.updatedAt) || candidate.updatedAt < 0
+      || typeof candidate.expiresAt !== "number" || !Number.isFinite(candidate.expiresAt) || candidate.expiresAt < 0) return [];
+    const message = typeof candidate.message === "string" ? candidate.message.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160) : "";
+    const requestedBy = typeof candidate.requestedBy === "string" ? candidate.requestedBy.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160) : "";
+    const progress = typeof candidate.progress === "number" && Number.isInteger(candidate.progress) && candidate.progress >= 0 && candidate.progress <= 100 ? candidate.progress : undefined;
+    return [{
+      id: candidate.id,
+      panelId: candidate.panelId.slice(0, 80),
+      panelName: candidate.panelName.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120),
+      nodeName: candidate.nodeName.slice(0, 100),
+      artifactId: candidate.artifactId,
+      filename: candidate.filename.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 180),
+      firmwareVersion: candidate.firmwareVersion,
+      status: candidate.status as FirmwareUpdateJob["status"],
+      force: candidate.force,
+      requestedAt: candidate.requestedAt,
+      updatedAt: candidate.updatedAt,
+      expiresAt: candidate.expiresAt,
+      ...(progress === undefined ? {} : { progress }),
+      ...(message ? { message } : {}),
+      ...(requestedBy ? { requestedBy } : {})
+    }];
+  });
+  return jobs.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_PERSISTED_FIRMWARE_UPDATE_JOBS);
 }
 
 function storageKey(scope: PluginStorageScope, ownerId: string, key: string): string { return `${scope}:${ownerId}:${key}`; }

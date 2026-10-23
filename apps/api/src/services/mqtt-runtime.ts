@@ -38,6 +38,7 @@ export class MqttRuntime {
   private readonly discoveredPanelListeners = new Set<(panels: DiscoveredPanel[]) => void>();
   private readonly mqttStatusListeners = new Set<(status: { connected: boolean; error: string }) => void>();
   private readonly hmiUpdateReportListeners = new Set<(panel: Panel, payload: string, receivedAt: number) => void | Promise<void>>();
+  private readonly firmwareUpdateReportListeners = new Set<(panel: Panel, payload: string, receivedAt: number) => void | Promise<void>>();
   private readonly panelPingListeners = new Set<(panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number) => void | Promise<void>>();
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
@@ -93,6 +94,12 @@ export class MqttRuntime {
     return () => this.hmiUpdateReportListeners.delete(listener);
   }
 
+  /** Subscribes to panel firmware update lifecycle events received over MQTT. */
+  onFirmwareUpdateReport(listener: (panel: Panel, payload: string, receivedAt: number) => void | Promise<void>): () => void {
+    this.firmwareUpdateReportListeners.add(listener);
+    return () => this.firmwareUpdateReportListeners.delete(listener);
+  }
+
   /** Subscribes to panel heartbeat telemetry after the connection snapshot has been updated. */
   onPanelPing(listener: (panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number) => void | Promise<void>): () => void {
     this.panelPingListeners.add(listener);
@@ -102,6 +109,11 @@ export class MqttRuntime {
   /** Publishes an HMI download URL and artifact checksum, optionally skipping panel confirmation. */
   publishHmiUpdate(panel: Panel, url: string, hmiVersion: string, jobId: string, force = false): boolean {
     return this.publish(`${panel.nodeName}/cmnd/updatehmi`, JSON.stringify({ url, version: hmiVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
+  }
+
+  /** Publishes a manager-hosted firmware binary URL and integrity data to one panel. */
+  publishFirmwareUpdate(panel: Panel, url: string, md5: string, firmwareVersion: string, jobId: string, force = false): boolean {
+    return this.publish(`${panel.nodeName}/cmnd/updatefirmware`, JSON.stringify({ url, md5, version: firmwareVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
   }
 
   /** Returns live panel connection state without adding runtime data to saved configuration. */
@@ -534,6 +546,9 @@ export class MqttRuntime {
     if (eventPanel && topic === `${eventPanel.nodeName}/event/hmi/update`) {
       for (const listener of this.hmiUpdateReportListeners) await listener(eventPanel, payload, message.receivedAt);
     }
+    if (eventPanel && topic === `${eventPanel.nodeName}/event/firmware/update`) {
+      for (const listener of this.firmwareUpdateReportListeners) await listener(eventPanel, payload, message.receivedAt);
+    }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/ping`) {
       const telemetry = readPanelTelemetry(payload, message.receivedAt);
       for (const listener of this.panelPingListeners) await listener(eventPanel, telemetry, message.receivedAt);
@@ -648,6 +663,11 @@ export class MqttRuntime {
     const macAddress = normalizeMacAddress(parsed["mac"]);
     const name = typeof parsed["name"] === "string" ? parsed["name"].trim() : topic.slice("esphome/discover/".length);
     if (!macAddress || !name) return;
+    const isMacSuffixedPanel = /^nspanel-[a-f0-9]{6}$/i.test(name);
+    const matchesConfiguredPanel = this.store.get().panels.some((panel) =>
+      panel.nodeName.toLowerCase() === name.toLowerCase() || normalizeMacAddress(panel.macAddress) === macAddress
+    );
+    if (!isMacSuffixedPanel && !matchesConfiguredPanel) return;
     const panel: DiscoveredPanel = {
       macAddress,
       name: name.slice(0, 80),

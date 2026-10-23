@@ -13,6 +13,9 @@
 .file-picker label { color: var(--ink-soft); font-size: 12px; font-weight: 700; }
 .file-picker input { max-width: 100%; color: var(--ink-soft); font-size: 12px; }
 .file-picker input::file-selector-button { min-height: 36px; margin-right: 9px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--field-bg); color: var(--ink); font-size: 12px; font-weight: 650; cursor: pointer; }
+.firmware-version-input { display: grid; min-width: 190px; gap: 5px; }
+.firmware-version-input input { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--field-bg); color: var(--ink); }
+.firmware-version-input input::placeholder { color: var(--ink-faint); }
 .selected-file { display: flex; min-width: 160px; flex: 1; justify-content: space-between; gap: 12px; color: var(--ink-soft); font-size: 12px; }
 .selected-file span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .selected-file span:last-child { white-space: nowrap; }
@@ -51,6 +54,7 @@
 .panel-copy p { margin: 0; overflow-wrap: anywhere; color: var(--ink-faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 .panel-copy .panel-hmi-version { margin-top: 5px; color: var(--amber-text); font-family: inherit; font-size: 11px; }
 .panel-copy .panel-hmi-version.current-version { color: var(--green-text); }
+.panel-copy .panel-hmi-version.status-failed { color: var(--red); }
 .panel-copy .panel-job-status { margin-top: 4px; color: var(--ink-soft); font-family: inherit; font-size: 11px; }
 .panel-copy .panel-job-status.status-succeeded { color: var(--green-text); }
 .panel-copy .panel-job-status.status-failed, .panel-copy .panel-job-status.status-timed_out { color: var(--red); }
@@ -61,6 +65,7 @@
 .hmi-notice { border-color: var(--amber-line); background: var(--amber-soft); }
 .hmi-notice h3 { color: var(--amber-text); }
 .hmi-notice code, .empty-artifact code { padding: 1px 4px; border-radius: 4px; background: var(--surface-subtle); color: var(--ink); font-size: 12px; }
+.card-copy code { padding: 1px 4px; border-radius: 4px; background: var(--surface-subtle); color: var(--ink); font-size: 12px; }
 @media (max-width: 640px) {
   .hmi-card { padding: 16px; }
   .hmi-icon { width: 36px; height: 36px; flex-basis: 36px; }

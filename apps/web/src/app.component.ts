@@ -113,7 +113,7 @@ export class AppComponent implements OnInit {
 
   /** Human-readable heading matching the selected workspace feature. */
   get pageTitle(): string {
-    return this.view() === "panels" ? "Panel manager" : this.view() === "plugins" ? "Plugin manager" : this.view() === "routes" ? "MQTT routes" : this.view() === "users" ? "User accounts" : this.view() === "logs" ? "Application logs" : this.view() === "backups" ? "Data backup" : this.view() === "hmi" ? "HMI updates" : "Broker connection";
+    return this.view() === "panels" ? "Panel manager" : this.view() === "plugins" ? "Plugin manager" : this.view() === "routes" ? "MQTT routes" : this.view() === "users" ? "User accounts" : this.view() === "logs" ? "Application logs" : this.view() === "backups" ? "Data backup" : this.view() === "hmi" ? "Panel updates" : "Broker connection";
   }
 
   /** Breadcrumb label matching the selected workspace feature. */

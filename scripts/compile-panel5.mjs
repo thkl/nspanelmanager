@@ -1,10 +1,14 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const panelConfigPath = resolve(projectRoot, "esphome/panel5.yaml");
+const firmwareEntryPath = "esphome/nsp-test.yaml";
+const firmwareOutputPath = resolve(projectRoot, "esphome/.esphome/build/nsptest/build/firmware.ota.bin");
+const visibleFirmwarePath = resolve(projectRoot, "esphome/nsp-test.bin");
+const temporaryFirmwarePath = resolve(projectRoot, "esphome/.nsp-test.bin.tmp");
 const source = readFileSync(panelConfigPath, "utf8");
 const versionLine = source.match(/^([ \t]*firmware_version:[ \t]*)"(\d+)\.(\d+)\.(\d+)"$/m);
 
@@ -16,7 +20,7 @@ if (!versionLine) {
 const nextVersion = `${versionLine[2]}.${versionLine[3]}.${Number(versionLine[4]) + 1}`;
 const compile = spawnSync("esphome", [
   "-s", "firmware_version", nextVersion,
-  "compile", "esphome/nsp-livingroom.yaml"
+  "compile", firmwareEntryPath
 ], { cwd: projectRoot, stdio: "inherit" });
 
 if (compile.error) {
@@ -25,6 +29,18 @@ if (compile.error) {
 }
 if (compile.status !== 0) process.exit(compile.status ?? 1);
 
+try {
+  const firmware = statSync(firmwareOutputPath);
+  if (!firmware.isFile() || firmware.size === 0) throw new Error("The compiled OTA image is missing or empty.");
+  copyFileSync(firmwareOutputPath, temporaryFirmwarePath);
+  renameSync(temporaryFirmwarePath, visibleFirmwarePath);
+} catch (error) {
+  rmSync(temporaryFirmwarePath, { force: true });
+  console.error(`Could not copy the compiled OTA image to esphome/nsp-test.bin: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
+
 const updatedSource = source.replace(versionLine[0], `${versionLine[1]}"${nextVersion}"`);
 writeFileSync(panelConfigPath, updatedSource);
 console.log(`Firmware version advanced to ${nextVersion}.`);
+console.log("OTA image copied to esphome/nsp-test.bin.");

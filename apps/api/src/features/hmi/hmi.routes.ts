@@ -5,9 +5,10 @@ import type { ConfigStore } from "../../services/config-store.js";
 import type { MqttRuntime } from "../../services/mqtt-runtime.js";
 import { HmiArtifactError, HmiArtifactService, MAX_HMI_FILE_BYTES } from "./hmi-artifact-service.js";
 import { HmiUpdateError, HmiUpdateService } from "./hmi-update-service.js";
+import type { FirmwareUpdateService } from "../firmware/firmware-update-service.js";
 
 /** Creates protected HMI upload and panel update endpoints. */
-export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService: HmiUpdateService, store: ConfigStore, mqttRuntime: MqttRuntime, logger: Logger): Router {
+export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService: HmiUpdateService, firmwareUpdateService: FirmwareUpdateService, store: ConfigStore, mqttRuntime: MqttRuntime, logger: Logger): Router {
   const router = Router();
 
   router.get("/", (_request, response) => response.json({ artifact: hmiService.currentArtifact(), maxUploadBytes: MAX_HMI_FILE_BYTES }));
@@ -37,6 +38,7 @@ export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService
     const panelId = request.params.panelId;
     const panel = store.get().panels.find((item) => item.id === panelId);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
+    if (firmwareUpdateService.hasActiveJob(panel.id)) return response.status(409).json({ error: `A firmware update for ${panel.name} is already in progress.` });
     if (!mqttRuntime.status().connected) return response.status(503).json({ error: "The MQTT broker is not connected." });
 
     try {

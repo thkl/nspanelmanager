@@ -236,6 +236,16 @@ nspanel-screen-preview { margin-bottom: 22px; }
   overflow-wrap: anywhere;
 }
 
+.discovery-heading .discovery-scope {
+  max-width: 260px;
+  line-height: 1.45;
+}
+
+.discovery-scope span {
+  margin-right: 3px;
+  color: var(--green-text);
+}
+
 .discovery-device {
   margin-top: 10px;
   padding-top: 9px;

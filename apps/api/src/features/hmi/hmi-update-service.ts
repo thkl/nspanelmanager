@@ -51,6 +51,11 @@ export class HmiUpdateService {
     return this.runtimeState.getHmiUpdateJobs().find((job) => job.id === jobId);
   }
 
+  /** Returns whether the panel is waiting on or performing an HMI update. */
+  hasActiveJob(panelId: string): boolean {
+    return this.runtimeState.getHmiUpdateJobs().some((job) => job.panelId === panelId && isActive(job.status));
+  }
+
   /** Creates a persisted update record before its MQTT command is published. */
   async begin(panel: Panel, artifact: HmiArtifactRecord, force: boolean, expiresAt: string, requestedBy?: string): Promise<HmiUpdateJob> {
     if (this.startingPanels.has(panel.id)) throw new HmiUpdateError(`An HMI update for ${panel.name} is already being requested.`);

@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from "@angular/common/http";
 import { Component, ElementRef, OnInit, signal, viewChild } from "@angular/core";
 import { ManagerStore } from "../../manager-store.service";
-import type { HmiArtifact, HmiUpdateJob, Panel } from "../../models";
+import type { FirmwareArtifact, FirmwareUpdateJob, HmiArtifact, HmiUpdateJob, Panel } from "../../models";
 
 /** Uploads a Nextion TFT and requests an HMI update on a selected registered panel. */
 @Component({
@@ -12,13 +12,22 @@ import type { HmiArtifact, HmiUpdateJob, Panel } from "../../models";
 })
 export class HmiPageComponent implements OnInit {
   readonly artifact = signal<HmiArtifact | null>(null);
+  readonly firmwareArtifact = signal<FirmwareArtifact | null>(null);
   readonly selectedFile = signal<File | null>(null);
+  readonly selectedFirmwareFile = signal<File | null>(null);
+  readonly firmwareVersion = signal("");
   readonly loading = signal(true);
+  readonly firmwareLoading = signal(true);
   readonly uploading = signal(false);
+  readonly uploadingFirmware = signal(false);
   readonly updatingPanelId = signal("");
+  readonly updatingFirmwarePanelId = signal("");
   readonly forceUpdate = signal(false);
+  readonly forceFirmwareUpdate = signal(false);
   readonly maxUploadBytes = signal(32 * 1024 * 1024);
+  readonly maxFirmwareUploadBytes = signal(8 * 1024 * 1024);
   readonly fileInput = viewChild<ElementRef<HTMLInputElement>>("fileInput");
+  readonly firmwareFileInput = viewChild<ElementRef<HTMLInputElement>>("firmwareFileInput");
 
   /** Shares configured panels and API operations with the workspace. */
   constructor(readonly manager: ManagerStore) {}
@@ -39,6 +48,17 @@ export class HmiPageComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.loading.set(false);
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+    this.manager.loadFirmwareArtifact().subscribe({
+      next: ({ artifact, maxUploadBytes }) => {
+        this.firmwareArtifact.set(artifact);
+        this.maxFirmwareUploadBytes.set(maxUploadBytes);
+        this.firmwareLoading.set(false);
+      },
+      error: (error: unknown) => {
+        this.firmwareLoading.set(false);
         this.manager.inform(this.errorMessage(error), "error");
       }
     });
@@ -79,6 +99,103 @@ export class HmiPageComponent implements OnInit {
         this.manager.inform(this.errorMessage(error), "error");
       }
     });
+  }
+
+  /** Keeps one selected ESPHome OTA binary and checks its configured size limit. */
+  selectFirmwareFile(event: Event): void {
+    const input = event.target;
+    const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined;
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".bin")) {
+      this.clearFirmwareFileSelection();
+      this.manager.inform("Choose an ESPHome OTA file with the .bin extension.", "error");
+      return;
+    }
+    if (file.size === 0 || file.size > this.maxFirmwareUploadBytes()) {
+      this.clearFirmwareFileSelection();
+      this.manager.inform(`Choose a non-empty firmware file smaller than ${this.formatSize(this.maxFirmwareUploadBytes())}.`, "error");
+      return;
+    }
+    this.selectedFirmwareFile.set(file);
+  }
+
+  /** Uploads the selected binary with the exact firmware version embedded at compile time. */
+  uploadFirmware(): void {
+    const file = this.selectedFirmwareFile();
+    const version = this.firmwareVersion().trim();
+    if (!file || !version || this.uploadingFirmware()) return;
+    this.uploadingFirmware.set(true);
+    this.manager.uploadFirmware(file, version).subscribe({
+      next: ({ artifact }) => {
+        this.firmwareArtifact.set(artifact);
+        this.uploadingFirmware.set(false);
+        this.clearFirmwareFileSelection();
+        this.manager.inform(`${artifact.filename} (${artifact.version}) uploaded. Select a panel to send the firmware update.`);
+      },
+      error: (error: unknown) => {
+        this.uploadingFirmware.set(false);
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+  }
+
+  /** Requests a manager-hosted firmware download on the selected panel. */
+  requestFirmwareUpdate(panel: Panel): void {
+    if (this.updatingFirmwarePanelId() || !this.firmwareArtifact() || !this.manager.mqtt().connected) return;
+    const force = this.forceFirmwareUpdate();
+    this.updatingFirmwarePanelId.set(panel.id);
+    this.manager.requestFirmwareUpdate(panel.id, force).subscribe({
+      next: ({ expiresAt, firmwareVersion }) => {
+        this.updatingFirmwarePanelId.set("");
+        this.manager.inform(force
+          ? `Forced firmware update ${firmwareVersion} started on ${panel.name}.`
+          : `Firmware update ${firmwareVersion} prompt sent to ${panel.name}; confirm on the panel before ${this.formatTimestamp(expiresAt)}.`);
+      },
+      error: (error: unknown) => {
+        this.updatingFirmwarePanelId.set("");
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+  }
+
+  /** Returns the latest firmware update attempt for one configured panel. */
+  latestFirmwareUpdate(panel: Panel): FirmwareUpdateJob | undefined {
+    return this.manager.firmwareUpdateJobs().find((job) => job.panelId === panel.id);
+  }
+
+  /** Identifies firmware updates still waiting for the panel or reboot. */
+  firmwareUpdateInProgress(panel: Panel): boolean {
+    const status = this.latestFirmwareUpdate(panel)?.status;
+    return status === "sending" || status === "sent" || status === "awaiting_confirmation" || status === "uploading" || status === "rebooting";
+  }
+
+  /** Compares a panel's reported firmware version with the currently uploaded binary. */
+  firmwareVersionLabel(panel: Panel): string {
+    const reported = this.manager.panelConnections()[panel.nodeName]?.telemetry?.firmwareVersion;
+    if (!reported) return "Installed firmware version not reported yet";
+    if (reported === this.firmwareArtifact()?.version) return `Installed firmware ${reported} · current`;
+    return `Installed firmware ${reported} · differs from uploaded file`;
+  }
+
+  /** Returns whether the panel's ping reports the uploaded firmware version. */
+  firmwareVersionMatches(panel: Panel): boolean {
+    const reported = this.manager.panelConnections()[panel.nodeName]?.telemetry?.firmwareVersion;
+    return Boolean(reported && reported === this.firmwareArtifact()?.version);
+  }
+
+  /** Provides concise wording for a firmware update lifecycle state. */
+  firmwareUpdateStatusLabel(job: FirmwareUpdateJob): string {
+    switch (job.status) {
+      case "sending": return "Sending request";
+      case "sent": return "Waiting for panel";
+      case "awaiting_confirmation": return "Awaiting confirmation";
+      case "uploading": return job.progress === undefined ? "Downloading firmware" : `Downloading firmware · ${job.progress}%`;
+      case "rebooting": return "Restarting panel";
+      case "succeeded": return "Installed successfully";
+      case "failed": return "Failed";
+      case "cancelled": return "Cancelled";
+      case "timed_out": return "Timed out";
+    }
   }
 
   /** Sends a fresh temporary download URL to the selected panel over MQTT. */
@@ -152,6 +269,23 @@ export class HmiPageComponent implements OnInit {
     if (target instanceof HTMLInputElement) this.forceUpdate.set(target.checked);
   }
 
+  /** Updates whether the next firmware request should bypass on-panel confirmation. */
+  setForceFirmwareUpdate(event: Event): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) this.forceFirmwareUpdate.set(target.checked);
+  }
+
+  /** Keeps the compiled firmware version associated with the selected binary. */
+  setFirmwareVersion(event: Event): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) this.firmwareVersion.set(target.value);
+  }
+
+  /** Checks the version syntax accepted by the firmware update command. */
+  firmwareVersionValid(): boolean {
+    return /^[0-9A-Za-z._+-]{1,40}$/.test(this.firmwareVersion().trim());
+  }
+
   /** Formats artifact size for the uploaded-file summary. */
   formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -171,6 +305,12 @@ export class HmiPageComponent implements OnInit {
   private clearFileSelection(): void {
     this.selectedFile.set(null);
     const input = this.fileInput();
+    if (input) input.nativeElement.value = "";
+  }
+
+  private clearFirmwareFileSelection(): void {
+    this.selectedFirmwareFile.set(null);
+    const input = this.firmwareFileInput();
     if (input) input.nativeElement.value = "";
   }
 

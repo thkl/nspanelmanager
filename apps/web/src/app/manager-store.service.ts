@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, DiscoveredPanel, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BrokerInput, DiscoveredPanel, FirmwareArtifact, FirmwareUpdateJob, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -29,6 +29,7 @@ export class ManagerStore {
   readonly panelConnections = signal<Record<string, PanelConnectionStatus>>({});
   readonly discoveredPanels = signal<DiscoveredPanel[]>([]);
   readonly hmiUpdateJobs = signal<HmiUpdateJob[]>([]);
+  readonly firmwareUpdateJobs = signal<FirmwareUpdateJob[]>([]);
   readonly realtimeConnected = signal(false);
   readonly notice = signal<ManagerNotice | null>(null);
   readonly authStatus = signal<AuthStatus | null>(null);
@@ -143,6 +144,27 @@ export class ManagerStore {
     return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string; job: HmiUpdateJob }>(`/api/hmi/panels/${panelId}/update`, { force }).pipe(tap(({ job }) => this.upsertHmiUpdateJob(job)));
   }
 
+  /** Loads the latest stored ESPHome OTA binary metadata and upload limit. */
+  loadFirmwareArtifact(): Observable<{ artifact: FirmwareArtifact | null; maxUploadBytes: number }> {
+    return this.http.get<{ artifact: FirmwareArtifact | null; maxUploadBytes: number }>("/api/firmware");
+  }
+
+  /** Uploads a firmware .bin and the version string compiled into it. */
+  uploadFirmware(file: File, version: string): Observable<{ artifact: FirmwareArtifact }> {
+    return this.http.post<{ artifact: FirmwareArtifact }>("/api/firmware/upload", file, {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Firmware-Filename": encodeURIComponent(file.name),
+        "X-Firmware-Version": encodeURIComponent(version)
+      }
+    });
+  }
+
+  /** Sends the current firmware binary to one panel, optionally bypassing confirmation. */
+  requestFirmwareUpdate(panelId: string, force = false): Observable<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; firmwareVersion: string; job: FirmwareUpdateJob }> {
+    return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; firmwareVersion: string; job: FirmwareUpdateJob }>(`/api/firmware/panels/${panelId}/update`, { force }).pipe(tap(({ job }) => this.upsertFirmwareUpdateJob(job)));
+  }
+
   /** Opens the authenticated same-origin realtime channel and retries transient disconnects. */
   connectRealtime(): void {
     if (typeof window === "undefined" || !this.authUser() || this.realtimeSocket || this.reconnectTimer) return;
@@ -201,6 +223,7 @@ export class ManagerStore {
       this.setPanelConnections(event.panels);
       this.discoveredPanels.set(Array.isArray(event.discoveredPanels) ? event.discoveredPanels : []);
       this.mergeHmiUpdateJobs(event.hmiJobs);
+      this.mergeFirmwareUpdateJobs(event.firmwareJobs);
       this.mqtt.set(event.mqtt);
     } else if (event.type === "panels") {
       this.setPanelConnections(event.panels);
@@ -208,6 +231,8 @@ export class ManagerStore {
       this.discoveredPanels.set(Array.isArray(event.panels) ? event.panels : []);
     } else if (event.type === "hmi-job") {
       this.upsertHmiUpdateJob(event.job);
+    } else if (event.type === "firmware-job") {
+      this.upsertFirmwareUpdateJob(event.job);
     } else if (event.type === "mqtt") {
       this.mqtt.set(event.mqtt);
     }
@@ -228,6 +253,25 @@ export class ManagerStore {
 
   private mergeHmiUpdateJobs(incoming: HmiUpdateJob[]): void {
     this.hmiUpdateJobs.update((current) => {
+      const jobs = new Map(current.map((job) => [job.id, job]));
+      for (const job of incoming) {
+        const existing = jobs.get(job.id);
+        if (!existing || job.updatedAt >= existing.updatedAt) jobs.set(job.id, job);
+      }
+      return [...jobs.values()].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 200);
+    });
+  }
+
+  private upsertFirmwareUpdateJob(job: FirmwareUpdateJob): void {
+    this.firmwareUpdateJobs.update((jobs) => {
+      const current = jobs.find((item) => item.id === job.id);
+      if (current && current.updatedAt > job.updatedAt) return jobs;
+      return [job, ...jobs.filter((item) => item.id !== job.id)].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 200);
+    });
+  }
+
+  private mergeFirmwareUpdateJobs(incoming: FirmwareUpdateJob[]): void {
+    this.firmwareUpdateJobs.update((current) => {
       const jobs = new Map(current.map((job) => [job.id, job]));
       for (const job of incoming) {
         const existing = jobs.get(job.id);

@@ -35,7 +35,7 @@
       <button class="add-panel-button" (click)="addingPanel.set(true)"><span>＋</span> Add a panel</button>
     }
     <section class="discovery-box">
-      <div class="discovery-heading"><div><b>Discovered devices</b><small>ESPHome MQTT devices seen in the last 5 minutes.</small></div><button class="button ghost small" [disabled]="!manager.mqtt().connected" (click)="discoverPanels()">Scan</button></div>
+      <div class="discovery-heading"><div><b>Discovered NSPanels</b><small class="discovery-scope"><span aria-hidden="true">ⓘ</span> Shows MAC-suffixed NSPanel firmware devices and panels already assigned in the manager. Other ESPHome devices are filtered out.</small></div><button class="button ghost small" [disabled]="!manager.mqtt().connected" (click)="discoverPanels()">Scan</button></div>
       @if (manager.discoveredPanels().length === 0) {
         <p class="discovery-empty">No devices discovered yet.</p>
       }

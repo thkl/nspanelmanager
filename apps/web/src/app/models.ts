@@ -199,11 +199,42 @@ export interface HmiUpdateJob {
   requestedBy?: string;
 }
 
+export interface FirmwareArtifact {
+  id: string;
+  filename: string;
+  version: string;
+  size: number;
+  md5: string;
+  sha256: string;
+  uploadedAt: string;
+}
+
+export type FirmwareUpdateJobStatus = "sending" | "sent" | "awaiting_confirmation" | "uploading" | "rebooting" | "succeeded" | "failed" | "cancelled" | "timed_out";
+
+export interface FirmwareUpdateJob {
+  id: string;
+  panelId: string;
+  panelName: string;
+  nodeName: string;
+  artifactId: string;
+  filename: string;
+  firmwareVersion: string;
+  status: FirmwareUpdateJobStatus;
+  force: boolean;
+  requestedAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  progress?: number;
+  message?: string;
+  requestedBy?: string;
+}
+
 export type ManagerRealtimeEvent =
-  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; hmiJobs: HmiUpdateJob[]; mqtt: MqttStatus }
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; mqtt: MqttStatus }
   | { type: "panels"; panels: PanelConnectionStatus[] }
   | { type: "discovered-panels"; panels: DiscoveredPanel[] }
   | { type: "hmi-job"; job: HmiUpdateJob }
+  | { type: "firmware-job"; job: FirmwareUpdateJob }
   | { type: "mqtt"; mqtt: MqttStatus };
 
 export interface ManagerState {

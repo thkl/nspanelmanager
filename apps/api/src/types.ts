@@ -113,6 +113,38 @@ export interface HmiUpdateJob {
   requestedBy?: string;
 }
 
+/** Metadata for the latest ESPHome OTA binary uploaded to the manager. */
+export interface FirmwareArtifactRecord {
+  id: string;
+  filename: string;
+  version: string;
+  size: number;
+  md5: string;
+  sha256: string;
+  uploadedAt: string;
+}
+
+export type FirmwareUpdateJobStatus = "sending" | "sent" | "awaiting_confirmation" | "uploading" | "rebooting" | "succeeded" | "failed" | "cancelled" | "timed_out";
+
+/** Durable record of one manager-delivered firmware update attempt. */
+export interface FirmwareUpdateJob {
+  id: string;
+  panelId: string;
+  panelName: string;
+  nodeName: string;
+  artifactId: string;
+  filename: string;
+  firmwareVersion: string;
+  status: FirmwareUpdateJobStatus;
+  force: boolean;
+  requestedAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  progress?: number;
+  message?: string;
+  requestedBy?: string;
+}
+
 export type RouteDirection = "external-to-panel" | "panel-to-external";
 
 export type RoutePayloadFilter =

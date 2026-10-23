@@ -1,11 +1,80 @@
-<section class="hmi-page" aria-label="HMI updates">
+<section class="hmi-page" aria-label="Firmware and HMI updates">
   <div class="hmi-heading">
     <div>
-      <p class="eyebrow">DISPLAY MAINTENANCE</p>
-      <h2>Nextion HMI update</h2>
-      <p class="hmi-description">Upload a TFT file, then send a temporary manager download link to one panel.</p>
+      <p class="eyebrow">PANEL MAINTENANCE</p>
+      <h2>Firmware &amp; HMI updates</h2>
+      <p class="hmi-description">Upload firmware or a display file to the manager, then send it to a panel over MQTT.</p>
     </div>
   </div>
+
+  <article class="hmi-card upload-card">
+    <div class="hmi-icon" aria-hidden="true">↻</div>
+    <div class="card-copy">
+      <h3>Upload firmware binary</h3>
+      <p>Upload the ESPHome OTA <code>.bin</code> built from <code>esphome/nsp-test.yaml</code> and enter the exact <code>firmware_version</code> compiled into it. <code>pnpm firmware:compile</code> copies it to <code>esphome/nsp-test.bin</code>. Factory or merged images are not suitable for HTTP OTA.</p>
+      <div class="file-picker firmware-file-picker">
+        <label for="firmware-file">Firmware .bin</label>
+        <input #firmwareFileInput id="firmware-file" type="file" accept=".bin,application/octet-stream" [disabled]="uploadingFirmware()" (change)="selectFirmwareFile($event)">
+        @if (selectedFirmwareFile(); as file) {
+          <div class="selected-file"><span>{{ file.name }}</span><span>{{ formatSize(file.size) }}</span></div>
+        }
+        <label class="firmware-version-input" for="firmware-version">Compiled firmware version
+          <input id="firmware-version" type="text" maxlength="40" autocomplete="off" [value]="firmwareVersion()" (input)="setFirmwareVersion($event)" placeholder="5.0.9">
+        </label>
+        <button class="primary-button" type="button" [disabled]="!selectedFirmwareFile() || !firmwareVersionValid() || uploadingFirmware()" (click)="uploadFirmware()">
+          {{ uploadingFirmware() ? 'Uploading…' : 'Upload firmware' }}
+        </button>
+      </div>
+    </div>
+  </article>
+
+  @if (firmwareLoading()) {
+    <p class="loading-note" aria-live="polite">Loading stored firmware…</p>
+  } @else if (firmwareArtifact(); as currentFirmware) {
+    <article class="artifact-card">
+      <div class="artifact-topline"><span class="status-dot" aria-hidden="true"></span><span>FIRMWARE READY · {{ currentFirmware.version }}</span></div>
+      <div class="artifact-main"><div><h3>{{ currentFirmware.filename }}</h3><p>{{ formatSize(currentFirmware.size) }} · Uploaded {{ formatTimestamp(currentFirmware.uploadedAt) }}</p></div></div>
+      <dl class="artifact-details">
+        <div><dt>Version</dt><dd>{{ currentFirmware.version }}</dd></div>
+        <div><dt>MD5</dt><dd>{{ currentFirmware.md5 }}</dd></div>
+        <div><dt>SHA-256</dt><dd>{{ currentFirmware.sha256 }}</dd></div>
+      </dl>
+    </article>
+
+    <section class="panel-section" aria-labelledby="firmware-targets-title">
+      <div class="section-heading">
+        <div><h3 id="firmware-targets-title">Push firmware to a panel</h3><p>The panel downloads the binary from this manager and verifies it with MD5 before flashing.</p></div>
+        <div class="connection-badges"><span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'MQTT connected' : 'MQTT disconnected' }}</span><span class="live-state" [class.connected]="manager.realtimeConnected()">{{ manager.realtimeConnected() ? 'Live updates' : 'Reconnecting…' }}</span></div>
+      </div>
+      <label class="force-option" [class.force-active]="forceFirmwareUpdate()">
+        <input type="checkbox" [checked]="forceFirmwareUpdate()" (change)="setForceFirmwareUpdate($event)">
+        <span><b>Force update</b><small>Start downloading immediately without waiting for confirmation on the panel.</small></span>
+      </label>
+      @if (manager.config().panels.length) {
+        <div class="panel-list">
+          @for (panel of manager.config().panels; track panel.id) {
+            <article class="panel-row">
+              <div class="panel-copy">
+                <h4>{{ panel.name }}</h4>
+                <p>{{ panel.nodeName }}/cmnd/updatefirmware</p>
+                <p class="panel-hmi-version" [class.current-version]="firmwareVersionMatches(panel)">{{ firmwareVersionLabel(panel) }}</p>
+                @if (latestFirmwareUpdate(panel); as job) {
+                  <p class="panel-job-status" [class]="'panel-job-status status-' + job.status">{{ firmwareUpdateStatusLabel(job) }} · {{ formatJobTime(job.updatedAt) }}@if (job.message) { · {{ job.message }} }</p>
+                }
+              </div>
+              <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingFirmwarePanelId() !== '' || firmwareUpdateInProgress(panel)" (click)="requestFirmwareUpdate(panel)">
+                {{ firmwareUpdateInProgress(panel) ? 'Update in progress' : updatingFirmwarePanelId() === panel.id ? 'Sending…' : forceFirmwareUpdate() ? 'Force update now' : 'Send firmware prompt' }}
+              </button>
+            </article>
+          }
+        </div>
+      } @else {
+        <p class="empty-note">Add a panel under Panels before requesting a firmware update.</p>
+      }
+    </section>
+  } @else {
+    <aside class="empty-artifact" role="note"><h3>No firmware binary uploaded</h3><p>Upload the ESPHome OTA <code>.bin</code> output to push firmware from the manager.</p></aside>
+  }
 
   <article class="hmi-card upload-card">
     <div class="hmi-icon" aria-hidden="true">↑</div>
@@ -84,6 +153,6 @@
 
   <aside class="hmi-notice" role="note">
     <h3>Before sending an update</h3>
-    <p>Panels must run the updated <code>panel5.yaml</code> firmware to accept a manager URL and report HMI versions. Set <code>HMI_PUBLIC_URL</code> when the manager's browser URL is not reachable from the panel network. The link is valid for six hours.</p>
+    <p>Panels need manager HTTP OTA support from <code>panel5.yaml</code>. Set <code>APP_PUBLIC_URL</code> or <code>HMI_PUBLIC_URL</code> to an address reachable from the panel network. Firmware and HMI download links are valid for six hours.</p>
   </aside>
 </section>
