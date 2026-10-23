@@ -33,7 +33,8 @@ export class MqttRuntime {
   private readonly panelHomeTilePages = new Map<string, { page: "home" | "light" | "level"; index?: number }>();
   private readonly publishedPanelSettings = new Map<string, string>();
   private readonly unifiedInitSettingsSentAt = new Map<string, number>();
-  private readonly unifiedInitSuppressed = new Set<string>();
+  private readonly unifiedInitRetryUsed = new Set<string>();
+  private readonly pendingUnifiedIdentityAssignments = new Set<string>();
   private readonly panelBootedEventLastHandledAt = new Map<string, number>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
@@ -391,10 +392,17 @@ export class MqttRuntime {
       this.publishedPanelSettings.set(panel.id, configFingerprint);
       if (panel.unifiedFirmware) {
         this.unifiedInitSettingsSentAt.set(panel.id, Date.now());
-        this.unifiedInitSuppressed.delete(panel.id);
+        this.unifiedInitRetryUsed.delete(panel.id);
+        this.pendingUnifiedIdentityAssignments.delete(panel.id);
       }
     }
     return published;
+  }
+
+  /** Assigns a unified panel's operational topic root over its MAC-based bootstrap topic. */
+  private publishPanelIdentity(panel: Panel): boolean {
+    const topic = `${panelBootstrapTopicRoot(panel)}/cmnd/settings`;
+    return this.publish(topic, JSON.stringify({ mqtt_alias: panel.nodeName }));
   }
 
   /** Builds the firmware's player-slot configuration from active shared music-page instances. */
@@ -515,7 +523,8 @@ export class MqttRuntime {
     this.panelHomeTilePages.delete(panelId);
     this.publishedPanelSettings.delete(panelId);
     this.unifiedInitSettingsSentAt.delete(panelId);
-    this.unifiedInitSuppressed.delete(panelId);
+    this.unifiedInitRetryUsed.delete(panelId);
+    this.pendingUnifiedIdentityAssignments.delete(panelId);
     this.panelBootedEventLastHandledAt.delete(panelId);
     this.publishedPanelFavoriteStates.delete(panelId);
     await this.runtimeState.removePanel(panelId);
@@ -591,26 +600,22 @@ export class MqttRuntime {
         });
         return;
       }
-      if (this.unifiedInitSuppressed.has(eventPanelRecord.id)) {
-        this.logger.warn("Suppressed panel settings after a repeated unified panel boot; use firmware update or apply settings to recover.", {
+      if (this.publishPanelIdentity(eventPanelRecord)) {
+        this.pendingUnifiedIdentityAssignments.add(eventPanelRecord.id);
+        this.logger.info("Assigned the unified panel's MQTT node name; waiting for its identity confirmation before sending settings.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic: `${panelBootstrapTopicRoot(eventPanelRecord)}/cmnd/settings`,
+          nodeName: eventPanelRecord.nodeName
+        });
+      } else {
+        this.pendingUnifiedIdentityAssignments.delete(eventPanelRecord.id);
+        this.logger.warn("Could not assign the unified panel's MQTT node name because MQTT is disconnected.", {
           component: "mqtt",
           panel: eventPanelRecord.name,
           topic
         });
-        return;
       }
-      const previousSettingsAt = this.unifiedInitSettingsSentAt.get(eventPanelRecord.id);
-      if (previousSettingsAt !== undefined && Date.now() - previousSettingsAt < 60_000) {
-        this.unifiedInitSuppressed.add(eventPanelRecord.id);
-        this.logger.error("Detected a rapid unified panel reboot after settings; stopped automatic settings to break the boot loop.", {
-          component: "mqtt",
-          panel: eventPanelRecord.name,
-          topic,
-          retryAfterFirmwareUpdate: "true"
-        });
-        return;
-      }
-      this.publishPanelSettings(eventPanelRecord, true, panelBootstrapTopicRoot(eventPanelRecord));
       return;
     }
     if (eventPanelRecord && eventRoot === eventPanelRecord.nodeName && topic === `${eventRoot}/event/ready`) {
@@ -626,6 +631,31 @@ export class MqttRuntime {
           reportedNodeName: readyIdentity?.nodeName ?? "missing"
         });
         return;
+      }
+      if (this.pendingUnifiedIdentityAssignments.delete(eventPanelRecord.id)) {
+        const previousSettingsAt = this.unifiedInitSettingsSentAt.get(eventPanelRecord.id);
+        const recentSettings = previousSettingsAt !== undefined && Date.now() - previousSettingsAt < 60_000;
+        if (recentSettings && this.unifiedInitRetryUsed.has(eventPanelRecord.id)) {
+          this.logger.error("Suppressed another automatic settings push after repeated rapid panel reboots to prevent a boot loop.", {
+            component: "mqtt",
+            panel: eventPanelRecord.name,
+            topic,
+            retryAfterFirmwareUpdate: "true"
+          });
+        } else if (this.publishPanelSettings(eventPanelRecord, true)) {
+          if (recentSettings) this.unifiedInitRetryUsed.add(eventPanelRecord.id);
+          this.logger.info("Panel identity confirmed; sent its full settings over the operational MQTT topic.", {
+            component: "mqtt",
+            panel: eventPanelRecord.name,
+            topic: `${eventPanelRecord.nodeName}/cmnd/settings`
+          });
+        } else {
+          this.logger.warn("Panel identity was confirmed, but full settings could not be sent because MQTT is disconnected.", {
+            component: "mqtt",
+            panel: eventPanelRecord.name,
+            topic: `${eventPanelRecord.nodeName}/cmnd/settings`
+          });
+        }
       }
       this.requestPanelResetReport(eventPanelRecord);
       await this.refreshNativePanel(eventPanelRecord);
