@@ -3,7 +3,9 @@ import { Component, ElementRef, OnInit, signal, viewChild } from "@angular/core"
 import { ManagerStore } from "../../manager-store.service";
 import type { FirmwareArtifact, FirmwareUpdateJob, HmiArtifact, HmiUpdateJob, Panel } from "../../models";
 
-/** Uploads a Nextion TFT and requests an HMI update on a selected registered panel. */
+type UpdateTab = "firmware" | "hmi";
+
+/** Uploads firmware or a Nextion TFT and requests updates on registered panels. */
 @Component({
   selector: "nspanel-hmi-page",
   standalone: true,
@@ -11,6 +13,7 @@ import type { FirmwareArtifact, FirmwareUpdateJob, HmiArtifact, HmiUpdateJob, Pa
   styleUrl: "./hmi-page.component.css"
 })
 export class HmiPageComponent implements OnInit {
+  readonly activeTab = signal<UpdateTab>("firmware");
   readonly artifact = signal<HmiArtifact | null>(null);
   readonly firmwareArtifact = signal<FirmwareArtifact | null>(null);
   readonly selectedFile = signal<File | null>(null);
@@ -28,9 +31,33 @@ export class HmiPageComponent implements OnInit {
   readonly maxFirmwareUploadBytes = signal(8 * 1024 * 1024);
   readonly fileInput = viewChild<ElementRef<HTMLInputElement>>("fileInput");
   readonly firmwareFileInput = viewChild<ElementRef<HTMLInputElement>>("firmwareFileInput");
+  readonly firmwareTab = viewChild<ElementRef<HTMLButtonElement>>("firmwareTab");
+  readonly hmiTab = viewChild<ElementRef<HTMLButtonElement>>("hmiTab");
 
   /** Shares configured panels and API operations with the workspace. */
   constructor(readonly manager: ManagerStore) {}
+
+  /** Selects a panel update tab. */
+  selectTab(tab: UpdateTab): void {
+    this.activeTab.set(tab);
+  }
+
+  /** Supports the expected arrow and Home/End navigation for the tab list. */
+  handleTabKeydown(event: KeyboardEvent): void {
+    let nextTab: UpdateTab | undefined;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      nextTab = this.activeTab() === "firmware" ? "hmi" : "firmware";
+    } else if (event.key === "Home") {
+      nextTab = "firmware";
+    } else if (event.key === "End") {
+      nextTab = "hmi";
+    }
+    if (!nextTab) return;
+    event.preventDefault();
+    this.selectTab(nextTab);
+    const tab = nextTab === "firmware" ? this.firmwareTab() : this.hmiTab();
+    tab?.nativeElement.focus();
+  }
 
   /** Loads the currently stored TFT metadata when the HMI workspace opens. */
   ngOnInit(): void {

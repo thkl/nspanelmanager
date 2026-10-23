@@ -2,11 +2,17 @@
   <div class="hmi-heading">
     <div>
       <p class="eyebrow">PANEL MAINTENANCE</p>
-      <h2>Firmware &amp; HMI updates</h2>
-      <p class="hmi-description">Upload firmware or a display file to the manager, then send it to a panel over MQTT.</p>
+      <h2>Panel updates</h2>
+      <p class="hmi-description">Manage panel firmware and display updates.</p>
     </div>
   </div>
 
+  <div class="update-tabs" role="tablist" aria-label="Panel update type" (keydown)="handleTabKeydown($event)">
+    <button #firmwareTab id="firmware-tab" type="button" role="tab" aria-controls="firmware-panel" [attr.aria-selected]="activeTab() === 'firmware'" [attr.tabindex]="activeTab() === 'firmware' ? 0 : -1" (click)="selectTab('firmware')">Firmware</button>
+    <button #hmiTab id="hmi-tab" type="button" role="tab" aria-controls="hmi-panel" [attr.aria-selected]="activeTab() === 'hmi'" [attr.tabindex]="activeTab() === 'hmi' ? 0 : -1" (click)="selectTab('hmi')">HMI</button>
+  </div>
+
+  <div class="update-tab-panel" id="firmware-panel" role="tabpanel" aria-labelledby="firmware-tab" tabindex="0" [hidden]="activeTab() !== 'firmware'">
   <article class="hmi-card upload-card">
     <div class="hmi-icon" aria-hidden="true">↻</div>
     <div class="card-copy">
@@ -75,7 +81,9 @@
   } @else {
     <aside class="empty-artifact" role="note"><h3>No firmware binary uploaded</h3><p>Upload the ESPHome OTA <code>.bin</code> output to push firmware from the manager.</p></aside>
   }
+  </div>
 
+  <div class="update-tab-panel" id="hmi-panel" role="tabpanel" aria-labelledby="hmi-tab" tabindex="0" [hidden]="activeTab() !== 'hmi'">
   <article class="hmi-card upload-card">
     <div class="hmi-icon" aria-hidden="true">↑</div>
     <div class="card-copy">
@@ -150,6 +158,7 @@
       <p>Choose a compatible Nextion <code>.tft</code> file above. It will be stored in the manager's persistent data directory.</p>
     </aside>
   }
+  </div>
 
   <aside class="hmi-notice" role="note">
     <h3>Before sending an update</h3>

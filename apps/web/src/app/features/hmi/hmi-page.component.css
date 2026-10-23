@@ -3,6 +3,12 @@
 .hmi-heading .eyebrow { margin: 0 0 7px; color: var(--ink-soft); font-size: 11px; font-weight: 750; letter-spacing: .12em; }
 .hmi-heading h2 { margin: 0; color: var(--ink); font-size: 24px; }
 .hmi-description { margin: 7px 0 0; color: var(--ink-soft); font-size: 14px; }
+.update-tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-subtle); }
+.update-tabs button { min-height: 38px; flex: 1; border: 0; border-radius: 7px; background: transparent; color: var(--ink-soft); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.update-tabs button[aria-selected="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / 10%); }
+.update-tabs button:focus-visible, .update-tab-panel:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.update-tab-panel { display: grid; min-width: 0; gap: 18px; }
+.update-tab-panel[hidden] { display: none; }
 .hmi-card, .artifact-card, .panel-section, .empty-artifact, .hmi-notice { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
 .hmi-card { display: flex; align-items: flex-start; gap: 17px; padding: 22px; }
 .hmi-icon { display: grid; width: 42px; height: 42px; flex: 0 0 42px; place-items: center; border-radius: 11px; background: var(--surface-subtle); color: var(--green-text); font-size: 25px; font-weight: 700; }
