@@ -48,6 +48,11 @@ export class OpenMeteoWeatherPlugin implements PluginDefinition {
   readonly description = "Fetch current conditions and a five-day forecast for an NSPanel's built-in weather screen.";
   readonly capabilities = ["weather", "native-panel-page", "http-polling"];
   readonly nativePanelPage = "weather";
+  readonly instanceVariableFields = [
+    { key: "latitude", label: "Latitude", required: true, help: "Latitude of this location, between -90 and 90." },
+    { key: "longitude", label: "Longitude", required: true, help: "Longitude of this location, between -180 and 180." },
+    { key: "timezone", label: "Timezone", help: "Optional IANA timezone such as Europe/Berlin. Leave blank to detect it automatically." }
+  ] as const;
   readonly configSchema: readonly PluginConfigField[] = [
     {
       key: "refreshMinutes",

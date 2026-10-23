@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from "@angular/core";
+import { Component, OnInit, input, output, signal } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { concatMap, from, of, switchMap, toArray, type Observable } from "rxjs";
@@ -22,6 +22,8 @@ import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
   styleUrl: "./panel-page.component.css"
 })
 export class PanelPageComponent implements OnInit {
+  readonly rememberedPanelId = input<string | null>(null);
+  readonly panelSelectionChange = output<string | null>();
   readonly selectedPanelId = signal<string | null>(null);
   readonly pluginDefinitions = signal<PluginDefinition[]>([]);
   readonly draft = signal<Panel | null>(null);
@@ -63,7 +65,7 @@ export class PanelPageComponent implements OnInit {
    * after saving or when deliberately discarding edits.
    */
   refresh(): void {
-    const previousId = this.selectedPanelId();
+    const previousId = this.selectedPanelId() ?? this.rememberedPanelId();
     this.manager.refresh().subscribe({
       next: ({ config }) => {
         const next = config.panels.find((panel) => panel.id === previousId) ?? config.panels[0] ?? null;
@@ -321,6 +323,7 @@ export class PanelPageComponent implements OnInit {
 
   private setDraft(panel: Panel | null): void {
     this.selectedPanelId.set(panel?.id ?? null);
+    this.panelSelectionChange.emit(panel?.id ?? null);
     this.draft.set(panel ? structuredClone(panel) : null);
     const assignments = panel
       ? this.manager.config().panelBindings

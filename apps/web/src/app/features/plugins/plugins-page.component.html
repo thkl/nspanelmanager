@@ -1,4 +1,5 @@
-<section class="plugin-layout">
+<section class="plugin-layout" [class.plugin-only-layout]="screen() === 'plugins'" [class.instances-layout]="screen() === 'instances'">
+  @if (screen() === 'plugins') {
   <nav class="plugin-profile-nav card" aria-label="Plugin profiles">
     <button type="button" class="plugin-profile-button new-profile-button" [class.active]="!editingProfileId()" [attr.aria-pressed]="!editingProfileId()" (click)="cancelProfileEdit()">
       <span class="profile-button-icon" aria-hidden="true">＋</span><span>New plugin</span>
@@ -308,7 +309,9 @@
       <div class="empty-state"><b>No plugins are registered</b><span>Built-in and custom plugins appear here when added to the server registry.</span></div>
     }
   </article>
+  }
 
+  @if (screen() === 'instances') {
   <article class="card instance-card">
     <div class="card-heading">
       <div><h2>{{ editingInstanceId() ? 'Edit instance' : 'Create an instance' }}</h2><p>Choose a saved plugin and give this device its own name and variable values.</p></div>
@@ -332,27 +335,42 @@
         </div>
         @for (entry of variableEntries(); track $index; let variableIndex = $index) {
           <div class="variable-row">
-            <label>{{ variableLabel(entry.name) }}<input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" [placeholder]="isFixedVariable(entry.name) ? entry.name : 'room'" [disabled]="isFixedVariable(entry.name)" autocomplete="off"></label>
+            <label><span class="variable-label">{{ variableLabel(entry.name) }}@if (variableField(entry.name)?.required) { <em>Required</em> }</span><input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" [placeholder]="isFixedVariable(entry.name) ? entry.name : 'room'" [disabled]="isFixedVariable(entry.name)" autocomplete="off"></label>
             <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" [placeholder]="isFixedVariable(entry.name) ? 'Required value' : 'livingroom'"></textarea>@if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }</label>
             <button type="button" class="text-danger" (click)="removeVariable(entry.name)" [disabled]="isFixedVariable(entry.name)">Remove</button>
           </div>
         } @empty {
           <p class="no-variables">For example, set <code>room = livingroom</code> on one instance and <code>room = bedroom</code> on another.</p>
         }
-        @if (!variablesValid()) { <small class="variable-error">{{ hasMissingRequiredVariables() ? 'Complete the required fields for this plugin.' : 'Use unique names with letters, numbers, or underscores (up to 64 characters), and values under 4,096 characters.' }}</small> }
+        @if (!variablesValid()) {
+          @if (missingRequiredVariables().length > 0) {
+            <small class="variable-error">Required by this plugin: {{ missingRequiredVariables().join(', ') }}.</small>
+          } @else {
+            <small class="variable-error">Use unique names with letters, numbers, or underscores (up to 64 characters), and values under 4,096 characters.</small>
+          }
+        }
       </section>
       <div class="form-actions">
         <button class="button primary" [disabled]="savingInstance() || !instanceName().trim() || !selectedPluginProfileId() || !variablesValid()" (click)="saveInstance()">{{ savingInstance() ? 'Saving…' : editingInstanceId() ? 'Save instance' : 'Create instance' }} <span>＋</span></button>
         @if (editingInstanceId()) { <button class="button secondary" (click)="cancelEdit()">Cancel</button> }
       </div>
     </div>
-    <div class="card-heading instance-list-heading"><div><h3>Configured instances</h3><p>Assign plugin instances to panel favorites in the panel settings.</p></div></div>
+    <div class="card-heading instance-list-heading">
+      <div><h3>Configured instances</h3><p>Assign instances to panel screens, favorites, and buttons in the panel settings.</p></div>
+      <label class="instance-sort">Sort by
+        <select [ngModel]="instanceSortBy()" (ngModelChange)="instanceSortBy.set($event)">
+          <option value="plugin">Plugin name</option>
+          <option value="name">Instance name</option>
+          <option value="panel">Panel name</option>
+        </select>
+      </label>
+    </div>
     @if (manager.config().pluginInstances.length > 0) {
       <div class="instance-list">
-        @for (instance of manager.config().pluginInstances; track instance.id) {
+        @for (instance of sortedInstances; track instance.id) {
           <div class="instance-row">
             <div class="instance-icon">⌁</div>
-            <div class="instance-details"><b>{{ instance.name }}</b><span>{{ instancePluginName(instance) }}</span><code>{{ primaryTopic(instance) }}</code></div>
+            <div class="instance-details"><b>{{ instance.name }}</b><span>{{ instancePluginName(instance) }}</span><code>{{ primaryTopic(instance) }}</code><small>Panels: {{ panelNames(instance).join(', ') || 'Not assigned' }}</small></div>
             <div class="row-actions"><button class="text-action" (click)="editInstance(instance)">Edit</button><button class="text-danger" (click)="removeInstance(instance)">Remove</button></div>
           </div>
         }
@@ -361,5 +379,6 @@
       <div class="empty-state"><b>No plugin instances yet</b><span>Add a configured instance to connect device state and commands.</span></div>
     }
   </article>
+  }
 
 </section>

@@ -10,7 +10,7 @@ import { LogsPageComponent } from "./app/features/logs/logs-page.component";
 import { BackupsPageComponent } from "./app/features/backups/backups-page.component";
 import { HmiPageComponent } from "./app/features/hmi/hmi-page.component";
 
-type WorkspaceView = "panels" | "plugins" | "routes" | "broker" | "users" | "logs" | "backups" | "hmi";
+type WorkspaceView = "panels" | "plugins" | "instances" | "routes" | "broker" | "users" | "logs" | "backups" | "hmi";
 
 /**
  * Provides the persistent workspace shell and coordinates manager feature
@@ -27,6 +27,7 @@ type WorkspaceView = "panels" | "plugins" | "routes" | "broker" | "users" | "log
 })
 export class AppComponent implements OnInit {
   readonly view = signal<WorkspaceView>("panels");
+  readonly selectedPanelId = signal<string | null>(null);
   readonly theme = signal<"light" | "dark">("light");
   readonly settingsExpanded = signal(false);
   readonly panelPage = viewChild(PanelPageComponent);
@@ -102,7 +103,8 @@ export class AppComponent implements OnInit {
   refreshCurrent(): void {
     switch (this.view()) {
       case "panels": this.panelPage()?.refresh(); break;
-      case "plugins": this.pluginsPage()?.refresh(); break;
+      case "plugins":
+      case "instances": this.pluginsPage()?.refresh(); break;
       case "routes": this.routesPage()?.refresh(); break;
       case "broker": this.brokerPage()?.refresh(); break;
       case "users": this.usersPage()?.refresh(); break;
@@ -113,12 +115,12 @@ export class AppComponent implements OnInit {
 
   /** Human-readable heading matching the selected workspace feature. */
   get pageTitle(): string {
-    return this.view() === "panels" ? "Panel manager" : this.view() === "plugins" ? "Plugin manager" : this.view() === "routes" ? "MQTT routes" : this.view() === "users" ? "User accounts" : this.view() === "logs" ? "Application logs" : this.view() === "backups" ? "Data backup" : this.view() === "hmi" ? "Panel updates" : "Broker connection";
+    return this.view() === "panels" ? "Panel manager" : this.view() === "plugins" ? "Plugin manager" : this.view() === "instances" ? "Plugin instances" : this.view() === "routes" ? "MQTT routes" : this.view() === "users" ? "User accounts" : this.view() === "logs" ? "Application logs" : this.view() === "backups" ? "Data backup" : this.view() === "hmi" ? "Panel updates" : "Broker connection";
   }
 
   /** Breadcrumb label matching the selected workspace feature. */
   get viewLabel(): string {
-    return this.view() === "panels" ? "PANELS" : this.view() === "plugins" ? "PLUGINS" : this.view() === "routes" ? "AUTOMATIONS" : this.view() === "users" ? "ACCESS" : this.view() === "logs" || this.view() === "backups" || this.view() === "hmi" ? "SYSTEM" : "SETUP";
+    return this.view() === "panels" ? "PANELS" : this.view() === "plugins" || this.view() === "instances" ? "PLUGINS" : this.view() === "routes" ? "AUTOMATIONS" : this.view() === "users" ? "ACCESS" : this.view() === "logs" || this.view() === "backups" || this.view() === "hmi" ? "SYSTEM" : "SETUP";
   }
 
   /** Revokes the current session and reveals the sign-in screen. */

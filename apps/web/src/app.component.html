@@ -16,7 +16,10 @@
       <span>▦</span> Panels <em>{{ manager.config().panels.length }}</em>
     </button>
     <button class="nav-item" [class.active]="view() === 'plugins'" [attr.aria-current]="view() === 'plugins' ? 'page' : null" (click)="show('plugins')">
-      <span>◈</span> Plugins <em>{{ manager.config().pluginInstances.length }}</em>
+      <span>◈</span> Plugins <em>{{ manager.config().pluginProfiles.length }}</em>
+    </button>
+    <button class="nav-item" [class.active]="view() === 'instances'" [attr.aria-current]="view() === 'instances' ? 'page' : null" (click)="show('instances')">
+      <span>⌁</span> Instances <em>{{ manager.config().pluginInstances.length }}</em>
     </button>
     <button class="nav-item" [class.active]="view() === 'routes'" [attr.aria-current]="view() === 'routes' ? 'page' : null" (click)="show('routes')">
       <span>↔</span> MQTT routes <em>{{ manager.config().routes.length }}</em>
@@ -72,9 +75,9 @@
     }
 
     @if (view() === 'panels') {
-      <nspanel-panel-page #panelPage />
-    } @else if (view() === 'plugins') {
-      <nspanel-plugins-page #pluginsPage />
+      <nspanel-panel-page #panelPage [rememberedPanelId]="selectedPanelId()" (panelSelectionChange)="selectedPanelId.set($event)" />
+    } @else if (view() === 'plugins' || view() === 'instances') {
+      <nspanel-plugins-page #pluginsPage [screen]="view() === 'instances' ? 'instances' : 'plugins'" />
     } @else if (view() === 'routes') {
       <nspanel-routes-page #routesPage />
     } @else if (view() === 'broker') {

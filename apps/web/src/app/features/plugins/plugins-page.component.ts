@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from "@angular/core";
+import { Component, OnInit, input, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { ManagerStore } from "../../manager-store.service";
 import type { PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
@@ -30,6 +30,7 @@ interface PageActionEntry {
   styleUrl: "./plugins-page.component.css"
 })
 export class PluginsPageComponent implements OnInit {
+  readonly screen = input<"plugins" | "instances">("plugins");
   readonly definitions = signal<PluginDefinition[]>([]);
   readonly selectedPluginId = signal("");
   readonly profileName = signal("");
@@ -53,6 +54,7 @@ export class PluginsPageComponent implements OnInit {
   readonly scriptChecks = signal<Record<string, ScriptCheckState>>({});
   readonly savingInstance = signal(false);
   readonly savingProfile = signal(false);
+  readonly instanceSortBy = signal<"plugin" | "name" | "panel">("plugin");
   readonly buttonSlots = Array.from({ length: 8 }, (_, index) => String(index + 1));
 
   /** Provides shared configuration and typed API operations for this page. */
@@ -680,15 +682,21 @@ export class PluginsPageComponent implements OnInit {
     return validEntries && !this.hasMissingRequiredVariables();
   }
 
-  /** Checks required values declared by the selected plugin instance schema. */
+  /** Checks required values declared by the plugin or referenced by its topic settings. */
   hasMissingRequiredVariables(): boolean {
-    const requiredFields = this.selectedProfileDefinition?.instanceVariableFields?.filter((field) => field.required) ?? [];
-    return requiredFields.some((field) => !this.instanceVariables()[field.key]?.trim());
+    return this.missingRequiredVariables().length > 0;
+  }
+
+  /** Names required variables that are missing from the current instance draft. */
+  missingRequiredVariables(): string[] {
+    return this.instanceVariableFields()
+      .filter((field) => field.required && !this.instanceVariables()[field.key]?.trim())
+      .map((field) => field.label || field.key);
   }
 
   /** Shows guidance for the currently selected plugin's instance-specific settings. */
   instanceVariableHelp(): string {
-    if (this.selectedProfileDefinition?.instanceVariableFields?.length) return "Configure the fields required by this plugin. Additional variables remain available for templates and scripts.";
+    if (this.instanceVariableFields().length) return "Required fields for this plugin profile are listed below. You can add more variables for templates and scripts.";
     const profile = this.manager.config().pluginProfiles.find((item) => item.id === this.selectedPluginProfileId());
     if (profile?.pluginId === "open-meteo-weather") {
       return "Add latitude and longitude for this location. Optionally add timezone (for example Europe/Berlin); leave it blank to use automatic timezone detection.";
@@ -701,7 +709,12 @@ export class PluginsPageComponent implements OnInit {
 
   /** Returns metadata for the selected reusable profile's instance variables. */
   variableField(name: string) {
-    return this.selectedProfileDefinition?.instanceVariableFields?.find((field) => field.key === name);
+    return this.instanceVariableFields().find((field) => field.key === name);
+  }
+
+  /** Resolves declared fields and required variables referenced by profile topic templates. */
+  instanceVariableFields(): NonNullable<PluginDefinition["instanceVariableFields"]> {
+    return this.profileVariableFields(this.selectedPluginProfileId());
   }
 
   /** Uses the plugin's descriptive label for built-in fields and a generic label for custom values. */
@@ -718,6 +731,37 @@ export class PluginsPageComponent implements OnInit {
   /** Resolves the reusable plugin name referenced by one device instance. */
   instancePluginName(instance: PluginInstance): string {
     return this.manager.config().pluginProfiles.find((profile) => profile.id === instance.pluginProfileId)?.name ?? "Removed plugin";
+  }
+  /** Returns instances ordered by plugin, instance name, or their assigned panel names. */
+  get sortedInstances(): PluginInstance[] {
+    const instances = [...this.manager.config().pluginInstances];
+    const sortBy = this.instanceSortBy();
+    return instances.sort((left, right) => {
+      let comparison = 0;
+      if (sortBy === "plugin") {
+        comparison = this.instancePluginName(left).localeCompare(this.instancePluginName(right), undefined, { sensitivity: "base" });
+      } else if (sortBy === "panel") {
+        const leftPanels = this.panelNames(left);
+        const rightPanels = this.panelNames(right);
+        comparison = Number(leftPanels.length === 0) - Number(rightPanels.length === 0)
+          || leftPanels.join(", ").localeCompare(rightPanels.join(", "), undefined, { sensitivity: "base" });
+      }
+      return comparison || left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+    });
+  }
+  /** Lists panels where an instance is assigned to a favorite, built-in page, observer, or home tile. */
+  panelNames(instance: PluginInstance): string[] {
+    const config = this.manager.config();
+    const boundPanelIds = new Set(config.panelBindings
+      .filter((binding) => binding.pluginInstanceId === instance.id)
+      .map((binding) => binding.panelId));
+    return config.panels
+      .filter((panel) => boundPanelIds.has(panel.id)
+        || Object.values(panel.nativePluginInstances ?? {}).includes(instance.id)
+        || Object.values(panel.panelEventPluginInstances ?? {}).includes(instance.id)
+        || panel.settings.buttons.some((button) => button.pluginInstanceId === instance.id))
+      .map((panel) => panel.name)
+      .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }));
   }
   /** Returns a compact view of the configured incoming topic for an instance. */
   primaryTopic(instance: PluginInstance): string {
@@ -738,13 +782,45 @@ export class PluginsPageComponent implements OnInit {
     return this.definitions().find((definition) => definition.id === profile?.pluginId);
   }
 
-  /** Adds blank values for schema-defined instance fields while retaining saved custom variables. */
-  private withProfileVariableDefaults(pluginProfileId: string, variables: Record<string, string>): Record<string, string> {
+  /** Combines plugin-declared fields with variables required by configured topic templates. */
+  private profileVariableFields(pluginProfileId: string): NonNullable<PluginDefinition["instanceVariableFields"]> {
     const profile = this.manager.config().pluginProfiles.find((item) => item.id === pluginProfileId);
     const definition = this.definitions().find((item) => item.id === profile?.pluginId);
+    if (!profile || !definition) return [];
+
+    const fields = [...(definition.instanceVariableFields ?? [])];
+    const topicFields = definition.configSchema.filter((field) => /topic|filter|suffix/i.test(field.key));
+    for (const [key, value] of Object.entries(profile.config)) {
+      const label = topicFields.find((field) => field.key === key)?.label;
+      if (!label || typeof value !== "string") continue;
+      for (const [, variableName] of value.matchAll(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g)) {
+        const knownFieldIndex = fields.findIndex((field) => field.key === variableName);
+        if (knownFieldIndex >= 0) {
+          if (!fields[knownFieldIndex].required) {
+            fields[knownFieldIndex] = {
+              ...fields[knownFieldIndex],
+              required: true,
+              help: fields[knownFieldIndex].help ?? `Required because this plugin profile references {{${variableName}}} in ${label}.`
+            };
+          }
+          continue;
+        }
+        fields.push({
+          key: variableName,
+          label: variableName,
+          required: true,
+          help: `Required because this plugin profile references {{${variableName}}} in ${label}.`
+        });
+      }
+    }
+    return fields;
+  }
+
+  /** Adds blank values for schema-defined instance fields while retaining saved custom variables. */
+  private withProfileVariableDefaults(pluginProfileId: string, variables: Record<string, string>): Record<string, string> {
     return Object.fromEntries([
       ...Object.entries(variables),
-      ...(definition?.instanceVariableFields ?? [])
+      ...this.profileVariableFields(pluginProfileId)
         .filter((field) => !Object.hasOwn(variables, field.key))
         .map((field) => [field.key, ""] as const)
     ]);

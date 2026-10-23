@@ -5,6 +5,11 @@
     gap: 20px;
 }
 
+.plugin-layout.plugin-only-layout,
+.plugin-layout.instances-layout {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .plugin-profile-nav {
     display: flex;
     grid-column: 1 / -1;
@@ -153,9 +158,22 @@
 
 .instance-list-heading {
     align-items: center;
+    flex-wrap: wrap;
     margin: 22px 0 5px;
     padding-top: 17px;
     border-top: 1px solid var(--line);
+}
+
+.instance-sort {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.instance-sort select {
+    width: auto;
+    min-width: 150px;
 }
 
 label {
@@ -257,6 +275,19 @@ label small {
     gap: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--line);
+}
+
+.variable-label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.variable-label em {
+    color: var(--red);
+    font-size: 10px;
+    font-style: normal;
+    font-weight: 700;
 }
 
 .variable-row textarea {
@@ -947,6 +978,11 @@ label small {
 .instance-details span {
     color: var(--ink-soft);
     font-size: 11px;
+}
+
+.instance-details small {
+    color: var(--ink-faint);
+    font-size: 10px;
 }
 
 .instance-details code {
