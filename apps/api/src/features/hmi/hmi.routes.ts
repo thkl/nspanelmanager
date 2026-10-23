@@ -86,11 +86,20 @@ export function createHmiDownloadRouter(hmiService: HmiArtifactService, logger: 
       const download = await hmiService.resolveDownload(request.params.token);
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("X-Content-Type-Options", "nosniff");
-      if (!download) return response.status(404).end();
+      if (!download) {
+        logger.warn("Panel requested an invalid or expired HMI download link.", { component: "hmi", method: "HEAD" });
+        return response.status(404).end();
+      }
       response.setHeader("Content-Type", "application/octet-stream");
       response.setHeader("Content-Length", String(download.artifact.size));
       response.setHeader("Content-Disposition", "attachment; filename=\"hmi.tft\"");
       response.setHeader("Accept-Ranges", "bytes");
+      logger.info("Panel checked an HMI download link.", {
+        component: "hmi",
+        method: "HEAD",
+        artifactId: download.artifact.id,
+        size: String(download.artifact.size)
+      });
       response.end();
     } catch (error) { next(error); }
   });

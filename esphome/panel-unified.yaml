@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.8"
+  firmware_version: "6.0.10"
 
 esphome:
   name: $hostname
@@ -55,6 +55,8 @@ esp32:
   board: esp32dev
   framework:
     type: esp-idf
+    sdkconfig_options:
+      CONFIG_MBEDTLS_CERTIFICATE_BUNDLE: "y"
 
 debug:
   update_interval: 30s
@@ -3557,6 +3559,11 @@ display:
             condition:
               lambda: return id(hmi_update_pending) && !id(pending_hmi_version).empty();
             then:
+              - lambda: id(mqtt_client).enable();
+              - wait_until:
+                  condition:
+                    mqtt.connected:
+                  timeout: 15s
               - lambda: |-
                   std::string completed_job_id = id(pending_hmi_job_id);
                   std::string completed_version = id(pending_hmi_version);

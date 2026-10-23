@@ -17,4 +17,4 @@ esphome/*
 docs/security*.md
 **/data/
 graphify-out/
-esphome_components/panel_mqtt/__pycache__/
+__pycache__
