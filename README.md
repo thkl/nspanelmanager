@@ -92,7 +92,7 @@ The authenticated workspace includes a **Logs** page with category and severity 
 
 ## HMI updates
 
-The authenticated **HMI updates** page accepts a Nextion `.tft` file up to 32 MB, stores it in `DATA_DIR/hmi`, and can send a six-hour download link to one configured panel over MQTT. The panel keeps its existing on-screen confirmation; press **UPDATE** on the panel to begin. Panels must run the current `esphome/panel4.yaml` firmware included by `esphome/nsp-livingroom.yaml`. The configured `APP_PUBLIC_URL` must be reachable from the panel. Set `HMI_PUBLIC_URL` to a panel-network address if the manager's browser-facing URL is not reachable there; local development may use the API host and port `3000`. The `.tft` file is included in manager data backups.
+The authenticated **HMI updates** page accepts a Nextion `.tft` file up to 32 MB, stores it in `DATA_DIR/hmi`, and can send a six-hour download link to one configured panel over MQTT. The panel keeps its existing on-screen confirmation; press **UPDATE** on the panel to begin. Panels must run the current `esphome/panel5.yaml` firmware included by `esphome/nsp-livingroom.yaml`. The configured `APP_PUBLIC_URL` must be reachable from the panel. Set `HMI_PUBLIC_URL` to a panel-network address if the manager's browser-facing URL is not reachable there; local development may use the API host and port `3000`. The `.tft` file is included in manager data backups.
 
 ## Backups and manual restore
 
@@ -128,7 +128,7 @@ Create an **MQTT thermostat** profile under **Plugins**, then create an instance
 
 The default request payload is `{}`. Set temperature publishes the numeric value from `{{value}}`; panel `up` and `dn` events add or subtract the configured delta from the latest target, clamped to the configured minimum and maximum. Auto and Boost use `mode:{{mode}}`, producing `mode:auto` or `mode:boost`. The profile also exposes an optional target request topic and configurable minimum, maximum, Up/Down delta, and all three payload templates. Change the value path or templates to match another MQTT thermostat's payload contract.
 
-On the panel's **Panels** page, assign the thermostat instance in **Thermostat page**. The manager requests state when the built-in thermostat page opens, translates its temperature and mode events to MQTT, and sends current/target updates only while that page is open. When the assigned thermostat's actual temperature changes, it also publishes the numeric reading to `<nodeName>/cmnd/temperature/current` for the panel's home-screen temperature. Flash compatible firmware from `esphome/panel4.yaml`: it publishes `event/page/thermostat` on entry and `event/page/page0` on Back so the manager knows when to stop thermostat-page updates. Other `/event/page/#` navigation and display sleep also clear the active page.
+On the panel's **Panels** page, assign the thermostat instance in **Thermostat page**. The manager requests state when the built-in thermostat page opens, translates its temperature and mode events to MQTT, and sends current/target updates only while that page is open. When the assigned thermostat's actual temperature changes, it also publishes the numeric reading to `<nodeName>/cmnd/temperature/current` for the panel's home-screen temperature. Flash compatible firmware from `esphome/panel5.yaml`: it publishes `event/page/thermostat` on entry and `event/page/page0` on Back so the manager knows when to stop thermostat-page updates. Other `/event/page/#` navigation and display sleep also clear the active page.
 
 ## Built-in weather screen
 

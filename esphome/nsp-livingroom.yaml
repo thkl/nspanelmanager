@@ -1,6 +1,5 @@
 # Set some variables for convenience
 substitutions:
-  firmware_version: "5.0.0"
   node_name: "nsp-livingroom"
   hostname: "nsp-livingroom"
   device_name: NSPanel Living Room
@@ -26,4 +25,5 @@ logger:
  level: DEBUG
 
   
-<<: !include panel5.yaml
+packages:
+  panel5: !include panel5.yaml

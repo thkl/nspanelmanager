@@ -9,6 +9,7 @@
     "start:debug": "pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api start:debug",
     "dev": "pnpm --parallel --filter @nspanel/api --filter @nspanel/web dev",
     "build": "pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api build",
+    "firmware:compile": "node scripts/compile-panel5.mjs",
     "security:keygen": "pnpm --filter @nspanel/api security:keygen"
   }
 }

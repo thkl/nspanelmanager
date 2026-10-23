@@ -133,11 +133,11 @@ nspanel-screen-preview { margin-bottom: 22px; }
 }
 
 .panel-row-copy .panel-telemetry {
-  overflow: hidden;
   color: var(--ink-soft);
   font-family: inherit;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .row-arrow {

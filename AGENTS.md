@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-This pnpm workspace has an Express/TypeScript API and MQTT runtime in `apps/api`, and an Angular 22 standalone UI in `apps/web`. API files are grouped by feature (`routes/`, `services/`, `domain/`). Angular pages live under `src/app/features/` with separate `.ts`, `.html`, and `.css` files; shared contracts and state are in `models.ts` and `manager-store.service.ts`. Use signal state, signal-based `viewChild()`, and built-in `@if`/`@for` control flow. `docker-compose.yml` runs both together and persists configuration in a Docker volume. Existing ESPHome firmware remains in `esphome/`: `nsp-livingroom.yaml` is the device entry point and includes shared display logic from `panel3.yaml`.
+This pnpm workspace has an Express/TypeScript API and MQTT runtime in `apps/api`, and an Angular 22 standalone UI in `apps/web`. API files are grouped by feature (`routes/`, `services/`, `domain/`). Angular pages live under `src/app/features/` with separate `.ts`, `.html`, and `.css` files; shared contracts and state are in `models.ts` and `manager-store.service.ts`. Use signal state, signal-based `viewChild()`, and built-in `@if`/`@for` control flow. `docker-compose.yml` runs both together and persists configuration in a Docker volume. ESPHome firmware remains in `esphome/`: `nsp-livingroom.yaml` is the device entry point and loads the active `panel5.yaml` package.
 
 ## Development Commands
 
@@ -10,6 +10,7 @@ This pnpm workspace has an Express/TypeScript API and MQTT runtime in `apps/api`
 - `pnpm security:keygen` creates the local credential-encryption key once; it refuses to replace an existing key.
 - `pnpm dev` starts the API on port 3000 and Angular on port 4200; the UI proxies `/api` to the API.
 - `pnpm build` builds the Angular app and TypeScript API.
+- `pnpm firmware:compile` increments the panel5 patch version and compiles `esphome/nsp-livingroom.yaml`.
 - `docker compose up --build` builds and runs the manager on port 3000; first create `secrets/manager_encryption_key` with the key-generation command.
 
 The first run needs an MQTT broker URL and credentials configured in the UI. Local manager data is written to `apps/api/data/manager.json`; Docker stores it in the `manager-data` volume. Keep the credential-encryption key in `secrets/`, outside the data volume, and back it up separately. Do not commit local secrets or manager data.

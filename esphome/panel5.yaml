@@ -1,4 +1,7 @@
 # Performance-tuned panel firmware, included by nsp-livingroom.yaml.
+substitutions:
+  firmware_version: "5.0.2"
+
 esphome:
   name: $hostname
   comment: $device_name
@@ -275,14 +278,16 @@ script:
   - id: update_time
     then:
       - lambda: |-
-                if (id(initial) == false) {
+                if (id(initial) == false && !id(sleeping)) {
                   id(mqtt_client).publish("$node_name/event/display","booted");
                 }
 
-                // Only write home-page components while they are visible.
-                if (id(currentPage) != "page0" || id(sleeping)) return;
-
+                // Keep the clock current while the screensaver is visible as well.
                 auto timeNow = id(sntp_time).now();
+                if (!timeNow.is_valid()) {
+                  ESP_LOGD("clock", "Waiting for valid SNTP time");
+                  return;
+                }
                 std::string time_text = timeNow.strftime("%H:%M");
                 std::string date_text = timeNow.strftime("%d.%m.%y");
                 std::string day = timeNow.strftime("%a");
@@ -1326,6 +1331,13 @@ mqtt:
 time:
   - platform: sntp
     id: sntp_time
+    timezone: Europe/Berlin
+    on_time_sync:
+      then:
+        - lambda: |-
+            ESP_LOGI("clock", "SNTP time synchronized; refreshing the panel clock");
+            id(homeDisplayCacheValid) = false;
+        - script.execute: update_time
     on_time:
       - seconds: 0
         minutes: "*"
