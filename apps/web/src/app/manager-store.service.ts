@@ -122,11 +122,6 @@ export class ManagerStore {
     }));
   }
 
-  /** Loads durable HMI update history for the history view and manual refresh action. */
-  loadHmiUpdateJobs(): Observable<{ jobs: HmiUpdateJob[] }> {
-    return this.http.get<{ jobs: HmiUpdateJob[] }>("/api/hmi/jobs").pipe(tap(({ jobs }) => this.mergeHmiUpdateJobs(jobs)));
-  }
-
   /** Loads the latest uploaded HMI artifact and the API upload limit. */
   loadHmiArtifact(): Observable<{ artifact: HmiArtifact | null; maxUploadBytes: number }> {
     return this.http.get<{ artifact: HmiArtifact | null; maxUploadBytes: number }>("/api/hmi");

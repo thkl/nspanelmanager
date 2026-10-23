@@ -40,8 +40,8 @@ export class HmiUpdateService {
     this.expiryTimer = undefined;
   }
 
-  /** Returns the retained history after expiring stale active jobs. */
-  async listJobs(): Promise<HmiUpdateJob[]> {
+  /** Returns persisted update states for the initial realtime snapshot after settling stale jobs. */
+  async getJobsForSnapshot(): Promise<HmiUpdateJob[]> {
     await this.expireJobs();
     return this.runtimeState.getHmiUpdateJobs();
   }

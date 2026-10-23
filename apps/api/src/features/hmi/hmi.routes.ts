@@ -11,10 +11,6 @@ export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService
   const router = Router();
 
   router.get("/", (_request, response) => response.json({ artifact: hmiService.currentArtifact(), maxUploadBytes: MAX_HMI_FILE_BYTES }));
-  router.get("/jobs", async (_request, response, next) => {
-    try { response.json({ jobs: await hmiUpdateService.listJobs() }); }
-    catch (error) { next(error); }
-  });
 
   router.post("/upload", express.raw({ type: "application/octet-stream", limit: MAX_HMI_FILE_BYTES }), async (request, response, next) => {
     try {

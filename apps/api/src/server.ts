@@ -78,7 +78,7 @@ async function startServer(): Promise<void> {
   const httpServer = createServer(app);
   realtimeServer = new RealtimeWebSocketServer(httpServer, authService, async () => ({
     panels: mqttRuntime.panelConnectionStatuses(),
-    hmiJobs: await hmiUpdateService.listJobs(),
+    hmiJobs: await hmiUpdateService.getJobsForSnapshot(),
     mqtt: mqttRuntime.status()
   }), logger);
   mqttRuntime.onPanelConnectionsChanged((panels) => realtimeServer?.broadcast({ type: "panels", panels }));

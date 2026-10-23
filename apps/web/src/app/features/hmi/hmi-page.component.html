@@ -82,29 +82,6 @@
     </aside>
   }
 
-  <section class="history-section" aria-labelledby="hmi-history-title">
-    <div class="section-heading history-heading">
-      <div><h3 id="hmi-history-title">Recent HMI updates</h3><p>Panel confirmations and results are saved by the manager.</p></div>
-      <button class="refresh-history" type="button" (click)="refreshHistory()">Refresh history</button>
-    </div>
-    @if (manager.hmiUpdateJobs().length) {
-      <div class="job-list">
-        @for (job of manager.hmiUpdateJobs().slice(0, 30); track job.id) {
-          <article class="job-row">
-            <div class="job-copy">
-              <b>{{ job.panelName }} · {{ job.filename }}</b>
-              <small>{{ formatJobTime(job.requestedAt) }} · HMI {{ job.hmiVersion.slice(0, 12) }}{{ job.force ? ' · forced' : '' }}</small>
-              @if (job.message) { <small>{{ job.message }}</small> }
-            </div>
-            <span class="job-status" [class]="'job-status status-' + job.status">{{ updateStatusLabel(job) }}</span>
-          </article>
-        }
-      </div>
-    } @else {
-      <p class="empty-note">No HMI update requests yet.</p>
-    }
-  </section>
-
   <aside class="hmi-notice" role="note">
     <h3>Before sending an update</h3>
     <p>Panels must run the updated <code>panel5.yaml</code> firmware to accept a manager URL and report HMI versions. Set <code>HMI_PUBLIC_URL</code> when the manager's browser URL is not reachable from the panel network. The link is valid for six hours.</p>
