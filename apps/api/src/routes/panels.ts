@@ -104,11 +104,12 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
         ? panelBootstrapTopicRoot({ ...panel, nodeName: current.nodeName, macAddress: current.macAddress })
         : current.nodeName
       : panelTopicRoot(panel);
-    const published = current.nodeName !== nodeName && current.unifiedFirmware
+    const identityAssignment = current.nodeName !== nodeName && current.unifiedFirmware;
+    const published = identityAssignment
       ? mqttRuntime.publishPanelIdentityAssignment(panel, settingsTopicRoot)
       : mqttRuntime.publishPanelSettings(panel, false, settingsTopicRoot);
     if (!panel.unifiedFirmware) await mqttRuntime.refreshNativePanel(panel);
-    response.json({ panel, published, topic: `${settingsTopicRoot}/cmnd/settings` });
+    response.json({ panel, published, topic: `${settingsTopicRoot}/cmnd/${identityAssignment ? "identity" : "settings"}` });
   });
 
   router.delete("/:id", async (request, response) => {

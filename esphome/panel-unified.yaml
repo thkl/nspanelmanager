@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.10"
+  firmware_version: "6.0.11"
 
 esphome:
   name: $hostname
@@ -44,12 +44,13 @@ esphome:
     - priority: 300
       then:
         lambda: |-
+                id(panel_mqtt_client).set_initial_topic_prefix(id(saved_panel_node_name));
                 id(disp1).set_component_text("p0tTitle", "Hello");
 
     - priority: -100
       then:
         lambda: |-
-                id(disp1).set_component_text("p0tTitle", "CFG Request");
+                id(disp1).set_component_text("p0tTitle", "FW $firmware_version");
 
 esp32:
   board: esp32dev
@@ -62,6 +63,11 @@ debug:
   update_interval: 30s
 
 globals:
+  - id: saved_panel_node_name
+    type: std::string
+    restore_value: yes
+    initial_value: '""'
+
   - id: panelname
     #type: char
     type: std::string
@@ -937,7 +943,13 @@ mqtt:
             return id(mqtt_client).get_topic_prefix() + "/event/init";
           payload: |-
             root["mac"] = id(panel_mqtt_client).get_mac_address();
+            root["node_name"] = id(panel_mqtt_client).get_active_topic_prefix();
             root["firmware_version"] = "$firmware_version";
+      - if:
+          condition:
+            lambda: return id(panel_mqtt_client).has_active_alias() && id(disp1).is_setup();
+          then:
+            - script.execute: publish_panel_display_ready
       - if:
           condition:
             lambda: return !id(pending_firmware_version).empty();
@@ -1133,17 +1145,47 @@ panel_mqtt:
                     }
                   }
 
+    - topic: cmnd/identity
+      then:
+        - if:
+            condition:
+              lambda: return x["mqtt_alias"].is<const char*>();
+            then:
+              - lambda: |-
+                  const std::string mqtt_alias = x["mqtt_alias"].as<std::string>();
+                  if (!id(panel_mqtt_client).set_active_topic_prefix(mqtt_alias)) {
+                    ESP_LOGW("mqtt", "Ignoring invalid MQTT node name in identity assignment");
+                    return;
+                  }
+                  if (id(saved_panel_node_name) != mqtt_alias) {
+                    id(saved_panel_node_name) = mqtt_alias;
+                    esphome::global_preferences->sync();
+                  }
+                  id(initial) = true;
+              - delay: 100ms
+              - script.execute: publish_panel_ready
+              - if:
+                  condition:
+                    lambda: return id(disp1).is_setup();
+                  then:
+                    - script.execute: publish_panel_display_ready
+              - script.execute: publish_panel_ping
+
     - topic: cmnd/settings
       then:
         - lambda: |-
+              const bool identity_only = x.size() == 1 && x["mqtt_alias"].is<const char*>();
               id(initial) = true;
               if (x["mqtt_alias"].is<const char*>()) {
                 const std::string mqtt_alias = x["mqtt_alias"].as<std::string>();
                 if (!id(panel_mqtt_client).set_active_topic_prefix(mqtt_alias)) {
                   ESP_LOGW("mqtt", "Ignoring invalid MQTT node name in settings");
+                } else if (id(saved_panel_node_name) != mqtt_alias) {
+                  id(saved_panel_node_name) = mqtt_alias;
+                  esphome::global_preferences->sync();
                 }
               }
-              id(disp1).send_command_printf("thsp=0");
+              if (!identity_only) id(disp1).send_command_printf("thsp=0");
 
               if (x.containsKey("panelname")){
                   const char *cPanelname = "-";
@@ -1281,19 +1323,25 @@ panel_mqtt:
                   }
               }
 
-        -  script.execute: update_display
-        -  lambda: |-
-                    if (id(sleeping) == false) {
-                      id(disp1).send_command_printf("page 0");
-                    }
-        - delay: 100ms
-        - script.execute: publish_panel_ready
         - if:
             condition:
-              lambda: return x.containsKey("mqtt_alias") && !x.containsKey("panelname") && id(disp1).is_setup();
+              lambda: return x.size() == 1 && x["mqtt_alias"].is<const char*>();
             then:
-              - script.execute: publish_panel_display_ready
-        - script.execute: publish_panel_ping
+              - delay: 100ms
+              - script.execute: publish_panel_ready
+              - if:
+                  condition:
+                    lambda: return id(disp1).is_setup();
+                  then:
+                    - script.execute: publish_panel_display_ready
+              - script.execute: publish_panel_ping
+            else:
+              - script.execute: update_display
+              - lambda: |-
+                  if (!id(sleeping)) id(disp1).send_command_printf("page 0");
+              - delay: 100ms
+              - script.execute: publish_panel_ready
+              - script.execute: publish_panel_ping
                     
     - topic: cmnd/diag
       then:
@@ -1812,9 +1860,28 @@ binary_sensor:
   - platform: gpio
     internal: true
     name: $device_name Left Button
+    id: left_hw_button
     pin:
       number: 14
       inverted: true
+
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: return millis() <= 5000;
+            then:
+              - delay: 3s
+              - if:
+                  condition:
+                    lambda: return id(left_hw_button).state;
+                  then:
+                    - lambda: |-
+                        if (id(saved_panel_node_name).empty()) return;
+                        id(saved_panel_node_name).clear();
+                        esphome::global_preferences->sync();
+                        ESP_LOGW("mqtt", "Cleared saved panel name; rebooting to request a new assignment");
+                    - button.press: reboot_button
 
     on_multi_click:
 

@@ -402,7 +402,7 @@ export class MqttRuntime {
 
   /** Assigns a unified panel's operational topic root, then waits for its ready report before sending full settings. */
   publishPanelIdentityAssignment(panel: Panel, topicRoot = panelBootstrapTopicRoot(panel)): boolean {
-    const topic = `${topicRoot}/cmnd/settings`;
+    const topic = `${topicRoot}/cmnd/identity`;
     const published = this.publish(topic, JSON.stringify({ mqtt_alias: panel.nodeName }));
     if (published) this.pendingUnifiedIdentityAssignments.add(panel.id);
     else this.pendingUnifiedIdentityAssignments.delete(panel.id);
@@ -593,8 +593,11 @@ export class MqttRuntime {
     }
     if (eventPanelRecord && eventRoot && topic === `${eventRoot}/event/init`) {
       const reportedMac = parsePanelMacAddress(payload);
+      const reportedIdentity = parsePanelReadyIdentity(payload);
       const assignedMac = normalizeMacAddress(eventPanelRecord.macAddress);
-      if (eventRoot !== panelBootstrapTopicRoot(eventPanelRecord) || !eventPanelRecord.unifiedFirmware || !assignedMac || reportedMac !== assignedMac) {
+      const bootstrapRoot = panelBootstrapTopicRoot(eventPanelRecord);
+      if (eventRoot !== bootstrapRoot || !eventPanelRecord.unifiedFirmware || !assignedMac || reportedMac !== assignedMac ||
+          (reportedIdentity && reportedIdentity.mac !== assignedMac)) {
         this.logger.warn("Ignored a unified panel init message whose MAC does not match its configured identity.", {
           component: "mqtt",
           panel: eventPanelRecord.name,
@@ -604,18 +607,27 @@ export class MqttRuntime {
         });
         return;
       }
-      if (this.publishPanelIdentityAssignment(eventPanelRecord)) {
-        this.logger.info("Assigned the unified panel's MQTT node name; waiting for its identity confirmation before sending settings.", {
-          component: "mqtt",
-          panel: eventPanelRecord.name,
-          topic: `${panelBootstrapTopicRoot(eventPanelRecord)}/cmnd/settings`,
-          nodeName: eventPanelRecord.nodeName
-        });
+      if (reportedIdentity?.nodeName !== eventPanelRecord.nodeName) {
+        if (this.publishPanelIdentityAssignment(eventPanelRecord)) {
+          this.logger.info("Assigned the unified panel's MQTT node name; waiting for its identity confirmation before sending settings.", {
+            component: "mqtt",
+            panel: eventPanelRecord.name,
+            topic: `${bootstrapRoot}/cmnd/identity`,
+            nodeName: eventPanelRecord.nodeName
+          });
+        } else {
+          this.logger.warn("Could not assign the unified panel's MQTT node name because MQTT is disconnected.", {
+            component: "mqtt",
+            panel: eventPanelRecord.name,
+            topic
+          });
+        }
       } else {
-        this.logger.warn("Could not assign the unified panel's MQTT node name because MQTT is disconnected.", {
+        this.logger.info("Unified panel reported its saved MQTT node name; no identity assignment was needed.", {
           component: "mqtt",
           panel: eventPanelRecord.name,
-          topic
+          topic,
+          nodeName: eventPanelRecord.nodeName
         });
       }
       return;
@@ -1940,7 +1952,7 @@ function panelRouteSourceTopic(route: MqttRoute, panels: Panel[]): string {
     : route.sourceTopic;
 }
 
-/** Parses the MAC identity sent by unified firmware during bootstrap. */
+/** Parses the MAC identity sent by unified firmware during boot. */
 function parsePanelMacAddress(payload: string): string | undefined {
   const parsed = parseRoutePayloadJson(payload);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;

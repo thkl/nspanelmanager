@@ -23,6 +23,11 @@ class PanelMqttComponent : public Component {
     }
     this->bootstrap_topic_prefix_ = this->mqtt_client_->get_topic_prefix();
     this->active_topic_prefix_ = this->bootstrap_topic_prefix_;
+    if (!this->initial_topic_prefix_.empty() && this->is_valid_topic_prefix_(this->initial_topic_prefix_) &&
+        this->initial_topic_prefix_ != this->bootstrap_topic_prefix_) {
+      this->active_topic_prefix_ = this->initial_topic_prefix_;
+      DynamicTopicAliasRegistry::set_alias(this->initial_topic_prefix_);
+    }
   }
 
   float get_setup_priority() const override { return setup_priority::AFTER_CONNECTION; }
@@ -36,6 +41,13 @@ class PanelMqttComponent : public Component {
     const std::string alias = topic_prefix == this->bootstrap_topic_prefix_ ? "" : topic_prefix;
     this->defer("panel_mqtt_alias", [alias]() { DynamicTopicAliasRegistry::set_alias(alias); });
     return true;
+  }
+
+  /** Selects the persisted operational prefix before MQTT subscriptions are registered. */
+  void set_initial_topic_prefix(const std::string &topic_prefix) {
+    if (!this->is_valid_topic_prefix_(topic_prefix)) return;
+    this->initial_topic_prefix_ = topic_prefix;
+    if (this->mqtt_client_ != nullptr) this->set_active_topic_prefix(topic_prefix);
   }
 
   /** Returns the topic prefix currently used for panel commands and events. */
@@ -71,6 +83,7 @@ class PanelMqttComponent : public Component {
   mqtt::MQTTClientComponent *mqtt_client_{nullptr};
   std::string bootstrap_topic_prefix_;
   std::string active_topic_prefix_;
+  std::string initial_topic_prefix_;
 };
 
 }  // namespace esphome::panel_mqtt
