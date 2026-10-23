@@ -399,10 +399,13 @@ export class MqttRuntime {
     return published;
   }
 
-  /** Assigns a unified panel's operational topic root over its MAC-based bootstrap topic. */
-  private publishPanelIdentity(panel: Panel): boolean {
-    const topic = `${panelBootstrapTopicRoot(panel)}/cmnd/settings`;
-    return this.publish(topic, JSON.stringify({ mqtt_alias: panel.nodeName }));
+  /** Assigns a unified panel's operational topic root, then waits for its ready report before sending full settings. */
+  publishPanelIdentityAssignment(panel: Panel, topicRoot = panelBootstrapTopicRoot(panel)): boolean {
+    const topic = `${topicRoot}/cmnd/settings`;
+    const published = this.publish(topic, JSON.stringify({ mqtt_alias: panel.nodeName }));
+    if (published) this.pendingUnifiedIdentityAssignments.add(panel.id);
+    else this.pendingUnifiedIdentityAssignments.delete(panel.id);
+    return published;
   }
 
   /** Builds the firmware's player-slot configuration from active shared music-page instances. */
@@ -600,8 +603,7 @@ export class MqttRuntime {
         });
         return;
       }
-      if (this.publishPanelIdentity(eventPanelRecord)) {
-        this.pendingUnifiedIdentityAssignments.add(eventPanelRecord.id);
+      if (this.publishPanelIdentityAssignment(eventPanelRecord)) {
         this.logger.info("Assigned the unified panel's MQTT node name; waiting for its identity confirmation before sending settings.", {
           component: "mqtt",
           panel: eventPanelRecord.name,
@@ -609,7 +611,6 @@ export class MqttRuntime {
           nodeName: eventPanelRecord.nodeName
         });
       } else {
-        this.pendingUnifiedIdentityAssignments.delete(eventPanelRecord.id);
         this.logger.warn("Could not assign the unified panel's MQTT node name because MQTT is disconnected.", {
           component: "mqtt",
           panel: eventPanelRecord.name,
@@ -733,6 +734,9 @@ export class MqttRuntime {
       const currentSession = this.runtimeState.getPanelSession(eventPanel.id);
       if (currentSession && !currentSession.screen) await this.runtimeState.setPanelSession(eventPanel.id);
       await this.restorePanelSession(eventPanel, config.panelBindings, instances);
+    } else if (eventPanelRecord && topic === `${eventPanelRecord.nodeName}/event/display` && payload === "wakeup") {
+      // The firmware emits wakeup after a screensaver touch; replay settings in case the first boot push was missed.
+      this.publishPanelSettings(eventPanelRecord, true, eventPanelRecord.nodeName);
     } else if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "sleep") {
       // Stop pushing device telemetry to a panel once its firmware reports that
       // it has gone to sleep. The latest plugin state remains cached; the next
