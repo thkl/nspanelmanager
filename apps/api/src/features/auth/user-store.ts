@@ -156,10 +156,11 @@ export class UserStore {
   /** Consumes a valid OIDC transaction so authorization responses cannot be replayed. */
   async consumeOidcTransaction(token: string): Promise<StoredSession["oidcTransaction"] | undefined> {
     const tokenHash = hashToken(token);
-    const session = this.snapshot.sessions.find((item) => item.tokenHash === tokenHash);
+    const session = this.snapshot.sessions.find((item) => item.tokenHash === tokenHash && item.oidcTransaction !== undefined);
+    if (!session) return undefined;
     this.snapshot.sessions = this.snapshot.sessions.filter((item) => item.tokenHash !== tokenHash);
     await this.persist();
-    return session?.expiresAt && session.expiresAt > Date.now() ? session.oidcTransaction : undefined;
+    return session.expiresAt > Date.now() ? session.oidcTransaction : undefined;
   }
 
   /** Issues a revocable authenticated session and returns its opaque browser token. */

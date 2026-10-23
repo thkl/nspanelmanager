@@ -1,5 +1,7 @@
 # Security Review: nspanelmanager
 
+This report preserves an earlier audit snapshot and its historical remediation notes. The focused 2026-10-23 revalidation of the four later findings, deployment checks, and local secret-file permissions is recorded in the final section below. Other findings in this historical report were not re-audited during that follow-up.
+
 ## Scope
 
 Static security review of the NSPanel Manager TypeScript API, Angular entry points, authentication and session handling, MQTT and configured plugin scripts, local persistence, Docker deployment, and ESPHome panel configuration.
@@ -1016,3 +1018,22 @@ Preventive controls:
   - Follow-up prompt: Review deferred unit deployment-verification and close its stated proof gap. Paths: docker-compose.yml, apps/api/src/app.ts, apps/api/src/features/auth/auth.routes.ts, apps/api/src/services/mqtt-runtime.ts.
 - Third-party dependency advisory status and underlying MQTT/QuickJS implementation behavior were not assessed in this static source review.
   - Follow-up prompt: Review deferred unit dependency-review and close its stated proof gap. Paths: pnpm-lock.yaml, apps/api/package.json, apps/web/package.json.
+
+## Focused Revalidation — 2026-10-23
+
+This follow-up rechecked the four findings and deployment questions in `security-review-2026-10-21.md` against the current source. It supersedes their earlier status for those items only. This was a focused static review, not a repository-wide re-audit or deployment inspection.
+
+| Original item | Current status | Evidence and disposition |
+| --- | --- | --- |
+| Docker build context | Resolved in the current tree | `.dockerignore:12-13` excludes nested `data/` directories and `secrets/`. The Dockerfile copies `apps/` into its build stage and only the API build output and Angular browser bundle into the runtime image (`Dockerfile:3-14`). |
+| Concurrent login attempts | Patch applied; validation pending | `AuthService.login()` now reserves a per-address attempt and a global verification slot before awaiting the password hasher (`apps/api/src/features/auth/auth-service.ts`). A maximum of two password verifications can run at once; requests rejected by the global cap receive HTTP 429 with a one-second retry hint. No build or tests were run for this patch. |
+| Invalid OIDC callback writes | Patch applied; validation pending | `consumeOidcTransaction()` now persists only when a matching OIDC transaction exists (`apps/api/src/features/auth/user-store.ts`). Unknown tokens no longer serialize or rewrite the user store; expired stored transactions are still removed durably. No build or tests were run for this patch. |
+| Concurrent MQTT processing | Not supported by the current processing path | `MqttRuntime` calls its MQTT completion callback only after `handleMessage()` completes (`apps/api/src/services/mqtt-runtime.ts:212-249`). The installed and locked MQTT.js 5.16.1 packet pump waits for that callback before advancing to the next packet (`apps/api/node_modules/mqtt/build/lib/handlers/publish.js:111-123`; `apps/api/node_modules/mqtt/build/lib/client.js:330-359`). `pendingMessages` is a shutdown tracker, not evidence of parallel handlers. |
+
+### Current deployment and host checks
+
+- Compose publishes `3000:3000` (`docker-compose.yml:3-5`). The deployed `APP_PUBLIC_URL`, direct-port firewalling, Traefik route, and exact `TRUST_PROXY` value cannot be established from repository source. Verify HTTPS origin, restrict direct access to port 3000 if Traefik is intended as the only ingress, and trust only the actual proxy address or subnet.
+- Broker topic ACLs, TLS, and QoS are deployment-owned and remain unverified. Prior operator notes identify broker ACLs as the intended panel identity control.
+- Secret-file contents were not opened. Local permission metadata was checked; `esphome/secrets.yaml`, `secrets/oidc_client_secret`, and `secrets/manager_encryption_key` now have mode `0600`.
+- The generated Codex Security report is pinned to the pre-fix source snapshot. These two patches are present in the working tree but remain unverified until the API build and focused concurrency/OIDC checks are run.
+- No tests, load tests, Docker build, runtime probe, dependency advisory scan, or deployment inspection was run. The rest of this historical report was not re-audited.

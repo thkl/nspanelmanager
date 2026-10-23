@@ -10,6 +10,7 @@ const sessionLifetimeMs = 12 * 60 * 60 * 1000;
 const oidcTransactionLifetimeMs = 10 * 60 * 1000;
 const loginWindowMs = 15 * 60 * 1000;
 const maximumLoginFailures = 8;
+const maximumConcurrentLoginVerifications = 2;
 
 interface OidcTransaction {
   state: string;
@@ -20,6 +21,7 @@ interface OidcTransaction {
 
 interface LoginAttempt {
   failures: number;
+  inFlight: number;
   windowEndsAt: number;
   blockedUntil: number;
 }
@@ -41,6 +43,7 @@ interface OidcSettings {
 export class AuthService {
   private readonly hasher = new PasswordHasher();
   private readonly loginAttempts = new Map<string, LoginAttempt>();
+  private activeLoginVerifications = 0;
   private setupInProgress = false;
   private initialSetupToken?: string;
   private readonly oidcIssuerUrl = process.env.OIDC_ISSUER_URL?.trim() ?? "";
@@ -96,20 +99,42 @@ export class AuthService {
   /** Authenticates a local email/password pair and issues a revocable session. */
   async login(email: string, password: string, remoteAddress: string): Promise<{ user: PublicUser; token: string }> {
     const attempt = this.getLoginAttempt(remoteAddress);
-    if (attempt.blockedUntil > Date.now()) throw new LoginRateLimitError(Math.ceil((attempt.blockedUntil - Date.now()) / 1000));
-    const normalized = normalizeEmail(email);
-    const user = this.users.findByEmail(normalized);
-    const passwordInRange = password.length <= 1024;
-    const valid = await this.hasher.verify(passwordInRange ? password : password.slice(0, 1024), user?.passwordHash ?? this.dummyPasswordHash);
-    if (!passwordInRange || !user || !user.enabled || !valid) {
-      this.recordFailedLogin(remoteAddress, attempt);
-      throw new InvalidCredentialsError();
+    const now = Date.now();
+    if (attempt.blockedUntil > now) throw new LoginRateLimitError(Math.ceil((attempt.blockedUntil - now) / 1000));
+    if (attempt.failures + attempt.inFlight >= maximumLoginFailures) {
+      throw new LoginRateLimitError(Math.max(1, Math.ceil((attempt.windowEndsAt - now) / 1000)));
     }
-    if (user.passwordHash.startsWith("scrypt$")) {
-      await this.users.updateUser(user.id, { passwordHash: await this.hasher.hash(password) });
+    if (this.activeLoginVerifications >= maximumConcurrentLoginVerifications) {
+      if (attempt.failures === 0 && attempt.inFlight === 0 && this.loginAttempts.get(remoteAddress) === attempt) {
+        this.loginAttempts.delete(remoteAddress);
+      }
+      throw new LoginRateLimitError(1);
     }
-    this.loginAttempts.delete(remoteAddress);
-    return { user: this.toPublicUser(user), token: await this.users.createSession(user.id, Date.now() + sessionLifetimeMs) };
+
+    attempt.inFlight += 1;
+    this.activeLoginVerifications += 1;
+    try {
+      const normalized = normalizeEmail(email);
+      const user = this.users.findByEmail(normalized);
+      const passwordInRange = password.length <= 1024;
+      const valid = await this.hasher.verify(passwordInRange ? password : password.slice(0, 1024), user?.passwordHash ?? this.dummyPasswordHash);
+      if (!passwordInRange || !user || !user.enabled || !valid) {
+        this.recordFailedLogin(remoteAddress, attempt);
+        throw new InvalidCredentialsError();
+      }
+      if (user.passwordHash.startsWith("scrypt$")) {
+        await this.users.updateUser(user.id, { passwordHash: await this.hasher.hash(password) });
+      }
+      attempt.failures = 0;
+      attempt.blockedUntil = 0;
+      return { user: this.toPublicUser(user), token: await this.users.createSession(user.id, Date.now() + sessionLifetimeMs) };
+    } finally {
+      attempt.inFlight -= 1;
+      this.activeLoginVerifications -= 1;
+      if (attempt.inFlight === 0 && attempt.failures === 0 && this.loginAttempts.get(remoteAddress) === attempt) {
+        this.loginAttempts.delete(remoteAddress);
+      }
+    }
   }
 
   /** Begins a PKCE-protected OIDC authorization-code flow and stores its CSRF transaction. */
@@ -305,8 +330,15 @@ export class AuthService {
     const now = Date.now();
     const existing = this.loginAttempts.get(remoteAddress);
     if (existing?.blockedUntil && existing.blockedUntil > now) return existing;
+    if (existing && existing.windowEndsAt > now) return existing;
+    if (existing?.inFlight) {
+      existing.failures = 0;
+      existing.windowEndsAt = now + loginWindowMs;
+      existing.blockedUntil = 0;
+      return existing;
+    }
     if (!existing || existing.windowEndsAt <= now) {
-      const next = { failures: 0, windowEndsAt: now + loginWindowMs, blockedUntil: 0 };
+      const next = { failures: 0, inFlight: 0, windowEndsAt: now + loginWindowMs, blockedUntil: 0 };
       this.loginAttempts.set(remoteAddress, next);
       return next;
     }
@@ -317,8 +349,14 @@ export class AuthService {
     attempt.failures += 1;
     if (attempt.failures >= maximumLoginFailures) attempt.blockedUntil = Date.now() + loginWindowMs;
     if (this.loginAttempts.size > 1000) {
-      for (const [address, entry] of this.loginAttempts) if (entry.windowEndsAt <= Date.now()) this.loginAttempts.delete(address);
-      while (this.loginAttempts.size > 1000) this.loginAttempts.delete(this.loginAttempts.keys().next().value as string);
+      for (const [address, entry] of this.loginAttempts) {
+        if (entry.inFlight === 0 && entry.windowEndsAt <= Date.now()) this.loginAttempts.delete(address);
+      }
+      while (this.loginAttempts.size > 1000) {
+        const idleAddress = [...this.loginAttempts].find(([, entry]) => entry.inFlight === 0)?.[0];
+        if (!idleAddress) break;
+        this.loginAttempts.delete(idleAddress);
+      }
     }
   }
 
