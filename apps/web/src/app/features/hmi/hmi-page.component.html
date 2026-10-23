@@ -17,7 +17,7 @@
     <div class="hmi-icon" aria-hidden="true">↻</div>
     <div class="card-copy">
       <h3>Upload firmware binary</h3>
-      <p>Upload the ESPHome OTA <code>.bin</code> built from <code>esphome/nsp-test.yaml</code> and enter the exact <code>firmware_version</code> compiled into it. <code>pnpm firmware:compile</code> copies it to <code>esphome/nsp-test.bin</code>. Factory or merged images are not suitable for HTTP OTA.</p>
+      <p>Upload the unified ESPHome OTA <code>.bin</code> built from <code>esphome/nspanel-unified.yaml</code> and enter the exact <code>firmware_version</code> compiled into it. <code>pnpm firmware:compile</code> copies it to <code>esphome/nspanel-unified.bin</code>. Factory or merged images are not suitable for HTTP OTA.</p>
       <div class="file-picker firmware-file-picker">
         <label for="firmware-file">Firmware .bin</label>
         <input #firmwareFileInput id="firmware-file" type="file" accept=".bin,application/octet-stream" [disabled]="uploadingFirmware()" (change)="selectFirmwareFile($event)">
@@ -25,7 +25,7 @@
           <div class="selected-file"><span>{{ file.name }}</span><span>{{ formatSize(file.size) }}</span></div>
         }
         <label class="firmware-version-input" for="firmware-version">Compiled firmware version
-          <input id="firmware-version" type="text" maxlength="40" autocomplete="off" [value]="firmwareVersion()" (input)="setFirmwareVersion($event)" placeholder="5.0.9">
+          <input id="firmware-version" type="text" maxlength="40" autocomplete="off" [value]="firmwareVersion()" (input)="setFirmwareVersion($event)" placeholder="6.0.1">
         </label>
         <button class="primary-button" type="button" [disabled]="!selectedFirmwareFile() || !firmwareVersionValid() || uploadingFirmware()" (click)="uploadFirmware()">
           {{ uploadingFirmware() ? 'Uploading…' : 'Upload firmware' }}
@@ -162,6 +162,6 @@
 
   <aside class="hmi-notice" role="note">
     <h3>Before sending an update</h3>
-    <p>Panels need manager HTTP OTA support from <code>panel5.yaml</code>. Set <code>APP_PUBLIC_URL</code> or <code>HMI_PUBLIC_URL</code> to an address reachable from the panel network. Firmware and HMI download links are valid for six hours.</p>
+    <p>Panels need manager HTTP OTA support from the current NSPanel firmware. Unified firmware uses an MQTT topic derived from the assigned device MAC. Set <code>APP_PUBLIC_URL</code> or <code>HMI_PUBLIC_URL</code> to an address reachable from the panel network. Firmware and HMI download links are valid for six hours.</p>
   </aside>
 </section>

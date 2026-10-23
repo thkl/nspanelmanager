@@ -4,11 +4,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const panelConfigPath = resolve(projectRoot, "esphome/panel5.yaml");
-const firmwareEntryPath = "esphome/nsp-test.yaml";
-const firmwareOutputPath = resolve(projectRoot, "esphome/.esphome/build/nsptest/build/firmware.ota.bin");
-const visibleFirmwarePath = resolve(projectRoot, "esphome/nsp-test.bin");
-const temporaryFirmwarePath = resolve(projectRoot, "esphome/.nsp-test.bin.tmp");
+const panelConfigPath = resolve(projectRoot, "esphome/panel-unified.yaml");
+const firmwareEntryPath = "esphome/nspanel-unified.yaml";
+const firmwareOutputPath = resolve(projectRoot, "esphome/.esphome/build/nspanel/build/firmware.ota.bin");
+const visibleFirmwarePath = resolve(projectRoot, "esphome/nspanel-unified.bin");
+const temporaryFirmwarePath = resolve(projectRoot, "esphome/.nspanel-unified.bin.tmp");
 const source = readFileSync(panelConfigPath, "utf8");
 const versionLine = source.match(/^([ \t]*firmware_version:[ \t]*)"(\d+)\.(\d+)\.(\d+)"$/m);
 
@@ -36,11 +36,11 @@ try {
   renameSync(temporaryFirmwarePath, visibleFirmwarePath);
 } catch (error) {
   rmSync(temporaryFirmwarePath, { force: true });
-  console.error(`Could not copy the compiled OTA image to esphome/nsp-test.bin: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`Could not copy the compiled OTA image to esphome/nspanel-unified.bin: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 }
 
 const updatedSource = source.replace(versionLine[0], `${versionLine[1]}"${nextVersion}"`);
 writeFileSync(panelConfigPath, updatedSource);
-console.log(`Firmware version advanced to ${nextVersion}.`);
-console.log("OTA image copied to esphome/nsp-test.bin.");
+console.log(`Unified firmware version advanced to ${nextVersion}.`);
+console.log("OTA image copied to esphome/nspanel-unified.bin.");

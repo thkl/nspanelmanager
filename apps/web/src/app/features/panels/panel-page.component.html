@@ -62,12 +62,12 @@
         </div>
       }
     </section>
-    <div class="info-tip"><span>ⓘ</span><p>Panels must use this broker. The node name must match the firmware substitution.</p></div>
+    <div class="info-tip"><span>ⓘ</span><p>Panels must use this broker. Assign the discovered MAC before upgrading to unified firmware; the manager uses it to follow the panel onto its MAC-based MQTT topic.</p></div>
   </section>
 
   @if (draft(); as panel) {
     <section class="editor-card card">
-    <div class="editor-heading"><div class="device-title"><span class="device-icon">▣</span><div><h2>{{ panel.name }}</h2><p><code>{{ panel.nodeName }}</code> <span class="dot-sep">·</span> NSPanel firmware</p></div></div>
+    <div class="editor-heading"><div class="device-title"><span class="device-icon">▣</span><div><h2>{{ panel.name }}</h2><p><code>{{ panel.unifiedFirmware && panel.macAddress ? 'nspanel/nspanel-' + panel.macAddress.slice(-6) : panel.nodeName }}</code> <span class="dot-sep">·</span> {{ panel.unifiedFirmware ? 'Unified firmware' : 'NSPanel firmware' }}</p></div></div>
       <div class="editor-actions"><button class="button ghost" (click)="removePanel()">Remove</button><button class="button primary" [disabled]="saving() || !favoritesValid(panel)" (click)="savePanel()">{{ saving() ? 'Saving…' : 'Save changes' }}</button></div></div>
       <div class="settings-scroll">
         <div class="panel-identity"><div><b>Hardware identity</b><small>{{ panel.macAddress || 'No device assigned' }}</small></div>@if (panel.macAddress) { <button class="button ghost small" (click)="clearPanelMacAddress(panel)">Unassign device</button> }</div>

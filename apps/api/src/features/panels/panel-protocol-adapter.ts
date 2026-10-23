@@ -1,4 +1,5 @@
 import type { Panel, PanelBinding } from "../../types.js";
+import { panelTopicRoot } from "../../domain/panel-topics.js";
 import type { PluginScreen } from "../plugins/plugin-contract.js";
 
 /** Event decoded from the firmware's favorite, menu-page, and universal info-page topics. */
@@ -23,8 +24,8 @@ export class PanelProtocolAdapter {
       const button = screen.buttons[index];
       return { label: button?.label ?? "", topic: button?.action ?? "" };
     });
-    this.publish(`${panel.nodeName}/cmnd/nextion`, "page pageList");
-    return this.publish(`${panel.nodeName}/cmnd/info`, JSON.stringify({
+    this.publish(`${panelTopicRoot(panel)}/cmnd/nextion`, "page pageList");
+    return this.publish(`${panelTopicRoot(panel)}/cmnd/info`, JSON.stringify({
       title: screen.title,
       message: screen.message,
       topic: binding.id,
@@ -35,13 +36,13 @@ export class PanelProtocolAdapter {
   /** Shows a plugin-owned 12-button page using the firmware's universal menu screen. */
   showMenuPage(panel: Panel, page: { title: string; buttons: Array<{ label: string, topic?:string }> }): boolean {
     const buttons = Array.from({ length: 12 }, (_, index) => ({ label: page.buttons[index]?.label ?? "",topic: page.buttons[index]?.topic ?? "" }));
-    return this.publish(`${panel.nodeName}/cmnd/menupage`, JSON.stringify({
+    return this.publish(`${panelTopicRoot(panel)}/cmnd/menupage`, JSON.stringify({
       page: { name: page.title, topic: "", buttons }
     }));
   }
 
   /** Returns the panel to its home page through the firmware's raw Nextion command topic. */
-  exitToHome(panel: Panel): boolean { return this.publish(`${panel.nodeName}/cmnd/nextion`, "page page0"); }
+  exitToHome(panel: Panel): boolean { return this.publish(`${panelTopicRoot(panel)}/cmnd/nextion`, "page page0"); }
 
   /** Decodes supported panel event topics and structured payloads into app-level events. */
   decodeEvent(nodeName: string, topic: string, payload: string): PanelInputEvent | undefined {

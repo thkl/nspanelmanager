@@ -32,6 +32,8 @@ export interface Panel {
   nodeName: string;
   /** Stable hardware identity reported by ESPHome MQTT discovery. */
   macAddress?: string;
+  /** Set after this profile is detected on the unified, MAC-addressed firmware topic. */
+  unifiedFirmware?: boolean;
   settings: PanelSettings;
   /** Reusable plugin instances assigned to firmware-native pages by page ID. */
   nativePluginInstances?: Record<string, string>;

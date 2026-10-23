@@ -6,6 +6,7 @@ import type { MqttRuntime } from "../../services/mqtt-runtime.js";
 import type { HmiUpdateService } from "../hmi/hmi-update-service.js";
 import { FirmwareArtifactError, FirmwareArtifactService, MAX_FIRMWARE_FILE_BYTES } from "./firmware-artifact-service.js";
 import { FirmwareUpdateError, FirmwareUpdateService } from "./firmware-update-service.js";
+import { panelTopicRoot } from "../../domain/panel-topics.js";
 
 /** Creates authenticated firmware upload/update APIs and the public capability download endpoint. */
 export function createFirmwareRouter(
@@ -55,7 +56,7 @@ export function createFirmwareRouter(
 
     try {
       const download = await firmwareService.createDownloadUrl();
-      const topic = `${panel.nodeName}/cmnd/updatefirmware`;
+      const topic = `${panelTopicRoot(panel)}/cmnd/updatefirmware`;
       const job = await firmwareUpdateService.begin(panel, download.artifact, force, download.expiresAt, request.authUser?.email);
       if (!mqttRuntime.publishFirmwareUpdate(panel, download.url, download.artifact.md5, download.artifact.version, job.id, force)) {
         await firmwareUpdateService.markPublishFailed(job.id, "The MQTT broker disconnected before the firmware request could be sent.");

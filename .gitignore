@@ -12,6 +12,9 @@ esphome/secrets.yaml
 .pnpm-store/
 esphome/*
 !esphome/panel5.yaml
+!esphome/panel-unified.yaml
+!esphome/nspanel-unified.yaml
 docs/security*.md
 **/data/
 graphify-out/
+esphome_components/panel_mqtt/__pycache__/

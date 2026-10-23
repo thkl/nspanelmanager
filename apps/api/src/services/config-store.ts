@@ -67,6 +67,7 @@ export class ConfigStore {
         panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
           ...panel,
           ...(normalizeMacAddress(panel.macAddress) ? { macAddress: normalizeMacAddress(panel.macAddress) } : { macAddress: undefined }),
+          unifiedFirmware: panel.unifiedFirmware === true && Boolean(normalizeMacAddress(panel.macAddress)),
           nativePluginInstances: normalizeNativePluginInstances(panel.nativePluginInstances),
           panelEventPluginInstances: normalizeNativePluginInstances(panel.panelEventPluginInstances),
           settings: normalizePanelSettings(panel.settings, panel.name)

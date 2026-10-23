@@ -5,6 +5,7 @@ import type { ConfigStore } from "../../services/config-store.js";
 import type { MqttRuntime } from "../../services/mqtt-runtime.js";
 import { HmiArtifactError, HmiArtifactService, MAX_HMI_FILE_BYTES } from "./hmi-artifact-service.js";
 import { HmiUpdateError, HmiUpdateService } from "./hmi-update-service.js";
+import { panelTopicRoot } from "../../domain/panel-topics.js";
 import type { FirmwareUpdateService } from "../firmware/firmware-update-service.js";
 
 /** Creates protected HMI upload and panel update endpoints. */
@@ -43,7 +44,7 @@ export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService
 
     try {
       const download = await hmiService.createDownloadUrl();
-      const topic = `${panel.nodeName}/cmnd/updatehmi`;
+      const topic = `${panelTopicRoot(panel)}/cmnd/updatehmi`;
       const job = await hmiUpdateService.begin(panel, download.artifact, force, download.expiresAt, request.authUser?.email);
       if (!mqttRuntime.publishHmiUpdate(panel, download.url, download.artifact.sha256, job.id, force)) {
         await hmiUpdateService.markPublishFailed(job.id, "The MQTT broker disconnected before the update request could be sent.");

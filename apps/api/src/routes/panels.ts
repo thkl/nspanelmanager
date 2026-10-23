@@ -4,6 +4,7 @@ import { defaultPanelSettings, type Panel } from "../types.js";
 import type { ConfigStore } from "../services/config-store.js";
 import type { MqttRuntime } from "../services/mqtt-runtime.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
+import { panelTopicRoot } from "../domain/panel-topics.js";
 
 /**
  * Creates the HTTP endpoints for panel profile lifecycle operations.
@@ -32,7 +33,8 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     if (macInput !== undefined && macInput !== null && macInput !== "" && !macAddress) return response.status(400).json({ error: "Enter a valid 12-character MAC address." });
     if (store.get().panels.some((panel) => panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
     if (macAddress && store.get().panels.some((panel) => normalizeMacAddress(panel.macAddress) === macAddress)) return response.status(409).json({ error: "That device MAC address is already assigned to a panel." });
-    const panel = await store.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}), settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {} });
+    const unifiedFirmware = Boolean(macAddress && /^nspanel-[a-f0-9]{6}$/i.test(nodeName));
+    const panel = await store.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}), ...(unifiedFirmware ? { unifiedFirmware: true } : {}), settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {} });
     mqttRuntime.syncSubscriptions();
     response.status(201).json({ panel });
   });
@@ -46,8 +48,10 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     if (macAddress && store.get().panels.some((panel) => panel.id !== current.id && normalizeMacAddress(panel.macAddress) === macAddress)) {
       return response.status(409).json({ error: "That device MAC address is already assigned to another panel." });
     }
-    const panel: Panel = { ...current, macAddress };
+    const discoveredUnifiedFirmware = macAddress && mqttRuntime.discoveredPanelStatuses().some((device) => device.macAddress === macAddress && /^nspanel-[a-f0-9]{6}$/i.test(device.name));
+    const panel: Panel = { ...current, macAddress, unifiedFirmware: macAddress ? current.unifiedFirmware === true || Boolean(discoveredUnifiedFirmware) : false };
     await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
+    mqttRuntime.syncSubscriptions();
     response.json({ panel });
   });
 
@@ -97,7 +101,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     const published = mqttRuntime.publishPanelSettings(panel);
     await mqttRuntime.refreshNativePanel(panel);
     mqttRuntime.syncSubscriptions();
-    response.json({ panel, published, topic: `${panel.nodeName}/cmnd/settings` });
+    response.json({ panel, published, topic: `${panelTopicRoot(panel)}/cmnd/settings` });
   });
 
   router.delete("/:id", async (request, response) => {
@@ -117,7 +121,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     const panel = store.get().panels.find((item) => item.id === request.params.id);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
     if (!mqttRuntime.publishPanelSettings(panel, true)) return response.status(503).json({ error: "The MQTT broker is not connected." });
-    response.json({ published: true, topic: `${panel.nodeName}/cmnd/settings` });
+    response.json({ published: true, topic: `${panelTopicRoot(panel)}/cmnd/settings` });
   });
 
   return router;

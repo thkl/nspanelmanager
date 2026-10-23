@@ -7,6 +7,7 @@ import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/ru
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 import { interpolatePluginTemplate } from "../features/plugins/plugin-variables.js";
+import { panelTopicRoot, panelTopicRootForMessage, panelTopicRoots } from "../domain/panel-topics.js";
 import { Logger } from "./logger.js";
 
 /**
@@ -108,12 +109,12 @@ export class MqttRuntime {
 
   /** Publishes an HMI download URL and artifact checksum, optionally skipping panel confirmation. */
   publishHmiUpdate(panel: Panel, url: string, hmiVersion: string, jobId: string, force = false): boolean {
-    return this.publish(`${panel.nodeName}/cmnd/updatehmi`, JSON.stringify({ url, version: hmiVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
+    return this.publish(`${panelTopicRoot(panel)}/cmnd/updatehmi`, JSON.stringify({ url, version: hmiVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
   }
 
   /** Publishes a manager-hosted firmware binary URL and integrity data to one panel. */
   publishFirmwareUpdate(panel: Panel, url: string, md5: string, firmwareVersion: string, jobId: string, force = false): boolean {
-    return this.publish(`${panel.nodeName}/cmnd/updatefirmware`, JSON.stringify({ url, md5, version: firmwareVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
+    return this.publish(`${panelTopicRoot(panel)}/cmnd/updatefirmware`, JSON.stringify({ url, md5, version: firmwareVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
   }
 
   /** Returns live panel connection state without adding runtime data to saved configuration. */
@@ -304,10 +305,12 @@ export class MqttRuntime {
       if (!panelNodeNames.has(nodeName)) this.panelConnections.delete(nodeName);
     }
     for (const panel of config.panels) {
-      desiredTopics.add(`${panel.nodeName}/status`);
-      desiredTopics.add(`${panel.nodeName}/event/#`);
+      for (const root of panelTopicRoots(panel)) {
+        desiredTopics.add(`${root}/status`);
+        desiredTopics.add(`${root}/event/#`);
+      }
     }
-    for (const route of config.routes) desiredTopics.add(route.sourceTopic);
+    for (const route of config.routes) desiredTopics.add(panelRouteSourceTopic(route, config.panels));
     for (const instance of instances) {
       if (!instance.enabled) continue;
       const definition = this.plugins.get(instance.pluginId);
@@ -372,13 +375,14 @@ export class MqttRuntime {
     };
     const configFingerprint = JSON.stringify({
       nodeName: panel.nodeName,
+      topicRoot: panelTopicRoot(panel),
       settings: {
         ...settings,
         music: configuredPlayers.map(({ id, name, sonos, player }) => ({ id, name, sonos, player }))
       }
     });
     if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) return true;
-    const published = this.publish(`${panel.nodeName}/cmnd/settings`, JSON.stringify(settings));
+    const published = this.publish(`${panelTopicRoot(panel)}/cmnd/settings`, JSON.stringify(settings));
     if (published) this.publishedPanelSettings.set(panel.id, configFingerprint);
     return published;
   }
@@ -431,16 +435,17 @@ export class MqttRuntime {
       }
     }
     const payload = String(mask);
-    if (this.publishedPanelFavoriteStates.get(panel.id) === payload) return true;
-    const published = this.publish(`${panel.nodeName}/cmnd/favstate`, payload);
-    if (published) this.publishedPanelFavoriteStates.set(panel.id, payload);
+    const fingerprint = `${panelTopicRoot(panel)}:${payload}`;
+    if (this.publishedPanelFavoriteStates.get(panel.id) === fingerprint) return true;
+    const published = this.publish(`${panelTopicRoot(panel)}/cmnd/favstate`, payload);
+    if (published) this.publishedPanelFavoriteStates.set(panel.id, fingerprint);
     return published;
   }
 
   /** Publishes only the Favorites configuration used by the firmware's Favorites page. */
   private publishPanelFavorites(panel: Panel): boolean {
     return this.publish(
-      `${panel.nodeName}/cmnd/settings/favorites`,
+      `${panelTopicRoot(panel)}/cmnd/settings/favorites`,
       JSON.stringify({ favorites: panel.settings.favorites })
     );
   }
@@ -531,14 +536,30 @@ export class MqttRuntime {
    */
   private async handleMessage(message: MqttMessageEnvelope): Promise<void> {
     if (message.topic.startsWith("esphome/discover/")) {
-      this.recordDiscoveredPanel(message.topic, message.payload, message.receivedAt);
+      await this.recordDiscoveredPanel(message.topic, message.payload, message.receivedAt);
       return;
     }
-    const config = this.store.get();
+    let config = this.store.get();
     const { topic, payload } = message;
+    const topicPanel = config.panels.find((panel) => panelTopicRootForMessage(panel, topic));
+    const incomingRoot = topicPanel ? panelTopicRootForMessage(topicPanel, topic) : undefined;
+    if (topicPanel && incomingRoot && incomingRoot !== topicPanel.nodeName && !topicPanel.unifiedFirmware) {
+      await this.store.update((saved) => {
+        saved.panels = saved.panels.map((panel) => panel.id === topicPanel.id ? { ...panel, unifiedFirmware: true } : panel);
+      });
+      config = this.store.get();
+      this.syncSubscriptions();
+    }
     if (this.updatePanelConnection(topic, payload, message.receivedAt, config.panels)) this.notifyPanelConnectionsChanged();
     const instances = this.resolvePluginInstances(config);
-    const eventPanel = config.panels.find((panel) => topic.startsWith(`${panel.nodeName}/event/`));
+    const eventPanelRecord = config.panels.find((panel) => {
+      const root = panelTopicRootForMessage(panel, topic);
+      return Boolean(root && topic.startsWith(`${root}/event/`));
+    });
+    const eventRoot = eventPanelRecord ? panelTopicRootForMessage(eventPanelRecord, topic) : undefined;
+    const eventPanel = eventPanelRecord && eventRoot
+      ? { ...eventPanelRecord, nodeName: eventRoot, ...(eventRoot !== eventPanelRecord.nodeName ? { unifiedFirmware: true } : {}) }
+      : undefined;
     if (eventPanel && topic === `${eventPanel.nodeName}/event/reset_reason`) {
       await this.recordPanelResetReport(eventPanel, payload, message.receivedAt);
       this.notifyPanelConnectionsChanged();
@@ -617,7 +638,7 @@ export class MqttRuntime {
     }
 
     for (const route of config.routes) {
-      if (!matchesTopic(route.sourceTopic, topic)) continue;
+      if (!matchesTopic(panelRouteSourceTopic(route, config.panels), topic)) continue;
       if (!matchesPayloadFilter(route.payloadFilter, payload)) continue;
       if (route.direction === "panel-to-external" && !eventPanel) continue;
       if (route.direction === "external-to-panel" && eventPanel) continue;
@@ -627,11 +648,15 @@ export class MqttRuntime {
 
   /** Applies panel LWT status and ping packets to the in-memory connection view. */
   private updatePanelConnection(topic: string, payload: string, receivedAt: number, panels: Panel[]): boolean {
-    const panel = panels.find((candidate) => topic === `${candidate.nodeName}/status` || topic === `${candidate.nodeName}/event/ping`);
+    const panel = panels.find((candidate) => {
+      const root = panelTopicRootForMessage(candidate, topic);
+      return root !== undefined && (topic === `${root}/status` || topic === `${root}/event/ping`);
+    });
     if (!panel) return false;
+    const root = panelTopicRootForMessage(panel, topic)!;
 
     const previous = this.panelConnections.get(panel.nodeName);
-    if (topic === `${panel.nodeName}/status`) {
+    if (topic === `${root}/status`) {
       const normalized = payload.trim().toLowerCase();
       if (normalized !== "online" && normalized !== "offline") return false;
       this.panelConnections.set(panel.nodeName, {
@@ -655,7 +680,7 @@ export class MqttRuntime {
     for (const listener of this.panelConnectionListeners) listener(statuses);
   }
 
-  private recordDiscoveredPanel(topic: string, payload: string, receivedAt: number): void {
+  private async recordDiscoveredPanel(topic: string, payload: string, receivedAt: number): Promise<void> {
     let parsed: unknown;
     try { parsed = JSON.parse(payload); }
     catch { return; }
@@ -664,10 +689,18 @@ export class MqttRuntime {
     const name = typeof parsed["name"] === "string" ? parsed["name"].trim() : topic.slice("esphome/discover/".length);
     if (!macAddress || !name) return;
     const isMacSuffixedPanel = /^nspanel-[a-f0-9]{6}$/i.test(name);
-    const matchesConfiguredPanel = this.store.get().panels.some((panel) =>
+    const config = this.store.get();
+    const configuredPanel = config.panels.find((panel) =>
       panel.nodeName.toLowerCase() === name.toLowerCase() || normalizeMacAddress(panel.macAddress) === macAddress
     );
+    const matchesConfiguredPanel = Boolean(configuredPanel);
     if (!isMacSuffixedPanel && !matchesConfiguredPanel) return;
+    if (isMacSuffixedPanel && configuredPanel && normalizeMacAddress(configuredPanel.macAddress) === macAddress && !configuredPanel.unifiedFirmware) {
+      await this.store.update((saved) => {
+        saved.panels = saved.panels.map((panel) => panel.id === configuredPanel.id ? { ...panel, unifiedFirmware: true } : panel);
+      });
+      this.syncSubscriptions();
+    }
     const panel: DiscoveredPanel = {
       macAddress,
       name: name.slice(0, 80),
@@ -720,7 +753,7 @@ export class MqttRuntime {
 
   /** Asks compatible panel firmware to replay its latest reset reason report. */
   private requestPanelResetReport(panel: Panel): void {
-    this.publish(`${panel.nodeName}/cmnd/diag`, "{}");
+    this.publish(`${panelTopicRoot(panel)}/cmnd/diag`, "{}");
   }
 
   private async dispatchPluginMessage(instances: ResolvedPluginInstance[], message: MqttMessageEnvelope): Promise<void> {
@@ -864,7 +897,7 @@ export class MqttRuntime {
 
   /** Runs explicitly assigned observer plugins for a panel's page-change events. */
   private async dispatchPanelEventObservers(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[]): Promise<void> {
-    if (!message.topic.startsWith(`${panel.nodeName}/event/page/`)) return;
+    if (!message.topic.startsWith(`${panelTopicRoot(panel)}/event/page/`)) return;
     for (const [pluginId, instanceId] of Object.entries(panel.panelEventPluginInstances ?? {})) {
       const instance = instances.find((candidate) => candidate.id === instanceId && candidate.enabled);
       const definition = instance && this.plugins.get(instance.pluginId);
@@ -886,7 +919,7 @@ export class MqttRuntime {
 
   /** Routes panel tile, light-page, and level-page events to the assigned tile plugin. */
   private async dispatchHomeTileEvent(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[]): Promise<void> {
-    const eventPrefix = `${panel.nodeName}/event/`;
+    const eventPrefix = `${panelTopicRoot(panel)}/event/`;
     if (!message.topic.startsWith(eventPrefix)) return;
     const suffix = message.topic.slice(eventPrefix.length);
     const itemMatch = /^item\/([0-3])$/.exec(suffix);
@@ -952,7 +985,7 @@ export class MqttRuntime {
       for (const command of result.commands ?? []) {
         if (!isPublishableTopic(command.topic)) continue;
         const published = this.publish(command.topic, command.payload);
-        if (isLevelPageQuery && command.topic === `${panel.nodeName}/cmnd/level/config`) {
+        if (isLevelPageQuery && command.topic === `${panelTopicRoot(panel)}/cmnd/level/config`) {
           this.logger.info("Publishing level-page configuration for panel query.", {
             component: "plugin",
             phase: "level page query",
@@ -1001,7 +1034,7 @@ export class MqttRuntime {
 
   /** Tracks firmware navigation that changes which home tile may receive state updates. */
   private updateHomeTilePageFromPanelEvent(panel: Panel, message: MqttMessageEnvelope): void {
-    const page = message.topic.slice(`${panel.nodeName}/event/page/`.length);
+    const page = message.topic.slice(`${panelTopicRoot(panel)}/event/page/`.length);
     if (page === "page0") {
       this.panelHomeTilePages.set(panel.id, { page: "home" });
       return;
@@ -1046,7 +1079,7 @@ export class MqttRuntime {
     const button = panel.settings.buttons[index];
     if (!definition?.renderHomeTileState || !button) return;
     try {
-      for (const command of definition.renderHomeTileState(instance, panel, index, button, page, state)) {
+      for (const command of definition.renderHomeTileState(instance, this.panelForPlugins(panel), index, button, page, state)) {
         if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
       }
     } catch (error) {
@@ -1091,7 +1124,7 @@ export class MqttRuntime {
   private async publishAssignedPanelState(definition: PluginDefinition, instance: ResolvedPluginInstance, panel: Panel, state: PluginState, previousState: PluginState, change: PluginState): Promise<void> {
     if (!definition.renderPanelState) return;
     try {
-      for (const command of definition.renderPanelState(instance, panel, state, previousState, change)) {
+      for (const command of definition.renderPanelState(instance, this.panelForPlugins(panel), state, previousState, change)) {
         if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
       }
     } catch (error) {
@@ -1112,7 +1145,7 @@ export class MqttRuntime {
             state: candidate.id === instance.id ? state : this.runtimeState.getPluginState(candidate.id)
           }))
         : undefined;
-      for (const command of definition.renderNativePanelState(instance, panel, state, relatedInstances)) {
+      for (const command of definition.renderNativePanelState(instance, this.panelForPlugins(panel), state, relatedInstances)) {
         if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
       }
     } catch (error) {
@@ -1232,7 +1265,7 @@ export class MqttRuntime {
 
   /** Handles page-level queries and controls owned by an active favorite plugin page. */
   private async dispatchFavoritePanelEvent(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[], bindings: PanelBinding[]): Promise<boolean> {
-    const prefix = `${panel.nodeName}/event/`;
+    const prefix = `${panelTopicRoot(panel)}/event/`;
     if (!message.topic.startsWith(prefix)) return false;
     const suffix = message.topic.slice(prefix.length);
     const levelQuery = /^level\/(\d{1,2})$/.exec(suffix);
@@ -1318,7 +1351,7 @@ export class MqttRuntime {
   private publishFavoritePanelState(definition: PluginDefinition, instance: ResolvedPluginInstance, panel: Panel, state: PluginState): void {
     if (!definition.renderFavoritePanelState) return;
     try {
-      for (const command of definition.renderFavoritePanelState(instance, panel, state)) {
+      for (const command of definition.renderFavoritePanelState(instance, this.panelForPlugins(panel), state)) {
         if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
       }
     } catch (error) {
@@ -1542,7 +1575,7 @@ export class MqttRuntime {
       return matches[0].id;
     };
     return {
-      panel: { id: panel.id, name: panel.name, nodeName: panel.nodeName },
+      panel: { id: panel.id, name: panel.name, nodeName: panelTopicRoot(panel) },
       binding: { id: binding.id, name: binding.name, panelId: binding.panelId, pluginInstanceId: binding.pluginInstanceId, trigger: binding.trigger },
       variables: instance.variables ?? {},
       storage: {
@@ -1557,6 +1590,11 @@ export class MqttRuntime {
       publish: (topic, payload) => this.publish(topic, payload),
       debug: { log: (message) => this.logger.debug(message, { component: "plugin", instance: instance.name, phase: "panel", panel: panel.name }) }
     };
+  }
+
+  /** Gives panel-aware plugins the MQTT topic root currently used by the device. */
+  private panelForPlugins(panel: Panel): Panel {
+    return { ...panel, nodeName: panelTopicRoot(panel) };
   }
 
   /** Creates the panel-independent context used by plugin startup and MQTT callbacks. */
@@ -1614,12 +1652,15 @@ export class MqttRuntime {
   /** Forwards a route and gates direct panel screen commands on an open flow session. */
   private applyRoute(route: MqttRoute, topic: string, payload: string, eventPanel: Panel | undefined, panels: Panel[]): void {
     const routePanel = route.panelId ? panels.find((panel) => panel.id === route.panelId) : eventPanel;
-    const nodeName = routePanel?.nodeName ?? eventPanel?.nodeName ?? "";
-    const targetTopic = route.targetTopic.replaceAll("{nodeName}", nodeName);
+    const nodeName = routePanel ? panelTopicRoot(routePanel) : eventPanel ? panelTopicRoot(eventPanel) : "";
+    let targetTopic = route.targetTopic.replaceAll("{nodeName}", nodeName);
+    if (route.direction === "external-to-panel" && routePanel && route.targetTopic.startsWith(`${routePanel.nodeName}/`)) {
+      targetTopic = `${panelTopicRoot(routePanel)}${route.targetTopic.slice(routePanel.nodeName.length)}`;
+    }
     if (!targetTopic || targetTopic.includes("{nodeName}")) return;
     if (route.direction === "external-to-panel" && routePanel && (
-      targetTopic === `${routePanel.nodeName}/cmnd/info` ||
-      targetTopic === `${routePanel.nodeName}/cmnd/nextion`
+      targetTopic === `${panelTopicRoot(routePanel)}/cmnd/info` ||
+      targetTopic === `${panelTopicRoot(routePanel)}/cmnd/nextion`
     ) && !this.runtimeState.getPanelSession(routePanel.id)?.screen) return;
     const output = renderPayload(route.payloadTemplate, topic, payload, routePanel);
     this.publish(targetTopic, output);
@@ -1663,7 +1704,7 @@ function firmwareSafeText(value: string): string {
 }
 
 function isPanelPageEvent(panel: Panel, topic: string): boolean {
-  const pageTopic = `${panel.nodeName}/event/page`;
+  const pageTopic = `${panelTopicRoot(panel)}/event/page`;
   return topic === pageTopic || topic.startsWith(`${pageTopic}/`);
 }
 
@@ -1736,13 +1777,25 @@ function renderPayload(template: string, topic: string, payload: string, panel?:
     const lookup = key.trim();
     if (lookup === "payload") return payload;
     if (lookup === "topic") return topic;
-    if (lookup === "nodeName") return panel?.nodeName ?? "";
+    if (lookup === "nodeName") return panel ? panelTopicRoot(panel) : "";
     const value = lookup.startsWith("json.") ? lookup.slice(5).split(".").reduce<unknown>((current, part) => {
       if (current && typeof current === "object") return (current as Record<string, unknown>)[part];
       return undefined;
     }, parsed) : undefined;
     return value === undefined || value === null ? "" : String(value);
   });
+}
+
+/** Rewrites a saved legacy panel event prefix to the assigned unified topic root. */
+function panelRouteSourceTopic(route: MqttRoute, panels: Panel[]): string {
+  if (route.direction !== "panel-to-external") return route.sourceTopic;
+  const panel = route.panelId
+    ? panels.find((candidate) => candidate.id === route.panelId)
+    : panels.find((candidate) => route.sourceTopic.startsWith(`${candidate.nodeName}/`));
+  const legacyPrefix = panel ? `${panel.nodeName}/` : "";
+  return panel && route.sourceTopic.startsWith(legacyPrefix)
+    ? `${panelTopicRoot(panel)}${route.sourceTopic.slice(panel.nodeName.length)}`
+    : route.sourceTopic;
 }
 
 /** Checks the raw payload or one scalar value parsed from its JSON body. */
