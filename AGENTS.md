@@ -17,7 +17,7 @@ The first run needs an MQTT broker URL and credentials configured in the UI. Loc
 
 ## Code Style
 
-Use TypeScript strict mode, two-space indentation, semicolons, and descriptive camelCase identifiers. Document classes and their public methods with JSDoc that explains their responsibility, lifecycle, and interactions. Keep API contracts in `apps/api/src/types.ts`. Preserve ESPHome YAML’s two-space nesting and existing device substitutions. Legacy MQTT topics use `<nodeName>/cmnd/...` and `<nodeName>/event/...`; unified firmware uses `nspanel/nspanel-<last-6-MAC>/...`.
+Use TypeScript strict mode, two-space indentation, semicolons, and descriptive camelCase identifiers. Document classes and their public methods with JSDoc that explains their responsibility, lifecycle, and interactions. Keep API contracts in `apps/api/src/types.ts`. Preserve ESPHome YAML’s two-space nesting and existing device substitutions. Both firmware variants use `<nodeName>/cmnd/...` and `<nodeName>/event/...` for normal traffic; unified firmware uses `nspanel/nspanel-<last-6-MAC>/event/init` and `/cmnd/settings` for its MAC-based identity and settings handshake.
 
 ## Validation
 

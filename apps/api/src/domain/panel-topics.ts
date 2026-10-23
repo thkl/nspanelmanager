@@ -2,14 +2,21 @@ import type { Panel } from "../types.js";
 
 type PanelTopicIdentity = Pick<Panel, "nodeName" | "macAddress" | "unifiedFirmware">;
 
-/** Returns the topic root used by the firmware currently assigned to a panel. */
+/** Returns the configured topic root used for normal panel commands and events. */
 export function panelTopicRoot(panel: PanelTopicIdentity): string {
+  return panel.nodeName;
+}
+
+/** Returns the stable bootstrap root for initial settings and firmware identity messages. */
+export function panelBootstrapTopicRoot(panel: PanelTopicIdentity): string {
   return panel.unifiedFirmware ? unifiedPanelTopicRoot(panel.macAddress) ?? panel.nodeName : panel.nodeName;
 }
 
-/** Returns both roots during migration so the manager can detect a unified firmware after OTA. */
+/** Returns operational and potential unified roots, including during the first OTA boot before promotion. */
 export function panelTopicRoots(panel: PanelTopicIdentity): string[] {
-  return [...new Set([panel.nodeName, unifiedPanelTopicRoot(panel.macAddress)].filter((root): root is string => Boolean(root)))].sort((left, right) => right.length - left.length);
+  return [...new Set([panel.nodeName, unifiedPanelTopicRoot(panel.macAddress)].filter((root): root is string => Boolean(root)))].sort(
+    (left, right) => right.length - left.length
+  );
 }
 
 /** Returns the unified firmware topic root derived from the last three MAC bytes. */

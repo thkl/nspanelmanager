@@ -1,12 +1,13 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
-from esphome.const import CONF_ON_JSON_MESSAGE, CONF_ON_MESSAGE, CONF_QOS, CONF_TOPIC, CONF_TRIGGER_ID
+from esphome.const import CONF_ID, CONF_ON_JSON_MESSAGE, CONF_ON_MESSAGE, CONF_QOS, CONF_TOPIC, CONF_TRIGGER_ID
 
 DEPENDENCIES = ["mqtt"]
 AUTO_LOAD = ["mqtt"]
 
 panel_mqtt_ns = cg.esphome_ns.namespace("panel_mqtt")
+PanelMqttComponent = panel_mqtt_ns.class_("PanelMqttComponent", cg.Component)
 DynamicMqttJsonMessageTrigger = panel_mqtt_ns.class_(
     "DynamicMqttJsonMessageTrigger", automation.Trigger.template(cg.JsonObjectConst), cg.Component
 )
@@ -16,6 +17,7 @@ DynamicMqttMessageTrigger = panel_mqtt_ns.class_(
 
 CONFIG_SCHEMA = cv.Schema(
     {
+        cv.GenerateID(CONF_ID): cv.declare_id(PanelMqttComponent),
         cv.Optional(CONF_ON_JSON_MESSAGE): automation.validate_automation(
             {
                 cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(DynamicMqttJsonMessageTrigger),
@@ -35,6 +37,9 @@ CONFIG_SCHEMA = cv.Schema(
 
 
 async def to_code(config):
+    component = cg.new_Pvariable(config[CONF_ID])
+    await cg.register_component(component, config)
+
     for conf in config.get(CONF_ON_JSON_MESSAGE, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], conf[CONF_TOPIC], conf[CONF_QOS])
         await cg.register_component(trigger, conf)

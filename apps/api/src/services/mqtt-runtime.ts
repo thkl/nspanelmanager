@@ -7,7 +7,7 @@ import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/ru
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 import { interpolatePluginTemplate } from "../features/plugins/plugin-variables.js";
-import { panelTopicRoot, panelTopicRootForMessage, panelTopicRoots } from "../domain/panel-topics.js";
+import { panelBootstrapTopicRoot, panelTopicRoot, panelTopicRootForMessage, panelTopicRoots } from "../domain/panel-topics.js";
 import { Logger } from "./logger.js";
 
 /**
@@ -370,19 +370,20 @@ export class MqttRuntime {
 
     const settings = {
       ...panel.settings,
+      ...(panel.unifiedFirmware ? { mqtt_alias: panel.nodeName } : {}),
       music: configuredPlayers,
       buttons: panel.settings.buttons.map(({ label, image, mode }) => ({ label, image, mode }))
     };
     const configFingerprint = JSON.stringify({
       nodeName: panel.nodeName,
-      topicRoot: panelTopicRoot(panel),
+      topicRoot: panelBootstrapTopicRoot(panel),
       settings: {
         ...settings,
         music: configuredPlayers.map(({ id, name, sonos, player }) => ({ id, name, sonos, player }))
       }
     });
     if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) return true;
-    const published = this.publish(`${panelTopicRoot(panel)}/cmnd/settings`, JSON.stringify(settings));
+    const published = this.publish(`${panelBootstrapTopicRoot(panel)}/cmnd/settings`, JSON.stringify(settings));
     if (published) this.publishedPanelSettings.set(panel.id, configFingerprint);
     return published;
   }
@@ -560,6 +561,45 @@ export class MqttRuntime {
     const eventPanel = eventPanelRecord && eventRoot
       ? { ...eventPanelRecord, nodeName: eventRoot, ...(eventRoot !== eventPanelRecord.nodeName ? { unifiedFirmware: true } : {}) }
       : undefined;
+    if (eventPanelRecord && eventRoot && topic === `${eventRoot}/event/init`) {
+      const reportedMac = parsePanelMacAddress(payload);
+      const assignedMac = normalizeMacAddress(eventPanelRecord.macAddress);
+      if (eventRoot !== panelBootstrapTopicRoot(eventPanelRecord) || !eventPanelRecord.unifiedFirmware || !assignedMac || reportedMac !== assignedMac) {
+        this.logger.warn("Ignored a unified panel init message whose MAC does not match its configured identity.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic,
+          reportedMac: reportedMac ?? "invalid",
+          assignedMac: assignedMac ?? "unassigned"
+        });
+        return;
+      }
+      this.publishPanelSettings(eventPanelRecord, true);
+      return;
+    }
+    if (eventPanelRecord && eventRoot === eventPanelRecord.nodeName && topic === `${eventRoot}/event/ready`) {
+      const readyIdentity = parsePanelReadyIdentity(payload);
+      const assignedMac = normalizeMacAddress(eventPanelRecord.macAddress);
+      if (!eventPanelRecord.unifiedFirmware || !assignedMac || readyIdentity?.mac !== assignedMac || readyIdentity?.nodeName !== eventPanelRecord.nodeName) {
+        this.logger.warn("Ignored a unified panel ready message whose identity does not match its configured profile.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic,
+          reportedMac: readyIdentity?.mac ?? "invalid",
+          assignedMac: assignedMac ?? "unassigned",
+          reportedNodeName: readyIdentity?.nodeName ?? "missing"
+        });
+        return;
+      }
+      this.requestPanelResetReport(eventPanelRecord);
+      await this.refreshNativePanel(eventPanelRecord);
+      this.panelHomeTilePages.set(eventPanelRecord.id, { page: "home" });
+      await this.refreshAllHomeTiles(eventPanelRecord);
+      const currentSession = this.runtimeState.getPanelSession(eventPanelRecord.id);
+      if (currentSession && !currentSession.screen) await this.runtimeState.setPanelSession(eventPanelRecord.id);
+      await this.restorePanelSession(eventPanelRecord, config.panelBindings, instances);
+      return;
+    }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/reset_reason`) {
       await this.recordPanelResetReport(eventPanel, payload, message.receivedAt);
       this.notifyPanelConnectionsChanged();
@@ -620,7 +660,7 @@ export class MqttRuntime {
 
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
       this.requestPanelResetReport(eventPanel);
-      this.publishPanelSettings(eventPanel, true);
+      if (!eventPanelRecord?.unifiedFirmware) this.publishPanelSettings(eventPanel, true);
       await this.refreshNativePanel(eventPanel);
       this.panelHomeTilePages.set(eventPanel.id, { page: "home" });
       await this.refreshAllHomeTiles(eventPanel);
@@ -1481,6 +1521,10 @@ export class MqttRuntime {
     const config = this.store.get();
     const instances = this.resolvePluginInstances(config);
     for (const panel of config.panels) {
+      if (panel.unifiedFirmware) {
+        this.publishPanelSettings(panel, true);
+        continue;
+      }
       this.requestPanelResetReport(panel);
       this.publishPanelSettings(panel);
       await this.publishPanelFavoriteState(panel, config.panelBindings, instances);
@@ -1786,7 +1830,7 @@ function renderPayload(template: string, topic: string, payload: string, panel?:
   });
 }
 
-/** Rewrites a saved legacy panel event prefix to the assigned unified topic root. */
+/** Resolves a saved panel event prefix against the panel's current configured node name. */
 function panelRouteSourceTopic(route: MqttRoute, panels: Panel[]): string {
   if (route.direction !== "panel-to-external") return route.sourceTopic;
   const panel = route.panelId
@@ -1796,6 +1840,24 @@ function panelRouteSourceTopic(route: MqttRoute, panels: Panel[]): string {
   return panel && route.sourceTopic.startsWith(legacyPrefix)
     ? `${panelTopicRoot(panel)}${route.sourceTopic.slice(panel.nodeName.length)}`
     : route.sourceTopic;
+}
+
+/** Parses the MAC identity sent by unified firmware during bootstrap. */
+function parsePanelMacAddress(payload: string): string | undefined {
+  const parsed = parseRoutePayloadJson(payload);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const mac = (parsed as Record<string, unknown>).mac;
+  return normalizeMacAddress(typeof mac === "string" ? mac : undefined);
+}
+
+/** Parses and normalizes the identity sent after the firmware adopts its configured topic. */
+function parsePanelReadyIdentity(payload: string): { mac: string; nodeName: string } | undefined {
+  const parsed = parseRoutePayloadJson(payload);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const record = parsed as Record<string, unknown>;
+  const mac = normalizeMacAddress(typeof record.mac === "string" ? record.mac : undefined);
+  const nodeName = typeof record.node_name === "string" ? record.node_name : undefined;
+  return mac && nodeName ? { mac, nodeName } : undefined;
 }
 
 /** Checks the raw payload or one scalar value parsed from its JSON body. */
