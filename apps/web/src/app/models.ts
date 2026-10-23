@@ -139,6 +139,8 @@ export interface PanelResetReport {
 export interface PanelTelemetry {
   reportedAt: number;
   firmwareVersion?: string;
+  /** SHA-256 identifier of the last manager-delivered HMI reported after display reconnect. */
+  hmiVersion?: string;
   uptimeSeconds?: number;
   freeHeapBytes?: number;
   minFreeHeapBytes?: number;

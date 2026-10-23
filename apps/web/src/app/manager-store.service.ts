@@ -122,8 +122,8 @@ export class ManagerStore {
   }
 
   /** Sends an HMI update request, optionally bypassing the panel's confirmation screen. */
-  requestHmiUpdate(panelId: string, force = false): Observable<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string }> {
-    return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string }>(`/api/hmi/panels/${panelId}/update`, { force });
+  requestHmiUpdate(panelId: string, force = false): Observable<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string }> {
+    return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string }>(`/api/hmi/panels/${panelId}/update`, { force });
   }
 
   /** Reads a bounded, optionally filtered set of recent records from rotated manager log files. */

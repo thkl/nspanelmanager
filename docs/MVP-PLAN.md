@@ -163,7 +163,7 @@ Add an authenticated firmware and HMI workspace for administrators to upload art
 
 - Upload and version `.tft` assets independently from ESP firmware, associate each asset with compatible panel/HMI profiles, and select target panels for an update.
 - The manager now sends a runtime URL; firmware sets the Nextion driver's URL with `set_tft_url()` before its existing `upload_tft()` flow. The current static URL remains a fallback for legacy update commands; see the [ESPHome Nextion upload documentation](https://esphome.io/components/display/nextion/).
-- Implemented first slice: the HMI workspace stores the latest `.tft` artifact, creates a six-hour capability URL, and sends it to one registered panel over MQTT. Updated `panel4.yaml` accepts the manager URL and keeps its existing confirmation prompt. Remaining work includes tracking download/update completion, associating HMI versions with panel profiles, and staged multi-panel rollouts.
+- Implemented first slice: the HMI workspace stores the latest `.tft` artifact, creates a six-hour capability URL, and sends it to one registered panel over MQTT. The artifact SHA-256 serves as its version ID; `panel5.yaml` persists that ID during the update and reports it after the Nextion display reconnects. The HMI page compares each panel's reported ID with the current artifact. This reports manager-delivered versions and does not detect TFT files flashed outside the manager. Remaining work includes durable update-job history, download/update progress and failure reporting, associating HMI versions with panel profiles, and staged multi-panel rollouts.
 
 ### Rollout and Recovery
 

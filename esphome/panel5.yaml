@@ -1,6 +1,6 @@
 # Performance-tuned panel firmware, included by nsp-livingroom.yaml.
 substitutions:
-  firmware_version: "5.0.2"
+  firmware_version: "5.0.5"
 
 esphome:
   name: $hostname
@@ -201,6 +201,23 @@ globals:
     restore_value: no
     initial_value: "false"
 
+  - id: hmi_version
+    type: std::string
+    restore_value: yes
+    max_restore_data_length: 64
+    initial_value: '""'
+
+  - id: pending_hmi_version
+    type: std::string
+    restore_value: yes
+    max_restore_data_length: 64
+    initial_value: '""'
+
+  - id: hmi_update_pending
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+
   - id: lastHomeTitle
     type: std::string
     restore_value: no
@@ -260,7 +277,6 @@ globals:
     restore_value: no
     initial_value: "false"
 
-
 script:
   - id: publish_panel_ping
     then:
@@ -268,6 +284,7 @@ script:
           topic: $node_name/event/ping
           payload: |-
             root["firmware_version"] = "$firmware_version";
+            if (!id(hmi_version).empty()) root["hmi_version"] = id(hmi_version);
             if (id(panel_uptime).has_state()) root["uptime_seconds"] = id(panel_uptime).state;
             if (id(debug_heap_free).has_state()) root["free_heap_bytes"] = id(debug_heap_free).state;
             if (id(debug_heap_min_free).has_state()) root["min_free_heap_bytes"] = id(debug_heap_min_free).state;
@@ -643,10 +660,27 @@ script:
 
   - id: proceed_hmi_update  #we have to unsubscribe from all mqtt messages during the hmi update ; processing a message and sending info to the display will interrupt the update
     then:
+      - if:
+          condition:
+            lambda: return !id(pending_hmi_version).empty();
+          then:
+            - lambda: |-
+                id(hmi_update_pending) = true;
+                pending_hmi_version->update();
+                hmi_update_pending->update();
+                esphome::global_preferences->sync();
       - lambda: |-
           id(mqtt_client).disable();
           id(disp1).set_backlight_brightness(1);
-          id(disp1).upload_tft();
+          if (!id(disp1).upload_tft()) {
+            ESP_LOGE("hmi", "TFT upload failed; clearing the pending HMI version ID");
+            id(pending_hmi_version).clear();
+            id(hmi_update_pending) = false;
+            pending_hmi_version->update();
+            hmi_update_pending->update();
+            esphome::global_preferences->sync();
+            id(mqtt_client).enable();
+          }
 
 
   - id: do_reset_sonosPlayer
@@ -1131,6 +1165,21 @@ mqtt:
     - topic: $node_name/cmnd/updatehmi
       then:
         - lambda: |-
+              std::string hmi_version = "";
+              if (x.containsKey("version")) {
+                hmi_version = x["version"].as<std::string>();
+                bool valid_version = hmi_version.size() == 64;
+                for (char c : hmi_version) {
+                  if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                    valid_version = false;
+                    break;
+                  }
+                }
+                if (!valid_version) {
+                  ESP_LOGW("hmi", "Rejected an invalid HMI version ID");
+                  return;
+                }
+              }
               if (x.containsKey("url")) {
                 std::string update_url = x["url"].as<std::string>();
                 if (update_url.empty() || update_url.size() > 512 ||
@@ -1140,6 +1189,11 @@ mqtt:
                 }
                 id(disp1).set_tft_url(update_url);
               }
+              id(pending_hmi_version) = hmi_version;
+              id(hmi_update_pending) = false;
+              pending_hmi_version->update();
+              hmi_update_pending->update();
+              esphome::global_preferences->sync();
               if (x.containsKey("force") && x["force"].is<bool>() && x["force"].as<bool>()) {
                  id(proceed_hmi_update).execute();
               } else {
@@ -1162,6 +1216,11 @@ mqtt:
       then:
         - lambda: |-
               id(hmiupdate) = 0;
+              id(pending_hmi_version).clear();
+              id(hmi_update_pending) = false;
+              pending_hmi_version->update();
+              hmi_update_pending->update();
+              esphome::global_preferences->sync();
               if (id(currentPage) != "pageList") {
                 id(disp1).send_command_printf("page pageList");
               }
@@ -3117,3 +3176,17 @@ display:
       then:
         - lambda: |-
                 id(roomstatus).state = 0;
+        - if:
+            condition:
+              lambda: return id(hmi_update_pending) && !id(pending_hmi_version).empty();
+            then:
+              - lambda: |-
+                  id(hmi_version) = id(pending_hmi_version);
+                  id(pending_hmi_version).clear();
+                  id(hmi_update_pending) = false;
+                  ESP_LOGI("hmi", "Nextion reconnected after TFT update; recording HMI version %s", id(hmi_version).c_str());
+                  hmi_version->update();
+                  pending_hmi_version->update();
+                  hmi_update_pending->update();
+                  esphome::global_preferences->sync();
+              - script.execute: publish_panel_ping

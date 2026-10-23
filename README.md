@@ -92,7 +92,7 @@ The authenticated workspace includes a **Logs** page with category and severity 
 
 ## HMI updates
 
-The authenticated **HMI updates** page accepts a Nextion `.tft` file up to 32 MB, stores it in `DATA_DIR/hmi`, and can send a six-hour download link to one configured panel over MQTT. The panel keeps its existing on-screen confirmation; press **UPDATE** on the panel to begin. Panels must run the current `esphome/panel5.yaml` firmware included by `esphome/nsp-livingroom.yaml`. The configured `APP_PUBLIC_URL` must be reachable from the panel. Set `HMI_PUBLIC_URL` to a panel-network address if the manager's browser-facing URL is not reachable there; local development may use the API host and port `3000`. The `.tft` file is included in manager data backups.
+The authenticated **HMI updates** page accepts a Nextion `.tft` file up to 32 MB, stores it in `DATA_DIR/hmi`, and can send a six-hour download link to one configured panel over MQTT. Its SHA-256 checksum is the HMI version ID. Panel5 reports that ID in its heartbeat after the Nextion display reconnects following an update, and the UI compares each panel's reported ID with the uploaded file. The panel keeps its existing on-screen confirmation; press **UPDATE** on the panel to begin. Panels must run the current `esphome/panel5.yaml` firmware included by `esphome/nsp-livingroom.yaml`. The configured `APP_PUBLIC_URL` must be reachable from the panel. Set `HMI_PUBLIC_URL` to a panel-network address if the manager's browser-facing URL is not reachable there; local development may use the API host and port `3000`. The `.tft` file is included in manager data backups.
 
 ## Backups and manual restore
 

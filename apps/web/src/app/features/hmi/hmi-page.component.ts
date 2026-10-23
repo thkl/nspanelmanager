@@ -1,5 +1,7 @@
 import { HttpErrorResponse } from "@angular/common/http";
-import { Component, ElementRef, OnInit, signal, viewChild } from "@angular/core";
+import { Component, DestroyRef, ElementRef, OnInit, inject, signal, viewChild } from "@angular/core";
+import { EMPTY, catchError, interval, startWith, switchMap } from "rxjs";
+import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { ManagerStore } from "../../manager-store.service";
 import type { HmiArtifact, Panel } from "../../models";
 
@@ -11,6 +13,7 @@ import type { HmiArtifact, Panel } from "../../models";
   styleUrl: "./hmi-page.component.css"
 })
 export class HmiPageComponent implements OnInit {
+  private readonly destroyRef = inject(DestroyRef);
   readonly artifact = signal<HmiArtifact | null>(null);
   readonly selectedFile = signal<File | null>(null);
   readonly loading = signal(true);
@@ -24,7 +27,14 @@ export class HmiPageComponent implements OnInit {
   constructor(readonly manager: ManagerStore) {}
 
   /** Loads the currently stored TFT metadata when the HMI workspace opens. */
-  ngOnInit(): void { this.refresh(); }
+  ngOnInit(): void {
+    this.refresh();
+    interval(15_000).pipe(
+      startWith(0),
+      switchMap(() => this.manager.refreshPanelConnections().pipe(catchError(() => EMPTY))),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe();
+  }
 
   /** Refreshes the latest artifact without reloading editable panel configuration. */
   refresh(): void {
@@ -85,17 +95,32 @@ export class HmiPageComponent implements OnInit {
     const force = this.forceUpdate();
     this.updatingPanelId.set(panel.id);
     this.manager.requestHmiUpdate(panel.id, force).subscribe({
-      next: ({ expiresAt }) => {
+      next: ({ expiresAt, hmiVersion }) => {
         this.updatingPanelId.set("");
+        const shortVersion = hmiVersion.slice(0, 12);
         this.manager.inform(force
-          ? `Forced update started on ${panel.name}; the panel will not ask for confirmation.`
-          : `Update prompt sent to ${panel.name}. Press UPDATE on the panel to begin; its download link expires at ${this.formatTimestamp(expiresAt)}.`);
+          ? `Forced HMI update ${shortVersion} started on ${panel.name}; the panel will not ask for confirmation.`
+          : `HMI update ${shortVersion} prompt sent to ${panel.name}. Press UPDATE on the panel to begin; its download link expires at ${this.formatTimestamp(expiresAt)}.`);
       },
       error: (error: unknown) => {
         this.updatingPanelId.set("");
         this.manager.inform(this.errorMessage(error), "error");
       }
     });
+  }
+
+  /** Compares a panel's reported HMI artifact hash with the currently uploaded TFT. */
+  hmiVersionLabel(panel: Panel): string {
+    const reported = this.manager.panelConnections()[panel.nodeName]?.telemetry?.hmiVersion;
+    if (!reported) return "Installed HMI version not reported yet";
+    if (reported === this.artifact()?.sha256) return `Installed HMI ${reported.slice(0, 12)} · current`;
+    return `Installed HMI ${reported.slice(0, 12)} · differs from uploaded file`;
+  }
+
+  /** Returns whether the panel has reported the current artifact's exact content hash. */
+  hmiVersionMatches(panel: Panel): boolean {
+    const reported = this.manager.panelConnections()[panel.nodeName]?.telemetry?.hmiVersion;
+    return Boolean(reported && reported === this.artifact()?.sha256);
   }
 
   /** Updates whether the next panel request should bypass the on-panel confirmation. */

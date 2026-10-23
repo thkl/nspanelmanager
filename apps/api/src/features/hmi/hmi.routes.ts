@@ -36,22 +36,22 @@ export function createHmiRouter(hmiService: HmiArtifactService, store: ConfigSto
     const panelId = request.params.panelId;
     const panel = store.get().panels.find((item) => item.id === panelId);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
-    if (!hmiService.currentArtifact()) return response.status(409).json({ error: "Upload an HMI file before requesting a panel update." });
     if (!mqttRuntime.status().connected) return response.status(503).json({ error: "The MQTT broker is not connected." });
 
     try {
       const download = await hmiService.createDownloadUrl();
       const topic = `${panel.nodeName}/cmnd/updatehmi`;
-      if (!mqttRuntime.publishHmiUpdate(panel, download.url, force)) return response.status(503).json({ error: "The MQTT broker disconnected before the update request could be sent." });
+      if (!mqttRuntime.publishHmiUpdate(panel, download.url, download.artifact.sha256, force)) return response.status(503).json({ error: "The MQTT broker disconnected before the update request could be sent." });
       logger.info("HMI update request published.", {
         component: "hmi",
         panel: panel.nodeName,
-        artifactId: hmiService.currentArtifact()?.id ?? "unknown",
+        artifactId: download.artifact.id,
+        hmiVersion: download.artifact.sha256,
         force: String(force),
         grantExpiresAt: download.expiresAt,
         requestedBy: request.authUser?.email ?? "unknown"
       });
-      response.json({ published: true, panel: { id: panel.id, name: panel.name }, topic, expiresAt: download.expiresAt });
+      response.json({ published: true, panel: { id: panel.id, name: panel.name }, topic, expiresAt: download.expiresAt, hmiVersion: download.artifact.sha256 });
     } catch (error) {
       if (error instanceof HmiArtifactError) response.status(error.statusCode).json({ error: error.message });
       else next(error);

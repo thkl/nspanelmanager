@@ -46,6 +46,8 @@
 .panel-copy { min-width: 0; }
 .panel-copy h4 { margin: 0 0 3px; color: var(--ink); font-size: 13px; }
 .panel-copy p { margin: 0; overflow-wrap: anywhere; color: var(--ink-faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+.panel-copy .panel-hmi-version { margin-top: 5px; color: var(--amber-text); font-family: inherit; font-size: 11px; }
+.panel-copy .panel-hmi-version.current-version { color: var(--green-text); }
 .send-button { min-width: 150px; }
 .empty-note, .loading-note { margin: 0; padding: 18px 19px; color: var(--ink-soft); font-size: 13px; }
 .empty-artifact, .hmi-notice { padding: 17px 19px; }

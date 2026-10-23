@@ -47,9 +47,9 @@ export class MqttRuntime {
   /** Exposes health only; credentials and the client object never leave this service. */
   status(): { connected: boolean; error: string } { return { connected: this.connected, error: this.lastError }; }
 
-  /** Publishes an HMI download URL, optionally telling the panel to skip its confirmation prompt. */
-  publishHmiUpdate(panel: Panel, url: string, force = false): boolean {
-    return this.publish(`${panel.nodeName}/cmnd/updatehmi`, JSON.stringify(force ? { url, force: true } : { url }));
+  /** Publishes an HMI download URL and artifact checksum, optionally skipping panel confirmation. */
+  publishHmiUpdate(panel: Panel, url: string, hmiVersion: string, force = false): boolean {
+    return this.publish(`${panel.nodeName}/cmnd/updatehmi`, JSON.stringify(force ? { url, version: hmiVersion, force: true } : { url, version: hmiVersion }));
   }
 
   /** Returns live panel connection state without adding runtime data to saved configuration. */
@@ -1514,6 +1514,7 @@ function readPanelTelemetry(payload: string, receivedAt: number): PanelTelemetry
 
   const telemetry: PanelTelemetry = { reportedAt: receivedAt };
   const firmwareVersion = record["firmware_version"];
+  const hmiVersion = record["hmi_version"];
   const nonNegativeNumber = (key: string): number | undefined => {
     const value = record[key];
     return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
@@ -1528,6 +1529,10 @@ function readPanelTelemetry(payload: string, receivedAt: number): PanelTelemetry
   if (typeof firmwareVersion === "string") {
     const normalized = firmwareVersion.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40);
     if (normalized) telemetry.firmwareVersion = normalized;
+  }
+  if (typeof hmiVersion === "string") {
+    const normalized = hmiVersion.replace(/[\u0000-\u001f\u007f]/g, "").trim().toLowerCase();
+    if (/^[0-9a-f]{64}$/.test(normalized)) telemetry.hmiVersion = normalized;
   }
   if (uptimeSeconds !== undefined) telemetry.uptimeSeconds = uptimeSeconds;
   if (freeHeapBytes !== undefined) telemetry.freeHeapBytes = freeHeapBytes;

@@ -49,6 +49,8 @@ export interface PanelTelemetry {
   /** Time the manager received this telemetry report. */
   reportedAt: number;
   firmwareVersion?: string;
+  /** SHA-256 identifier of the last manager-delivered HMI reported after display reconnect. */
+  hmiVersion?: string;
   uptimeSeconds?: number;
   freeHeapBytes?: number;
   minFreeHeapBytes?: number;

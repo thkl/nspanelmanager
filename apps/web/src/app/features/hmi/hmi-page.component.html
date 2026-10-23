@@ -11,7 +11,7 @@
     <div class="hmi-icon" aria-hidden="true">↑</div>
     <div class="card-copy">
       <h3>Upload HMI file</h3>
-      <p>The latest upload becomes the selected version. Files still referenced by active panel links are retained until those links expire. The manager records size and SHA-256 checksum.</p>
+      <p>The latest upload becomes the selected version. Files still referenced by active panel links are retained until those links expire. Its SHA-256 checksum is the HMI version ID reported by updated panels.</p>
       <div class="file-picker">
         <label for="hmi-file">TFT file</label>
         <input #fileInput id="hmi-file" type="file" accept=".tft,application/octet-stream" [disabled]="uploading()" (change)="selectFile($event)">
@@ -37,7 +37,7 @@
         </div>
       </div>
       <dl class="artifact-details">
-        <div><dt>SHA-256</dt><dd>{{ currentArtifact.sha256 }}</dd></div>
+        <div><dt>HMI version ID</dt><dd>{{ currentArtifact.sha256 }}</dd></div>
       </dl>
     </article>
 
@@ -54,7 +54,7 @@
         <div class="panel-list">
           @for (panel of manager.config().panels; track panel.id) {
             <article class="panel-row">
-              <div class="panel-copy"><h4>{{ panel.name }}</h4><p>{{ panel.nodeName }}/cmnd/updatehmi</p></div>
+              <div class="panel-copy"><h4>{{ panel.name }}</h4><p>{{ panel.nodeName }}/cmnd/updatehmi</p><p class="panel-hmi-version" [class.current-version]="hmiVersionMatches(panel)">{{ hmiVersionLabel(panel) }}</p></div>
               <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingPanelId() !== ''" (click)="requestUpdate(panel)">
                 {{ updatingPanelId() === panel.id ? 'Sending…' : forceUpdate() ? 'Force update now' : 'Send update prompt' }}
               </button>
@@ -74,6 +74,6 @@
 
   <aside class="hmi-notice" role="note">
     <h3>Before sending an update</h3>
-    <p>Panels must run the updated <code>panel4.yaml</code> firmware to accept a manager URL. Set <code>HMI_PUBLIC_URL</code> when the manager's browser URL is not reachable from the panel network. The link is valid for six hours.</p>
+    <p>Panels must run the updated <code>panel5.yaml</code> firmware to accept a manager URL and report HMI versions. Set <code>HMI_PUBLIC_URL</code> when the manager's browser URL is not reachable from the panel network. The link is valid for six hours.</p>
   </aside>
 </section>

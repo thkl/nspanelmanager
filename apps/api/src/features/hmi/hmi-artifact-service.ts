@@ -125,7 +125,7 @@ export class HmiArtifactService {
   }
 
   /** Creates a six-hour capability URL that the selected panel can fetch without a browser session. */
-  async createDownloadUrl(): Promise<{ url: string; expiresAt: string }> {
+  async createDownloadUrl(): Promise<{ url: string; expiresAt: string; artifact: HmiArtifactRecord }> {
     return this.serialize(async () => {
       this.ensureInitialized();
       const artifact = this.state.artifact;
@@ -148,7 +148,7 @@ export class HmiArtifactService {
       this.state = { ...this.state, grants: [...activeGrants, grant] };
       await this.pruneAndPersist();
       const url = new URL(`/api/hmi/download/${token}`, managerUrl);
-      return { url: url.href, expiresAt: new Date(expiresAt).toISOString() };
+      return { url: url.href, expiresAt: new Date(expiresAt).toISOString(), artifact: { ...artifact } };
     });
   }
 

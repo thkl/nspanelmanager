@@ -40,6 +40,7 @@ export class PanelPageComponent implements OnInit {
   formatTelemetry(telemetry: PanelTelemetry): string {
     const parts: string[] = [];
     if (telemetry.firmwareVersion) parts.push(`FW ${telemetry.firmwareVersion}`);
+    if (telemetry.hmiVersion) parts.push(`HMI ${telemetry.hmiVersion.slice(0, 12)}`);
     if (Number.isFinite(telemetry.uptimeSeconds)) parts.push(`Up ${formatUptime(telemetry.uptimeSeconds!)}`);
     if (Number.isFinite(telemetry.freeHeapBytes)) parts.push(`Free ${formatKilobytes(telemetry.freeHeapBytes!)} KB`);
     if (Number.isFinite(telemetry.minFreeHeapBytes)) parts.push(`Min ${formatKilobytes(telemetry.minFreeHeapBytes!)} KB`);
