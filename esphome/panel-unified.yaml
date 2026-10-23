@@ -376,6 +376,20 @@ script:
             root["node_name"] = id(panel_mqtt_client).get_active_topic_prefix();
             root["firmware_version"] = "$firmware_version";
 
+  - id: publish_panel_display_ready
+    then:
+      - if:
+          condition:
+            lambda: return id(panel_mqtt_client).has_active_alias();
+          then:
+            - mqtt.publish_json:
+                topic: !lambda |-
+                  return id(panel_mqtt_client).get_active_topic_prefix() + "/event/display_ready";
+                payload: |-
+                  root["mac"] = id(panel_mqtt_client).get_mac_address();
+                  root["node_name"] = id(panel_mqtt_client).get_active_topic_prefix();
+                  root["firmware_version"] = "$firmware_version";
+
   - id: publish_hmi_update_status
     parameters:
       job_id: std::string
@@ -1274,6 +1288,11 @@ panel_mqtt:
                     }
         - delay: 100ms
         - script.execute: publish_panel_ready
+        - if:
+            condition:
+              lambda: return x.containsKey("mqtt_alias") && !x.containsKey("panelname") && id(disp1).is_setup();
+            then:
+              - script.execute: publish_panel_display_ready
         - script.execute: publish_panel_ping
                     
     - topic: cmnd/diag
@@ -3579,3 +3598,4 @@ display:
                   esphome::global_preferences->sync();
                   id(publish_hmi_update_status)->execute(completed_job_id, "succeeded", completed_version, "The display reconnected with the requested HMI.");
               - script.execute: publish_panel_ping
+        - script.execute: publish_panel_display_ready

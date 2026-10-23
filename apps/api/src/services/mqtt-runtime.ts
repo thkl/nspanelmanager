@@ -35,6 +35,7 @@ export class MqttRuntime {
   private readonly unifiedInitSettingsSentAt = new Map<string, number>();
   private readonly unifiedInitRetryUsed = new Set<string>();
   private readonly pendingUnifiedIdentityAssignments = new Set<string>();
+  private readonly panelDisplayReadyLastHandledAt = new Map<string, number>();
   private readonly panelBootedEventLastHandledAt = new Map<string, number>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
@@ -619,6 +620,52 @@ export class MqttRuntime {
       }
       return;
     }
+    if (eventPanelRecord && eventRoot === eventPanelRecord.nodeName && topic === `${eventRoot}/event/display_ready`) {
+      const displayIdentity = parsePanelReadyIdentity(payload);
+      const assignedMac = normalizeMacAddress(eventPanelRecord.macAddress);
+      if (!eventPanelRecord.unifiedFirmware || !assignedMac || displayIdentity?.mac !== assignedMac || displayIdentity?.nodeName !== eventPanelRecord.nodeName) {
+        this.logger.warn("Ignored a unified panel display-ready message whose identity does not match its configured profile.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic,
+          reportedMac: displayIdentity?.mac ?? "invalid",
+          assignedMac: assignedMac ?? "unassigned",
+          reportedNodeName: displayIdentity?.nodeName ?? "missing"
+        });
+        return;
+      }
+      const lastHandledAt = this.panelDisplayReadyLastHandledAt.get(eventPanelRecord.id);
+      if (lastHandledAt !== undefined && message.receivedAt - lastHandledAt < 2_000) return;
+      this.panelDisplayReadyLastHandledAt.set(eventPanelRecord.id, message.receivedAt);
+
+      const previousSettingsAt = this.unifiedInitSettingsSentAt.get(eventPanelRecord.id);
+      const recentSettings = previousSettingsAt !== undefined && Date.now() - previousSettingsAt < 60_000;
+      if (recentSettings && this.unifiedInitRetryUsed.has(eventPanelRecord.id)) {
+        this.logger.error("Suppressed another automatic settings push after repeated rapid panel reboots to prevent a boot loop.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic,
+          retryAfterFirmwareUpdate: "true"
+        });
+      } else if (this.publishPanelSettings(eventPanelRecord, true)) {
+        if (recentSettings) this.unifiedInitRetryUsed.add(eventPanelRecord.id);
+        this.logger.info("Nextion display is ready; sent the panel's full settings over its operational MQTT topic.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic: `${eventPanelRecord.nodeName}/cmnd/settings`
+        });
+        this.requestPanelResetReport(eventPanelRecord);
+        await this.refreshNativePanel(eventPanelRecord);
+        this.panelHomeTilePages.set(eventPanelRecord.id, { page: "home" });
+        await this.refreshAllHomeTiles(eventPanelRecord);
+      } else {
+        this.logger.warn("Nextion display is ready, but MQTT is disconnected so full settings could not be sent.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic: `${eventPanelRecord.nodeName}/cmnd/settings`
+        });
+      }
+    }
     if (eventPanelRecord && eventRoot === eventPanelRecord.nodeName && topic === `${eventRoot}/event/ready`) {
       const readyIdentity = parsePanelReadyIdentity(payload);
       const assignedMac = normalizeMacAddress(eventPanelRecord.macAddress);
@@ -633,30 +680,12 @@ export class MqttRuntime {
         });
         return;
       }
-      if (this.pendingUnifiedIdentityAssignments.delete(eventPanelRecord.id)) {
-        const previousSettingsAt = this.unifiedInitSettingsSentAt.get(eventPanelRecord.id);
-        const recentSettings = previousSettingsAt !== undefined && Date.now() - previousSettingsAt < 60_000;
-        if (recentSettings && this.unifiedInitRetryUsed.has(eventPanelRecord.id)) {
-          this.logger.error("Suppressed another automatic settings push after repeated rapid panel reboots to prevent a boot loop.", {
-            component: "mqtt",
-            panel: eventPanelRecord.name,
-            topic,
-            retryAfterFirmwareUpdate: "true"
-          });
-        } else if (this.publishPanelSettings(eventPanelRecord, true)) {
-          if (recentSettings) this.unifiedInitRetryUsed.add(eventPanelRecord.id);
-          this.logger.info("Panel identity confirmed; sent its full settings over the operational MQTT topic.", {
-            component: "mqtt",
-            panel: eventPanelRecord.name,
-            topic: `${eventPanelRecord.nodeName}/cmnd/settings`
-          });
-        } else {
-          this.logger.warn("Panel identity was confirmed, but full settings could not be sent because MQTT is disconnected.", {
-            component: "mqtt",
-            panel: eventPanelRecord.name,
-            topic: `${eventPanelRecord.nodeName}/cmnd/settings`
-          });
-        }
+      if (this.pendingUnifiedIdentityAssignments.has(eventPanelRecord.id)) {
+        this.logger.info("Panel identity confirmed; waiting for the Nextion display to finish setup before sending full settings.", {
+          component: "mqtt",
+          panel: eventPanelRecord.name,
+          topic: `${eventPanelRecord.nodeName}/event/display_ready`
+        });
       }
       this.requestPanelResetReport(eventPanelRecord);
       await this.refreshNativePanel(eventPanelRecord);
