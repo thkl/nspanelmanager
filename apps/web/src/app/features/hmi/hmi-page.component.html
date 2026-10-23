@@ -59,7 +59,7 @@
             <article class="panel-row">
               <div class="panel-copy">
                 <h4>{{ panel.name }}</h4>
-                <p>{{ panel.nodeName }}/cmnd/updatefirmware</p>
+                <p>{{ updateCommandTopic(panel, 'updatefirmware') }}</p>
                 <p class="panel-hmi-version" [class.current-version]="firmwareVersionMatches(panel)">{{ firmwareVersionLabel(panel) }}</p>
                 @if (latestFirmwareUpdate(panel); as job) {
                   <p class="panel-job-status" [class]="'panel-job-status status-' + job.status">{{ firmwareUpdateStatusLabel(job) }} · {{ formatJobTime(job.updatedAt) }}@if (job.message) { · {{ job.message }} }</p>
@@ -133,7 +133,7 @@
             <article class="panel-row">
               <div class="panel-copy">
                 <h4>{{ panel.name }}</h4>
-                <p>{{ panel.nodeName }}/cmnd/updatehmi</p>
+                <p>{{ updateCommandTopic(panel, 'updatehmi') }}</p>
                 <p class="panel-hmi-version" [class.current-version]="hmiVersionMatches(panel)">{{ hmiVersionLabel(panel) }}</p>
                 @if (latestUpdate(panel); as job) {
                   <p class="panel-job-status" [class]="'panel-job-status status-' + job.status">{{ updateStatusLabel(job) }} · {{ formatJobTime(job.updatedAt) }}</p>

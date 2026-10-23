@@ -16,6 +16,7 @@ import { HmiUpdateService } from "./features/hmi/hmi-update-service.js";
 import { FirmwareArtifactService } from "./features/firmware/firmware-artifact-service.js";
 import { FirmwareUpdateService } from "./features/firmware/firmware-update-service.js";
 import { RealtimeWebSocketServer } from "./features/realtime/realtime-websocket.js";
+import { panelBootstrapTopicRoot } from "./domain/panel-topics.js";
 
 const logger = new Logger();
 
@@ -94,12 +95,12 @@ async function startServer(): Promise<void> {
   mqttRuntime.onHmiUpdateReport((panel, payload, receivedAt) => hmiUpdateService.handlePanelReport(panel, payload, receivedAt));
   mqttRuntime.onFirmwareUpdateReport(async (panel, payload, receivedAt) => {
     const recovered = await firmwareUpdateService.handlePanelReport(panel, payload, receivedAt);
-    if (recovered && panel.unifiedFirmware) mqttRuntime.publishPanelSettings(panel, true);
+    if (recovered && panel.unifiedFirmware) mqttRuntime.publishPanelSettings(panel, true, panelBootstrapTopicRoot(panel));
   });
   mqttRuntime.onPanelPing((panel, telemetry, receivedAt) => hmiUpdateService.observePanelPing(panel, telemetry, receivedAt));
   mqttRuntime.onPanelPing(async (panel, telemetry, receivedAt) => {
     const recovered = await firmwareUpdateService.observePanelPing(panel, telemetry, receivedAt);
-    if (recovered && panel.unifiedFirmware) mqttRuntime.publishPanelSettings(panel, true);
+    if (recovered && panel.unifiedFirmware) mqttRuntime.publishPanelSettings(panel, true, panelBootstrapTopicRoot(panel));
   });
   hmiUpdateService.start();
   firmwareUpdateService.start();

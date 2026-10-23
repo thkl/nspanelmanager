@@ -52,6 +52,13 @@ export class PanelPageComponent implements OnInit {
     return parts.join(" · ");
   }
 
+  /** Estimates the latest boot time from the manager receipt time and panel uptime. */
+  approximateBootTime(telemetry: PanelTelemetry): number | null {
+    const uptimeSeconds = telemetry.uptimeSeconds;
+    if (typeof uptimeSeconds !== "number" || !Number.isFinite(uptimeSeconds) || uptimeSeconds < 0) return null;
+    return telemetry.reportedAt - uptimeSeconds * 1000;
+  }
+
   /** Loads the latest panel list and selects the current or first available panel. */
   ngOnInit(): void {
     this.refresh();

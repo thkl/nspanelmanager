@@ -10,9 +10,14 @@
           @if (panel.macAddress) { <small>MAC {{ panel.macAddress }}</small> }
           @if (manager.panelConnections()[panel.nodeName]; as connection) {
             @if (connection.lastResetReport; as report) {
-              <small class="panel-reset-reason">Last reboot: {{ report.reason }} · reported {{ report.reportedAt | date:'short' }}</small>
+              <small class="panel-reset-reason">Reboot reason: {{ report.reason }}
+                @if (connection.telemetry; as telemetry) {
+                  @if (approximateBootTime(telemetry); as bootTime) { · booted ~{{ bootTime | date:'short' }} }
+                }
+                · checked {{ report.reportedAt | date:'short' }}
+              </small>
             } @else {
-              <small class="panel-reset-reason">Last reboot: no report yet</small>
+              <small class="panel-reset-reason">Reboot reason: no report yet</small>
             }
             @if (connection.telemetry; as telemetry) {
               <small class="panel-telemetry">{{ formatTelemetry(telemetry) }} · {{ telemetry.reportedAt | date:'shortTime' }}</small>

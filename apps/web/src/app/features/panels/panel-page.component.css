@@ -125,11 +125,11 @@ nspanel-screen-preview { margin-bottom: 22px; }
 }
 
 .panel-row-copy .panel-reset-reason {
-  overflow: hidden;
   color: var(--ink-faint);
   font-family: inherit;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .panel-row-copy .panel-telemetry {

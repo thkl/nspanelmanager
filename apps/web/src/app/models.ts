@@ -144,9 +144,10 @@ export interface MqttStatus {
   error: string;
 }
 
-/** Current online state reported by one configured NSPanel over MQTT. */
+/** Latest reset reason and the time the manager received its diagnostic reply. */
 export interface PanelResetReport {
   reason: string;
+  /** Receipt time for the diagnostic reply; use panel uptime to estimate reboot time. */
   reportedAt: number;
 }
 

@@ -208,6 +208,15 @@ export class HmiPageComponent implements OnInit {
     return Boolean(reported && reported === this.firmwareArtifact()?.version);
   }
 
+  /** Shows the stable bootstrap command topic used for panel update requests. */
+  updateCommandTopic(panel: Panel, command: "updatefirmware" | "updatehmi"): string {
+    const macAddress = panel.macAddress?.replace(/[:-]/g, "").toLowerCase();
+    const topicRoot = panel.unifiedFirmware && macAddress && /^[a-f0-9]{12}$/.test(macAddress)
+      ? `nspanel/nspanel-${macAddress.slice(-6)}`
+      : panel.nodeName;
+    return `${topicRoot}/cmnd/${command}`;
+  }
+
   /** Provides concise wording for a firmware update lifecycle state. */
   firmwareUpdateStatusLabel(job: FirmwareUpdateJob): string {
     switch (job.status) {

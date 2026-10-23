@@ -5,9 +5,20 @@
     gap: 20px;
 }
 
-.plugin-layout.plugin-only-layout,
-.plugin-layout.instances-layout {
+.plugin-layout.plugin-only-layout {
     grid-template-columns: minmax(0, 1fr);
+}
+
+.plugin-layout.instances-layout {
+    grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
+}
+
+.instance-list-card {
+    position: sticky;
+    top: 16px;
+    display: flex;
+    max-height: calc(100vh - 180px);
+    flex-direction: column;
 }
 
 .plugin-profile-nav {
@@ -156,24 +167,14 @@
     gap: 14px;
 }
 
-.instance-list-heading {
-    align-items: center;
-    flex-wrap: wrap;
-    margin: 22px 0 5px;
-    padding-top: 17px;
-    border-top: 1px solid var(--line);
-}
-
 .instance-sort {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    white-space: nowrap;
+    display: grid;
+    gap: 7px;
+    margin-bottom: 14px;
 }
 
 .instance-sort select {
-    width: auto;
-    min-width: 150px;
+    width: 100%;
 }
 
 label {
@@ -937,6 +938,10 @@ label small {
 
 .instance-list {
     display: grid;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .instance-row {
@@ -950,6 +955,36 @@ label small {
 
 .instance-row:first-child {
     border-top: 0;
+}
+
+.instance-row.selected {
+    background: var(--surface-subtle);
+}
+
+.instance-select {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 12px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.instance-select:hover .instance-details b {
+    color: var(--green-dark);
+}
+
+.instance-select:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 8px;
 }
 
 .instance-icon {
@@ -1041,6 +1076,15 @@ label small {
 @media (max-width: 1000px) {
     .plugin-layout {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .instance-list-card {
+        position: static;
+        max-height: none;
+    }
+
+    .instance-list {
+        overflow: visible;
     }
 
     .plugin-editor {

@@ -112,7 +112,7 @@ export class MqttRuntime {
 
   /** Publishes an HMI download URL and artifact checksum, optionally skipping panel confirmation. */
   publishHmiUpdate(panel: Panel, url: string, hmiVersion: string, jobId: string, force = false): boolean {
-    return this.publish(`${panelTopicRoot(panel)}/cmnd/updatehmi`, JSON.stringify({ url, version: hmiVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
+    return this.publish(`${panelBootstrapTopicRoot(panel)}/cmnd/updatehmi`, JSON.stringify({ url, version: hmiVersion, job_id: jobId, ...(force ? { force: true } : {}) }));
   }
 
   /** Publishes a manager-hosted firmware binary URL and integrity data to one panel. */
@@ -366,8 +366,8 @@ export class MqttRuntime {
     this.activeTopics = desiredTopics;
   }
 
-  /** Publishes changed settings, or always publishes when boot/apply explicitly requests a refresh. */
-  publishPanelSettings(panel: Panel, force = false, topicRoot = panelBootstrapTopicRoot(panel)): boolean {
+  /** Publishes settings on the operational topic root unless a bootstrap root is explicitly supplied. */
+  publishPanelSettings(panel: Panel, force = false, topicRoot = panelTopicRoot(panel)): boolean {
     const defaultPlayer = panel.nativePluginInstances ? panel.nativePluginInstances['music'] : undefined;
     const configuredPlayers = this.configuredNativePagePlayers("music",defaultPlayer);
 
@@ -610,7 +610,7 @@ export class MqttRuntime {
         });
         return;
       }
-      this.publishPanelSettings(eventPanelRecord, true);
+      this.publishPanelSettings(eventPanelRecord, true, panelBootstrapTopicRoot(eventPanelRecord));
       return;
     }
     if (eventPanelRecord && eventRoot === eventPanelRecord.nodeName && topic === `${eventRoot}/event/ready`) {

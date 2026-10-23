@@ -57,7 +57,7 @@ export interface DiscoveredPanel {
 /** Latest reboot reason reported by one panel, with the manager's receipt time. */
 export interface PanelResetReport {
   reason: string;
-  /** Time the manager received the reset report; firmware reports the latest reset on MQTT connect. */
+  /** Time the manager received the diagnostic reply, not the time of the reboot. */
   reportedAt: number;
 }
 

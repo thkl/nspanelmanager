@@ -312,14 +312,41 @@
   }
 
   @if (screen() === 'instances') {
-  <article class="card instance-card">
+  <article class="card instance-list-card">
+    <div class="card-heading">
+      <div><h2>Plugin instances</h2><p>Select an instance to edit it. Assignments are managed in panel settings.</p></div>
+      <span class="count-badge">{{ manager.config().pluginInstances.length }}</span>
+    </div>
+    <label class="instance-sort">Sort instances by
+      <select [ngModel]="instanceSortBy()" (ngModelChange)="instanceSortBy.set($event)">
+        <option value="plugin">Plugin name</option>
+        <option value="name">Instance name</option>
+        <option value="panel">Panel name</option>
+      </select>
+    </label>
+    @if (manager.config().pluginInstances.length > 0) {
+      <div class="instance-list">
+        @for (instance of sortedInstances; track instance.id) {
+          <div class="instance-row" [class.selected]="editingInstanceId() === instance.id">
+            <button type="button" class="instance-select" [attr.aria-pressed]="editingInstanceId() === instance.id" (click)="editInstance(instance)">
+              <span class="instance-icon" aria-hidden="true">⌁</span>
+              <span class="instance-details"><b>{{ instance.name }}</b><span>{{ instancePluginName(instance) }}</span><code>{{ primaryTopic(instance) }}</code><small>Panels: {{ panelNames(instance).join(', ') || 'Not assigned' }}</small></span>
+            </button>
+            <div class="row-actions"><button class="text-danger" (click)="removeInstance(instance)">Remove</button></div>
+          </div>
+        }
+      </div>
+    } @else {
+      <div class="empty-state"><b>No plugin instances yet</b><span>Add a configured instance to connect device state and commands.</span></div>
+    }
+  </article>
+
+  <article class="card instance-editor-card">
     <div class="card-heading">
       <div><h2>{{ editingInstanceId() ? 'Edit instance' : 'Create an instance' }}</h2><p>Choose a saved plugin and give this device its own name and variable values.</p></div>
-      <div class="row-actions">
-        @if (editingInstanceId()) { <button type="button" class="text-action" (click)="cancelEdit()">＋ New instance</button> }
-        <span class="count-badge">{{ manager.config().pluginInstances.length }}</span>
-      </div>
+      @if (editingInstanceId()) { <button type="button" class="text-action" (click)="cancelEdit()">＋ New instance</button> }
     </div>
+    @if (manager.config().pluginProfiles.length > 0) {
     <div class="instance-form">
       <label>Instance name<input [ngModel]="instanceName()" (ngModelChange)="instanceName.set($event)" placeholder="Living room fan"></label>
       <label>Plugin
@@ -329,7 +356,7 @@
         </select>
       </label>
       <section class="instance-variables" aria-labelledby="instance-variables-heading">
-          <div class="field-heading">
+        <div class="field-heading">
           <div><span id="instance-variables-heading" class="field-label">Instance variables</span><small>{{ instanceVariableHelp() }}</small></div>
           <button type="button" class="text-action" (click)="addVariable()">＋ Add variable</button>
         </div>
@@ -355,28 +382,8 @@
         @if (editingInstanceId()) { <button class="button secondary" (click)="cancelEdit()">Cancel</button> }
       </div>
     </div>
-    <div class="card-heading instance-list-heading">
-      <div><h3>Configured instances</h3><p>Assign instances to panel screens, favorites, and buttons in the panel settings.</p></div>
-      <label class="instance-sort">Sort by
-        <select [ngModel]="instanceSortBy()" (ngModelChange)="instanceSortBy.set($event)">
-          <option value="plugin">Plugin name</option>
-          <option value="name">Instance name</option>
-          <option value="panel">Panel name</option>
-        </select>
-      </label>
-    </div>
-    @if (manager.config().pluginInstances.length > 0) {
-      <div class="instance-list">
-        @for (instance of sortedInstances; track instance.id) {
-          <div class="instance-row">
-            <div class="instance-icon">⌁</div>
-            <div class="instance-details"><b>{{ instance.name }}</b><span>{{ instancePluginName(instance) }}</span><code>{{ primaryTopic(instance) }}</code><small>Panels: {{ panelNames(instance).join(', ') || 'Not assigned' }}</small></div>
-            <div class="row-actions"><button class="text-action" (click)="editInstance(instance)">Edit</button><button class="text-danger" (click)="removeInstance(instance)">Remove</button></div>
-          </div>
-        }
-      </div>
     } @else {
-      <div class="empty-state"><b>No plugin instances yet</b><span>Add a configured instance to connect device state and commands.</span></div>
+      <div class="empty-state compact"><b>Create a plugin first</b><span>Save a plugin on the Plugins screen before creating an instance.</span></div>
     }
   </article>
   }

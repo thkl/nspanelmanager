@@ -4,7 +4,7 @@ import { defaultPanelSettings, type Panel } from "../types.js";
 import type { ConfigStore } from "../services/config-store.js";
 import type { MqttRuntime } from "../services/mqtt-runtime.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
-import { panelBootstrapTopicRoot } from "../domain/panel-topics.js";
+import { panelBootstrapTopicRoot, panelTopicRoot } from "../domain/panel-topics.js";
 
 /**
  * Creates the HTTP endpoints for panel profile lifecycle operations.
@@ -99,9 +99,14 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     const panel: Panel = { ...current, name, nodeName, settings, nativePluginInstances, panelEventPluginInstances };
     await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
     mqttRuntime.syncSubscriptions();
-    const published = mqttRuntime.publishPanelSettings(panel);
+    const settingsTopicRoot = current.nodeName !== nodeName
+      ? current.unifiedFirmware
+        ? panelBootstrapTopicRoot({ ...panel, nodeName: current.nodeName, macAddress: current.macAddress })
+        : current.nodeName
+      : panelTopicRoot(panel);
+    const published = mqttRuntime.publishPanelSettings(panel, false, settingsTopicRoot);
     if (!panel.unifiedFirmware) await mqttRuntime.refreshNativePanel(panel);
-    response.json({ panel, published, topic: `${panelBootstrapTopicRoot(panel)}/cmnd/settings` });
+    response.json({ panel, published, topic: `${settingsTopicRoot}/cmnd/settings` });
   });
 
   router.delete("/:id", async (request, response) => {
@@ -121,7 +126,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     const panel = store.get().panels.find((item) => item.id === request.params.id);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
     if (!mqttRuntime.publishPanelSettings(panel, true)) return response.status(503).json({ error: "The MQTT broker is not connected." });
-    response.json({ published: true, topic: `${panelBootstrapTopicRoot(panel)}/cmnd/settings` });
+    response.json({ published: true, topic: `${panelTopicRoot(panel)}/cmnd/settings` });
   });
 
   return router;
