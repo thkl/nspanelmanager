@@ -8,9 +8,7 @@ const MUSIC_PLAYER_ID_MAX = 10;
 interface SonosState {
   title: string;
   artist: string;
-  album: string;
   playbackState: "playing" | "paused_playback" | "stopped";
-  artUri: string;
   /** Unknown until the household status packet identifies this player. */
   isCoordinator?: boolean;
 }
@@ -216,9 +214,7 @@ function parseSonosState(payload: string): SonosState | undefined {
   const state: SonosState = {
     title: stringValue(value["title"]),
     artist: stringValue(value["artist"]),
-    album: stringValue(value["album"]),
-    playbackState,
-    artUri: stringValue(value["artUri"])
+    playbackState
   };
   if (typeof value["isCoordinator"] === "boolean") state.isCoordinator = value["isCoordinator"];
   return state;
@@ -267,9 +263,7 @@ function playerState(value: PluginState): SonosState {
   const state: SonosState = {
     title: stringValue(value["title"]),
     artist: stringValue(value["artist"]),
-    album: stringValue(value["album"]),
-    playbackState: playbackState === "playing" || playbackState === "paused_playback" ? playbackState : "stopped",
-    artUri: stringValue(value["artUri"])
+    playbackState: playbackState === "playing" || playbackState === "paused_playback" ? playbackState : "stopped"
   };
   if (typeof value["isCoordinator"] === "boolean") state.isCoordinator = value["isCoordinator"];
   return state;
@@ -298,8 +292,6 @@ function householdStateFor(instance: ResolvedPluginInstance, payload: string): P
   if (typeof player["currenttrack"] === "string") {
     patch["title"] = player["currenttrack"];
     patch["artist"] = "";
-    patch["album"] = "";
-    patch["artUri"] = "";
     const playbackState = householdPlaybackState(player["currentstate"], player["currenttrack"]);
     if (playbackState) patch["playbackState"] = playbackState;
   }

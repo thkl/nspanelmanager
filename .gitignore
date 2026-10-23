@@ -14,6 +14,8 @@ esphome/*
 !esphome/panel5.yaml
 !esphome/panel-unified.yaml
 !esphome/nspanel-unified.yaml
+!esphome/nspanel-recovery.yaml
+!esphome/nspanel-nextion-test.yaml
 !esphome/core_dump_transfer.h
 docs/security*.md
 **/data/

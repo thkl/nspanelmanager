@@ -1,13 +1,11 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.16"
+  firmware_version: "6.0.15"
 
 esphome:
   name: $hostname
   name_add_mac_suffix: true
   comment: $device_name
-  includes:
-    - core_dump_transfer.h
   on_boot:
     - priority: 900
       then:
@@ -56,16 +54,10 @@ esphome:
 
 esp32:
   board: esp32dev
-  partitions:
-    - name: coredump
-      type: data
-      subtype: coredump
-      size: 0x40000
   framework:
     type: esp-idf
     sdkconfig_options:
       CONFIG_MBEDTLS_CERTIFICATE_BUNDLE: "y"
-      CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH: "y"
 
 debug:
   update_interval: 30s
@@ -75,46 +67,6 @@ globals:
     type: std::string
     restore_value: yes
     initial_value: '""'
-
-  - id: core_dump_transfer_id
-    type: std::string
-    restore_value: no
-    initial_value: '""'
-
-  - id: core_dump_size
-    type: size_t
-    restore_value: no
-    initial_value: "0"
-
-  - id: core_dump_offset
-    type: size_t
-    restore_value: no
-    initial_value: "0"
-
-  - id: core_dump_chunk_index
-    type: uint32_t
-    restore_value: no
-    initial_value: "0"
-
-  - id: core_dump_chunk_count
-    type: uint32_t
-    restore_value: no
-    initial_value: "0"
-
-  - id: core_dump_transfer_started
-    type: bool
-    restore_value: no
-    initial_value: "false"
-
-  - id: core_dump_transfer_complete
-    type: bool
-    restore_value: no
-    initial_value: "false"
-
-  - id: core_dump_transfer_failed
-    type: bool
-    restore_value: no
-    initial_value: "false"
 
   - id: panelname
     #type: char
@@ -434,88 +386,6 @@ script:
             if (id(debug_heap_block).has_state()) root["largest_free_block_bytes"] = id(debug_heap_block).state;
             if (id(debug_loop_time).has_state()) root["loop_time_ms"] = id(debug_loop_time).state;
             if (id(panel_chip_temperature).has_state()) root["chip_temperature_c"] = id(panel_chip_temperature).state;
-
-  - id: publish_core_dump
-    mode: single
-    then:
-      - lambda: |-
-          if (id(core_dump_transfer_started) || id(core_dump_transfer_complete)) return;
-
-          nspanel_crash_dump::Image image;
-          if (!nspanel_crash_dump::inspect(image)) return;
-
-          id(core_dump_size) = image.size;
-          id(core_dump_offset) = 0;
-          id(core_dump_chunk_index) = 0;
-          id(core_dump_chunk_count) = (image.size + nspanel_crash_dump::CHUNK_SIZE - 1) / nspanel_crash_dump::CHUNK_SIZE;
-          id(core_dump_transfer_failed) = false;
-
-          char transfer_id[9];
-          snprintf(transfer_id, sizeof(transfer_id), "%08x", static_cast<unsigned int>(esp_random()));
-          id(core_dump_transfer_id) = transfer_id;
-          id(core_dump_transfer_started) = true;
-
-          const std::string topic = id(panel_mqtt_client).get_active_topic_prefix() + "/event/crashdump/manifest";
-          const std::string panic_reason = nspanel_crash_dump::panic_reason();
-          const bool published = id(mqtt_client).publish_json(topic, [=](JsonObject root) {
-            root["dump_id"] = transfer_id;
-            root["firmware_version"] = "$firmware_version";
-            root["size_bytes"] = image.size;
-            root["chunk_size"] = nspanel_crash_dump::CHUNK_SIZE;
-            root["chunk_count"] = id(core_dump_chunk_count);
-            if (!panic_reason.empty()) root["panic_reason"] = panic_reason;
-          }, 1, false);
-          if (!published) {
-            id(core_dump_transfer_started) = false;
-            id(core_dump_transfer_failed) = true;
-          }
-      - repeat:
-          count: 900
-          then:
-            - if:
-                condition:
-                  lambda: return id(core_dump_transfer_started) && !id(core_dump_transfer_failed) && id(core_dump_offset) < id(core_dump_size);
-                then:
-                  - lambda: |-
-                      nspanel_crash_dump::Image image;
-                      if (!nspanel_crash_dump::locate(image, id(core_dump_size))) {
-                        id(core_dump_transfer_failed) = true;
-                        return;
-                      }
-
-                      std::string encoded;
-                      size_t raw_size = 0;
-                      if (!nspanel_crash_dump::read_base64_chunk(image, id(core_dump_offset), encoded, raw_size)) {
-                        id(core_dump_transfer_failed) = true;
-                        return;
-                      }
-
-                      const std::string topic = id(panel_mqtt_client).get_active_topic_prefix() + "/event/crashdump/chunk";
-                      const std::string transfer_id = id(core_dump_transfer_id);
-                      const uint32_t chunk_index = id(core_dump_chunk_index);
-                      const bool published = id(mqtt_client).publish_json(topic, [=](JsonObject root) {
-                        root["dump_id"] = transfer_id;
-                        root["index"] = chunk_index;
-                        root["data"] = encoded;
-                      }, 1, false);
-                      if (!published) {
-                        id(core_dump_transfer_failed) = true;
-                        return;
-                      }
-
-                      id(core_dump_offset) += raw_size;
-                      id(core_dump_chunk_index)++;
-                  - delay: 25ms
-      - if:
-          condition:
-            lambda: return id(core_dump_transfer_started) && !id(core_dump_transfer_failed) && id(core_dump_offset) == id(core_dump_size);
-          then:
-            - mqtt.publish_json:
-                topic: !lambda return id(panel_mqtt_client).get_active_topic_prefix() + "/event/crashdump/complete";
-                payload: |-
-                  root["dump_id"] = id(core_dump_transfer_id);
-                qos: 1
-      - lambda: id(core_dump_transfer_started) = false;
 
   - id: publish_panel_ready
     then:
@@ -1163,51 +1033,10 @@ mqtt:
                 pending_firmware_job_id->update();
                 pending_firmware_version->update();
                 esphome::global_preferences->sync();
-      - if:
-          condition:
-            lambda: return !id(core_dump_transfer_complete);
-          then:
-            - delay: 1s
-            - script.execute: publish_core_dump
-  on_disconnect:
-    then:
-      - lambda: |-
-          if (!id(core_dump_transfer_complete)) {
-            id(core_dump_transfer_started) = false;
-            id(core_dump_transfer_failed) = false;
-            id(core_dump_offset) = 0;
-            id(core_dump_chunk_index) = 0;
-          }
-
-interval:
-  - interval: 60s
-    then:
-      - if:
-          condition:
-            lambda: return !id(core_dump_transfer_complete) && !id(core_dump_transfer_started);
-          then:
-            - script.execute: publish_core_dump
 
 panel_mqtt:
   id: panel_mqtt_client
   on_json_message:
-
-    - topic: cmnd/crashdump/ack
-      then:
-        - lambda: |-
-            if (!x["dump_id"].is<std::string>() || x["dump_id"].as<std::string>() != id(core_dump_transfer_id)) return;
-            if (esp_core_dump_image_erase() == ESP_OK) {
-              id(core_dump_transfer_started) = false;
-              id(core_dump_transfer_complete) = true;
-              id(core_dump_size) = 0;
-              id(core_dump_offset) = 0;
-              id(core_dump_chunk_index) = 0;
-              id(core_dump_chunk_count) = 0;
-              id(core_dump_transfer_id).clear();
-              ESP_LOGI("crashdump", "Manager confirmed receipt; erased the uploaded core dump.");
-            } else {
-              ESP_LOGW("crashdump", "Manager confirmed receipt, but the core dump partition could not be erased.");
-            }
 
     - topic: cmnd/beep
       then:

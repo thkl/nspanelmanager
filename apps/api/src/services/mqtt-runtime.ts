@@ -937,6 +937,7 @@ export class MqttRuntime {
   }
 
   private async dispatchPluginMessage(instances: ResolvedPluginInstance[], message: MqttMessageEnvelope): Promise<void> {
+    const nativePanelRefreshes = new Map<string, { instance: ResolvedPluginInstance; state: PluginState }>();
     for (const instance of instances) {
       if (!instance.enabled) continue;
       const definition = this.plugins.get(instance.pluginId);
@@ -947,9 +948,20 @@ export class MqttRuntime {
       const state = { ...previousState, ...patch };
       await this.setPluginState(instance, state);
       await this.refreshBoundPanels(instance, state);
-      await this.refreshNativePanelStates(instance, state);
+      if (definition.renderNativePanelState && definition.nativePanelPage) {
+        const refreshKey = definition.nativePanelSharedInstances
+          ? `shared:${definition.id}:${definition.nativePanelPage}`
+          : `instance:${instance.id}`;
+        nativePanelRefreshes.set(refreshKey, { instance, state });
+      }
       await this.refreshAssignedPanelStates(instance, state, previousState, patch);
       await this.refreshHomeTileStates(instance, state);
+    }
+
+    // One MQTT packet can update several instances of a shared page. Render
+    // that page once after all matching instance states have been persisted.
+    for (const { instance, state } of nativePanelRefreshes.values()) {
+      await this.refreshNativePanelStates(instance, state);
     }
   }
 
