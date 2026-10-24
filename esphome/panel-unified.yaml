@@ -1588,6 +1588,10 @@ panel_mqtt:
                         (previous_selected_track != id(sonosTrackByPlayer)[selected_player] ||
                          previous_selected_state != id(sonosPlaybackStateByPlayer)[selected_player] ||
                          previous_selected_coordinator != id(sonosCoordinatorByPlayer)[selected_player])) {
+                      if (previous_selected_track != id(sonosTrackByPlayer)[selected_player] &&
+                          !id(sleeping) && id(currentPage) == "page0") {
+                        id(update_time)->execute();
+                      }
                       if ($diagnostic_skip_music_display) {
                         ESP_LOGW("music", "Diagnostic build skipped music display refresh");
                       } else {

@@ -1523,6 +1523,10 @@ export class MqttRuntime {
       id: randomUUID(), name: target.name, panelId: panel.id,
       pluginInstanceId: target.id, trigger: binding.trigger
     };
+    if (targetDefinition.handleFavoritePress) {
+      await this.executeDirectFavoritePress(panel, targetBinding, target, targetDefinition);
+      return;
+    }
     const ancestors = [...(session.ancestors ?? []), {
       bindingId: session.bindingId,
       pluginInstanceId: session.pluginInstanceId,
@@ -1544,6 +1548,32 @@ export class MqttRuntime {
       ancestors
     });
     await this.renderBinding(panel, targetBinding, target, screen);
+  }
+
+  /** Runs a favorite action without opening or changing a plugin screen. */
+  private async executeDirectFavoritePress(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance, definition: PluginDefinition): Promise<void> {
+    if (!definition.handleFavoritePress) return;
+    try {
+      const previousState = this.runtimeState.getPluginState(instance.id);
+      const result = await definition.handleFavoritePress(
+        instance,
+        panel,
+        binding,
+        previousState,
+        this.createPluginContext(panel, binding, instance)
+      );
+      const nextState = result?.statePatch ? { ...previousState, ...result.statePatch } : previousState;
+      if (result?.statePatch) await this.setPluginState(instance, nextState);
+      for (const command of result?.commands ?? []) {
+        if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.lastError = detail;
+      this.logger.error("Direct favorite action failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "favorite press", detail
+      });
+    }
   }
 
   /** Sends a favorite native page's normalized state only while that flow is active. */
@@ -1582,6 +1612,10 @@ export class MqttRuntime {
       const instance = binding && instances.find((item) => item.id === binding.pluginInstanceId && item.enabled);
       const definition = instance && this.plugins.get(instance.pluginId);
       if (!binding || !instance || !definition) return;
+      if (definition.handleFavoritePress) {
+        await this.executeDirectFavoritePress(panel, binding, instance, definition);
+        return;
+      }
       const startScreen = definition.startScreen?.(instance) ?? "overview";
       await this.runtimeState.setPanelSession(panel.id, {
         bindingId: binding.id,
