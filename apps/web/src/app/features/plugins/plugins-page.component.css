@@ -167,10 +167,28 @@
     gap: 14px;
 }
 
+.instance-tree-tools {
+    display: grid;
+    gap: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+}
+
+.instance-search input {
+    width: 100%;
+}
+
+.instance-tree-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 8px 14px;
+}
+
 .instance-sort {
     display: grid;
-    gap: 7px;
-    margin-bottom: 14px;
+    width: min(190px, 100%);
+    gap: 6px;
 }
 
 .instance-sort select {
@@ -936,12 +954,102 @@ label small {
     font-weight: 700;
 }
 
-.instance-list {
+.instance-tree {
     display: grid;
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+}
+
+.instance-group {
+    min-width: 0;
+    border-top: 1px solid var(--line);
+}
+
+.instance-group:first-child {
+    border-top: 0;
+}
+
+.instance-group-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 43px;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 4px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.instance-group-toggle:hover,
+.instance-group-toggle:focus-visible {
+    background: var(--surface-subtle);
+}
+
+.instance-group-toggle:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 1px;
+}
+
+.instance-group-toggle b {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.instance-group-chevron {
+    display: inline-block;
+    width: 12px;
+    color: var(--ink-faint);
+    font-size: 20px;
+    line-height: 1;
+    transform: rotate(0deg);
+    transition: transform 120ms ease;
+}
+
+.instance-group-chevron.open {
+    transform: rotate(90deg);
+}
+
+.instance-group-icon {
+    color: var(--green-dark);
+    font-size: 14px;
+}
+
+.instance-group-count {
+    display: inline-grid;
+    min-width: 22px;
+    height: 22px;
+    place-items: center;
+    padding: 0 6px;
+    border-radius: 99px;
+    background: var(--canvas-soft);
+    color: var(--ink-soft);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.instance-group-children {
+    margin: 0 0 8px 11px;
+    padding-left: 12px;
+    border-left: 1px solid var(--line-strong);
+}
+
+.instance-group-children[hidden] {
+    display: none;
+}
+
+.instance-no-matches {
+    margin-top: 12px;
 }
 
 .instance-row {
@@ -1083,7 +1191,7 @@ label small {
         max-height: none;
     }
 
-    .instance-list {
+    .instance-tree {
         overflow: visible;
     }
 

@@ -317,25 +317,48 @@
       <div><h2>Plugin instances</h2><p>Select an instance to edit it. Assignments are managed in panel settings.</p></div>
       <span class="count-badge">{{ manager.config().pluginInstances.length }}</span>
     </div>
-    <label class="instance-sort">Sort instances by
-      <select [ngModel]="instanceSortBy()" (ngModelChange)="instanceSortBy.set($event)">
-        <option value="plugin">Plugin name</option>
-        <option value="name">Instance name</option>
-        <option value="panel">Panel name</option>
-      </select>
-    </label>
     @if (manager.config().pluginInstances.length > 0) {
-      <div class="instance-list">
-        @for (instance of sortedInstances; track instance.id) {
-          <div class="instance-row" [class.selected]="editingInstanceId() === instance.id">
-            <button type="button" class="instance-select" [attr.aria-pressed]="editingInstanceId() === instance.id" (click)="editInstance(instance)">
-              <span class="instance-icon" aria-hidden="true">⌁</span>
-              <span class="instance-details"><b>{{ instance.name }}</b><span>{{ instancePluginName(instance) }}</span><code>{{ primaryTopic(instance) }}</code><small>Panels: {{ panelNames(instance).join(', ') || 'Not assigned' }}</small></span>
+    <div class="instance-tree-tools">
+      <label class="instance-search">Search instances
+        <input type="search" [ngModel]="instanceSearch()" (ngModelChange)="setInstanceSearch($event)" placeholder="Name, plugin, topic, or panel">
+      </label>
+      <div class="instance-tree-actions">
+        <label class="instance-sort">Sort within groups
+          <select [ngModel]="instanceSortBy()" (ngModelChange)="instanceSortBy.set($event)">
+            <option value="name">Instance name</option>
+            <option value="panel">Panel name</option>
+          </select>
+        </label>
+        <button type="button" class="text-action" (click)="expandInstanceGroups()">Expand all</button>
+        <button type="button" class="text-action" (click)="collapseInstanceGroups()">Collapse all</button>
+      </div>
+    </div>
+      <div class="instance-tree" role="list" aria-label="Plugin instances grouped by plugin">
+        @for (group of instanceGroups; track group.id) {
+          <section class="instance-group" role="listitem">
+            <button type="button" class="instance-group-toggle" [attr.aria-expanded]="instanceGroupExpanded(group.id)" [attr.aria-controls]="'instance-group-' + group.id" (click)="toggleInstanceGroup(group.id)">
+              <span class="instance-group-chevron" [class.open]="instanceGroupExpanded(group.id)" aria-hidden="true">›</span>
+              <span class="instance-group-icon" aria-hidden="true">▰</span>
+              <b>{{ group.name }}</b>
+              <span class="instance-group-count">{{ group.instances.length }}</span>
             </button>
-            <div class="row-actions"><button class="text-danger" (click)="removeInstance(instance)">Remove</button></div>
-          </div>
+            <div class="instance-group-children" [id]="'instance-group-' + group.id" role="list" [hidden]="!instanceGroupExpanded(group.id)">
+              @for (instance of group.instances; track instance.id) {
+                <div class="instance-row" role="listitem" [class.selected]="editingInstanceId() === instance.id">
+                  <button type="button" class="instance-select" [attr.aria-pressed]="editingInstanceId() === instance.id" (click)="editInstance(instance)">
+                    <span class="instance-icon" aria-hidden="true">⌁</span>
+                    <span class="instance-details"><b>{{ instance.name }}</b><code>{{ primaryTopic(instance) }}</code><small>Panels: {{ panelNames(instance).join(', ') || 'Not assigned' }}</small></span>
+                  </button>
+                  <div class="row-actions"><button class="text-danger" (click)="removeInstance(instance)">Remove</button></div>
+                </div>
+              }
+            </div>
+          </section>
         }
       </div>
+      @if (instanceGroups.length === 0) {
+        <div class="empty-state compact instance-no-matches"><b>No matching instances</b><span>Try a different name, plugin, topic, or panel.</span></div>
+      }
     } @else {
       <div class="empty-state"><b>No plugin instances yet</b><span>Add a configured instance to connect device state and commands.</span></div>
     }

@@ -18,6 +18,13 @@ interface PageActionEntry {
   action: Record<string, string>;
 }
 
+interface PluginInstanceGroup {
+  id: string;
+  name: string;
+  pluginTypeName: string;
+  instances: PluginInstance[];
+}
+
 /**
  * Configures reusable plugin profiles and per-device instances. Registry
  * schemas drive the profile editor; panel favorite bindings live with panels.
@@ -43,6 +50,9 @@ export class PluginsPageComponent implements OnInit {
   readonly instanceConfig = signal<Record<string, PluginConfigValue>>({});
   readonly instanceVariables = signal<Record<string, string>>({});
   readonly editingInstanceId = signal<string | null>(null);
+  readonly instanceSearch = signal("");
+  readonly expandedInstanceGroups = signal<Set<string>>(new Set());
+  readonly collapsedSearchInstanceGroups = signal<Set<string>>(new Set());
   readonly previewPageId = signal("overview");
   readonly previewTopic = signal("home/device/state");
   readonly previewPayload = signal("{}");
@@ -54,7 +64,7 @@ export class PluginsPageComponent implements OnInit {
   readonly scriptChecks = signal<Record<string, ScriptCheckState>>({});
   readonly savingInstance = signal(false);
   readonly savingProfile = signal(false);
-  readonly instanceSortBy = signal<"plugin" | "name" | "panel">("plugin");
+  readonly instanceSortBy = signal<"name" | "panel">("name");
   readonly buttonSlots = Array.from({ length: 8 }, (_, index) => String(index + 1));
 
   /** Provides shared configuration and typed API operations for this page. */
@@ -588,6 +598,12 @@ export class PluginsPageComponent implements OnInit {
       next: ({ instance }) => {
         this.savingInstance.set(false);
         this.editingInstanceId.set(instance.id);
+        this.expandedInstanceGroups.update((expanded) => new Set(expanded).add(instance.pluginProfileId));
+        this.collapsedSearchInstanceGroups.update((collapsed) => {
+          const next = new Set(collapsed);
+          next.delete(instance.pluginProfileId);
+          return next;
+        });
         this.instanceName.set(instance.name);
         this.selectedPluginProfileId.set(instance.pluginProfileId);
         this.instanceVariables.set(this.withProfileVariableDefaults(instance.pluginProfileId, instance.variables ?? {}));
@@ -604,6 +620,12 @@ export class PluginsPageComponent implements OnInit {
   /** Loads a saved device instance and its profile reference into the instance editor. */
   editInstance(instance: PluginInstance): void {
     this.editingInstanceId.set(instance.id);
+    this.expandedInstanceGroups.update((expanded) => new Set(expanded).add(instance.pluginProfileId));
+    this.collapsedSearchInstanceGroups.update((collapsed) => {
+      const next = new Set(collapsed);
+      next.delete(instance.pluginProfileId);
+      return next;
+    });
     this.instanceName.set(instance.name);
     this.selectedPluginProfileId.set(instance.pluginProfileId);
     this.instanceVariables.set(this.withProfileVariableDefaults(instance.pluginProfileId, instance.variables ?? {}));
@@ -728,26 +750,88 @@ export class PluginsPageComponent implements OnInit {
 
   /** Resolves plugin metadata for a saved instance row. */
   pluginName(pluginId: string): string { return this.definitions().find((item) => item.id === pluginId)?.name ?? pluginId; }
-  /** Resolves the reusable plugin name referenced by one device instance. */
-  instancePluginName(instance: PluginInstance): string {
-    return this.manager.config().pluginProfiles.find((profile) => profile.id === instance.pluginProfileId)?.name ?? "Removed plugin";
-  }
-  /** Returns instances ordered by plugin, instance name, or their assigned panel names. */
-  get sortedInstances(): PluginInstance[] {
-    const instances = [...this.manager.config().pluginInstances];
+  /** Groups saved instances by reusable plugin profile and applies search and child sorting. */
+  get instanceGroups(): PluginInstanceGroup[] {
+    const groups = new Map<string, PluginInstanceGroup>();
+    const query = this.instanceSearch().trim().toLocaleLowerCase();
+    const instances = this.manager.config().pluginInstances;
+    for (const instance of instances) {
+      const profile = this.manager.config().pluginProfiles.find((candidate) => candidate.id === instance.pluginProfileId);
+      const group = groups.get(instance.pluginProfileId) ?? {
+        id: instance.pluginProfileId,
+        name: profile?.name ?? "Removed plugin",
+        pluginTypeName: profile ? this.pluginName(profile.pluginId) : "",
+        instances: []
+      };
+      group.instances.push(instance);
+      groups.set(instance.pluginProfileId, group);
+    }
     const sortBy = this.instanceSortBy();
-    return instances.sort((left, right) => {
-      let comparison = 0;
-      if (sortBy === "plugin") {
-        comparison = this.instancePluginName(left).localeCompare(this.instancePluginName(right), undefined, { sensitivity: "base" });
-      } else if (sortBy === "panel") {
-        const leftPanels = this.panelNames(left);
-        const rightPanels = this.panelNames(right);
-        comparison = Number(leftPanels.length === 0) - Number(rightPanels.length === 0)
-          || leftPanels.join(", ").localeCompare(rightPanels.join(", "), undefined, { sensitivity: "base" });
-      }
-      return comparison || left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+    return [...groups.values()].flatMap((group) => {
+      const groupMatches = group.name.toLocaleLowerCase().includes(query) || group.pluginTypeName.toLocaleLowerCase().includes(query);
+      const matchingInstances = group.instances.filter((instance) => {
+        if (!query || groupMatches) return true;
+        const searchable = [instance.name, this.primaryTopic(instance), ...this.panelNames(instance)].join(" ").toLocaleLowerCase();
+        return searchable.includes(query);
+      });
+      if (!matchingInstances.length) return [];
+      matchingInstances.sort((left, right) => {
+        if (sortBy === "panel") {
+          const leftPanels = this.panelNames(left);
+          const rightPanels = this.panelNames(right);
+          const comparison = Number(leftPanels.length === 0) - Number(rightPanels.length === 0)
+            || leftPanels.join(", ").localeCompare(rightPanels.join(", "), undefined, { sensitivity: "base" });
+          if (comparison) return comparison;
+        }
+        return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+      });
+      return [{ ...group, instances: matchingInstances }];
+    }).sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+  }
+  /** Returns whether a plugin group is open; a search expands groups containing matches. */
+  instanceGroupExpanded(groupId: string): boolean {
+    return this.instanceSearch().trim()
+      ? !this.collapsedSearchInstanceGroups().has(groupId)
+      : this.expandedInstanceGroups().has(groupId);
+  }
+  /** Updates search text and resets temporary group collapses for the new query. */
+  setInstanceSearch(value: string): void {
+    this.instanceSearch.set(value);
+    this.collapsedSearchInstanceGroups.set(new Set());
+  }
+  /** Toggles one plugin profile's instance group. */
+  toggleInstanceGroup(groupId: string): void {
+    if (this.instanceSearch().trim()) {
+      this.collapsedSearchInstanceGroups.update((collapsed) => {
+        const next = new Set(collapsed);
+        if (next.has(groupId)) next.delete(groupId);
+        else next.add(groupId);
+        return next;
+      });
+      return;
+    }
+    this.expandedInstanceGroups.update((expanded) => {
+      const next = new Set(expanded);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
     });
+  }
+  /** Opens every currently visible plugin group. */
+  expandInstanceGroups(): void {
+    if (this.instanceSearch().trim()) {
+      this.collapsedSearchInstanceGroups.set(new Set());
+      return;
+    }
+    this.expandedInstanceGroups.set(new Set(this.instanceGroups.map((group) => group.id)));
+  }
+  /** Closes every plugin group. */
+  collapseInstanceGroups(): void {
+    if (this.instanceSearch().trim()) {
+      this.collapsedSearchInstanceGroups.set(new Set(this.instanceGroups.map((group) => group.id)));
+      return;
+    }
+    this.expandedInstanceGroups.set(new Set());
   }
   /** Lists panels where an instance is assigned to a favorite, built-in page, observer, or home tile. */
   panelNames(instance: PluginInstance): string[] {
