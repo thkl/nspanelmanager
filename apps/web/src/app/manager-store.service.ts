@@ -389,6 +389,11 @@ export class ManagerStore {
     return this.http.post<{ published: boolean; topic: string }>(`/api/panels/${panel.id}/apply`, {});
   }
 
+  /** Requests a firmware reboot for one online panel. */
+  rebootPanel(panelId: string): Observable<{ published: boolean; topic: string }> {
+    return this.http.post<{ published: boolean; topic: string }>(`/api/panels/${encodeURIComponent(panelId)}/reboot`, {});
+  }
+
   /** Removes a panel and lets the API remove routes tied to that profile. */
   removePanel(panel: Panel): Observable<void> {
     return this.http.delete<void>(`/api/panels/${panel.id}`).pipe(tap(() => {

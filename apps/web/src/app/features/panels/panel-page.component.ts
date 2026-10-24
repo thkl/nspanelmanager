@@ -38,6 +38,7 @@ export class PanelPageComponent implements OnInit {
   readonly copyTargetPanelId = signal("");
   readonly copyingPanelSettings = signal(false);
   readonly saving = signal(false);
+  readonly rebootingPanelId = signal("");
   readonly coreDump = signal<CoreDumpRecord | null>(null);
   readonly coreDumpLoading = signal(false);
   readonly downloadingCoreDump = signal(false);
@@ -395,6 +396,24 @@ export class PanelPageComponent implements OnInit {
       error: (error) => {
         this.saving.set(false);
         this.manager.inform(error.error?.error || "Could not apply panel settings.", "error");
+      }
+    });
+  }
+
+  /** Sends the firmware-supported reboot command after confirming the selected panel is online. */
+  rebootPanel(panel: Panel): void {
+    if (this.rebootingPanelId() || !this.manager.mqtt().connected
+      || this.manager.panelConnections()[panel.nodeName]?.status !== "online") return;
+    if (!confirm(`Reboot ${panel.name}? The panel will briefly go offline.`)) return;
+    this.rebootingPanelId.set(panel.id);
+    this.manager.rebootPanel(panel.id).subscribe({
+      next: ({ topic }) => {
+        this.rebootingPanelId.set("");
+        this.manager.inform(`Reboot command sent to ${panel.name} on ${topic}.`);
+      },
+      error: (error) => {
+        this.rebootingPanelId.set("");
+        this.manager.inform(error.error?.error || "Could not send the reboot command.", "error");
       }
     });
   }

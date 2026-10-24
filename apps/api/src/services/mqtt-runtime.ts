@@ -422,6 +422,11 @@ export class MqttRuntime {
     return published;
   }
 
+  /** Requests an immediate reboot through the panel firmware's supported command topic. */
+  rebootPanel(panel: Panel): boolean {
+    return this.publish(`${panelTopicRoot(panel)}/cmnd/reboot`, "");
+  }
+
   /** Assigns a unified panel's operational topic root, then waits for its ready report before sending full settings. */
   publishPanelIdentityAssignment(panel: Panel, topicRoot = panelBootstrapTopicRoot(panel)): boolean {
     const topic = `${topicRoot}/cmnd/identity`;

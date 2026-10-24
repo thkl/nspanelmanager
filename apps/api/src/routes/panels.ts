@@ -13,9 +13,9 @@ import { panelBootstrapTopicRoot, panelTopicRoot } from "../domain/panel-topics.
  * `GET /status` returns in-memory MQTT connectivity, `POST /` creates a profile,
  * `PUT /:id` normalizes and publishes changed settings, `POST /:id/copy-settings`
  * copies a saved profile onto another panel while retaining its identity,
- * `DELETE /:id` removes its associated routes, and `POST /:id/apply` manually
- * resends the profile to firmware. Broker setup and generic MQTT route editing
- * live in separate routers.
+ * `POST /:id/reboot` requests a firmware reboot, `DELETE /:id` removes its
+ * associated routes, and `POST /:id/apply` manually resends the profile to
+ * firmware. Broker setup and generic MQTT route editing live in separate routers.
  */
 export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry): Router {
   const router = Router();
@@ -209,6 +209,17 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     if (!panel) return response.status(404).json({ error: "Panel not found." });
     if (!mqttRuntime.publishPanelSettings(panel, true)) return response.status(503).json({ error: "The MQTT broker is not connected." });
     response.json({ published: true, topic: `${panelTopicRoot(panel)}/cmnd/settings` });
+  });
+
+  router.post("/:id/reboot", (request, response) => {
+    const panel = store.get().panels.find((item) => item.id === request.params.id);
+    if (!panel) return response.status(404).json({ error: "Panel not found." });
+    if (!mqttRuntime.status().connected) return response.status(503).json({ error: "The MQTT broker is not connected." });
+    const connection = mqttRuntime.panelConnectionStatuses().find((item) => item.panelId === panel.id);
+    if (connection?.status !== "online") return response.status(409).json({ error: `${panel.name} must be online before it can be rebooted.` });
+    if (!mqttRuntime.rebootPanel(panel)) return response.status(503).json({ error: "The MQTT broker disconnected before the reboot request could be sent." });
+    const topic = `${panelTopicRoot(panel)}/cmnd/reboot`;
+    response.json({ published: true, topic });
   });
 
   return router;
