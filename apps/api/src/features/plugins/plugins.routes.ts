@@ -88,7 +88,7 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const config = normalizePluginConfig(definition, request.body?.config);
     const error = definition.validateConfig(config);
     if (error) return response.status(400).json({ error });
-    const startupError = await validateStartupScript(config, {});
+    const startupError = await validateConfiguredScripts(config, {});
     if (startupError) return response.status(400).json({ error: startupError });
     const profile: PluginProfile = { id: randomUUID(), name, pluginId: definition.id, config };
     await store.update((current) => { current.pluginProfiles.push(profile); });
@@ -106,7 +106,7 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const config = normalizePluginConfig(definition, request.body?.config);
     const error = definition.validateConfig(config);
     if (error) return response.status(400).json({ error });
-    const startupError = await validateStartupScript(config, {});
+    const startupError = await validateConfiguredScripts(config, {});
     if (startupError) return response.status(400).json({ error: startupError });
     const profile: PluginProfile = { ...current, name, pluginId: definition.id, config };
     for (const instance of store.get().pluginInstances.filter((item) => item.pluginProfileId === profile.id)) {
@@ -368,10 +368,14 @@ function clearFavoriteBinding(panels: ReturnType<ConfigStore["get"]>["panels"], 
 function isConfigValue(value: unknown): value is PluginConfigValue {
   return typeof value === "string" || typeof value === "number" && Number.isFinite(value) || typeof value === "boolean";
 }
-async function validateStartupScript(config: Record<string, PluginConfigValue>, variables: Record<string, string>): Promise<string | undefined> {
-  const source = config["startupCode"];
-  if (typeof source !== "string" || !source.trim()) return undefined;
-  return await checkScriptSyntax(source, variables);
+async function validateConfiguredScripts(config: Record<string, PluginConfigValue>, variables: Record<string, string>): Promise<string | undefined> {
+  for (const key of ["startupCode", "buttonPressCode"]) {
+    const source = config[key];
+    if (typeof source !== "string" || !source.trim()) continue;
+    const error = await checkScriptSyntax(source, variables);
+    if (error) return error;
+  }
+  return undefined;
 }
 function stringValue(value: unknown): string { return typeof value === "string" ? value : ""; }
 

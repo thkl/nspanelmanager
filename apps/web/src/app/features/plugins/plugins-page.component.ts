@@ -415,7 +415,7 @@ export class PluginsPageComponent implements OnInit {
   }
 
   /** Identifies standalone JavaScript settings that need an editor and syntax check. */
-  isScriptField(field: PluginConfigField): boolean { return field.key === "startupCode"; }
+  isScriptField(field: PluginConfigField): boolean { return field.key === "startupCode" || field.key === "buttonPressCode"; }
 
   /** Returns startup-script syntax feedback only while it matches the current draft. */
   scriptFieldCheckState(field: PluginConfigField): ScriptCheckState | undefined {

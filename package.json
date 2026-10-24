@@ -1,7 +1,7 @@
 {
   "name": "nspanel-manager",
   "private": true,
-  "packageManager": "pnpm@11.21.0",
+  "packageManager": "pnpm@12.15.0",
   "engines": {
     "node": ">=24.22.1 <25"
   },
@@ -10,6 +10,8 @@
     "dev": "pnpm --parallel --filter @nspanel/api --filter @nspanel/web dev",
     "build": "pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api build",
     "firmware:compile": "node scripts/compile-unified-firmware.mjs",
-    "security:keygen": "pnpm --filter @nspanel/api security:keygen"
+    "security:keygen": "pnpm --filter @nspanel/api security:keygen",
+    "checkupdates": "npx npm-check-updates --target minor --removeRange",
+    "doupdates": "npx npm-check-updates --target minor --removeRange -u"
   }
 }
