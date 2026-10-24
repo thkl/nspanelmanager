@@ -1,6 +1,8 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
   firmware_version: "6.0.15"
+  diagnostic_ignore_music_commands: "false"
+  diagnostic_skip_music_display: "false"
 
 esphome:
   name: $hostname
@@ -352,6 +354,16 @@ globals:
     restore_value: no
     initial_value: '""'
 
+  - id: lastHomeSong
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: homeSongCacheValid
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
 # HMI ID Tanslation for mainScreen Icons
 # 0 : Lamp (4)
 # 1 : Bulb (6)
@@ -524,6 +536,23 @@ script:
                   id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/display").c_str(),"booted");
                 }
 
+                if (!id(sleeping) && id(currentPage) == "page0") {
+                  const int selected_player = id(selectedMusicPlayer);
+                  std::string current_song = "[STOP]";
+                  if (selected_player >= 0 &&
+                      selected_player < static_cast<int>(id(sonosTrackByPlayer).size())) {
+                    current_song = id(sonosTrackByPlayer)[selected_player];
+                    if (current_song.empty()) current_song = "[STOP]";
+                  }
+                  id(sonosTrack) = current_song;
+                  if (!id(homeSongCacheValid) || current_song != id(lastHomeSong)) {
+                    id(disp1).send_command_printf("page0.vCurrentSong.txt=\"%s\"", current_song.c_str());
+                    id(disp1).set_component_text("p0bMusic", current_song.c_str());
+                    id(lastHomeSong) = current_song;
+                    id(homeSongCacheValid) = true;
+                  }
+                }
+
                 // Keep the clock current while the screensaver is visible as well.
                 auto timeNow = id(sntp_time).now();
                 if (!timeNow.is_valid()) {
@@ -581,7 +610,6 @@ script:
       - lambda: |-
                 if (id(currentPage)=="page0") {
                   id(disp1).send_command_printf("page0.vaInfo.txt=\"%s\"", id(mqtt_favText).state.c_str());
-                  id(disp1).send_command_printf("page0.vCurrentSong.txt=\"%s\"",id(sonosTrack).c_str());
                   id(disp1).send_command_printf("page0.bInfo.pco=65535");
                 }
 
@@ -788,8 +816,12 @@ script:
                 }
 
                 if (id(currentPage)=="page0") {
-                  id(disp1).send_command_printf("page0.vCurrentSong.txt=\"%s\"",id(sonosTrack).c_str());
-                  id(disp1).set_component_text("p0bMusic", id(sonosTrack).c_str());
+                  if (!id(homeSongCacheValid) || id(sonosTrack) != id(lastHomeSong)) {
+                    id(disp1).send_command_printf("page0.vCurrentSong.txt=\"%s\"", id(sonosTrack).c_str());
+                    id(disp1).set_component_text("p0bMusic", id(sonosTrack).c_str());
+                    id(lastHomeSong) = id(sonosTrack);
+                    id(homeSongCacheValid) = true;
+                  }
                 }
 
                 if (id(currentPage)=="pageMusic") {
@@ -845,6 +877,14 @@ script:
                   }
                 }
 
+
+  - id: refresh_music_after_snapshot
+    mode: restart
+    then:
+      - delay: 750ms
+      - script.execute:
+          id: update_music
+          single: false
 
   - id: update_level
     then:
@@ -1391,7 +1431,13 @@ panel_mqtt:
                   id: update_music
                   single: false
               - lambda: |-
-                  if (!id(sleeping)) id(disp1).send_command_printf("page 0");
+                  if (!id(sleeping)) {
+                    id(currentPage) = "page0";
+                    id(homeDisplayCacheValid) = false;
+                    id(homeSongCacheValid) = false;
+                    id(disp1).send_command_printf("page 0");
+                  }
+              - script.execute: update_time
               - delay: 100ms
               - script.execute: publish_panel_ready
               - script.execute: publish_panel_ping
@@ -1503,8 +1549,21 @@ panel_mqtt:
     - topic: cmnd/music
       then:
         - lambda: |-
+                    if ($diagnostic_ignore_music_commands) {
+                      ESP_LOGW("music", "Diagnostic build ignored cmnd/music snapshot");
+                      return;
+                    }
                     if (!x["status"].is<JsonArrayConst>()) return;
                     JsonArrayConst players = x["status"];
+                    const int selected_player = id(selectedMusicPlayer);
+                    const bool selected_player_valid = selected_player >= 0 &&
+                      selected_player < static_cast<int>(id(sonosTrackByPlayer).size()) &&
+                      selected_player < static_cast<int>(id(sonosPlaybackStateByPlayer).size()) &&
+                      selected_player < static_cast<int>(id(sonosCoordinatorByPlayer).size());
+                    const std::string previous_selected_track = selected_player_valid ? id(sonosTrackByPlayer)[selected_player] : "";
+                    const int previous_selected_state = selected_player_valid ? id(sonosPlaybackStateByPlayer)[selected_player] : 0;
+                    const int previous_selected_coordinator = selected_player_valid ? id(sonosCoordinatorByPlayer)[selected_player] : -1;
+
                     for (auto &track : id(sonosTrackByPlayer)) track = "[STOP]";
                     for (auto &state : id(sonosPlaybackStateByPlayer)) state = 0;
                     for (auto &coordinator : id(sonosCoordinatorByPlayer)) coordinator = -1;
@@ -1524,7 +1583,17 @@ panel_mqtt:
                         id(sonosCoordinatorByPlayer)[player_id] = player["isCoordinator"].as<bool>() ? 1 : 0;
                       }
                     }
-                    id(update_music)->execute(false);
+
+                    if (selected_player_valid &&
+                        (previous_selected_track != id(sonosTrackByPlayer)[selected_player] ||
+                         previous_selected_state != id(sonosPlaybackStateByPlayer)[selected_player] ||
+                         previous_selected_coordinator != id(sonosCoordinatorByPlayer)[selected_player])) {
+                      if ($diagnostic_skip_music_display) {
+                        ESP_LOGW("music", "Diagnostic build skipped music display refresh");
+                      } else {
+                        id(refresh_music_after_snapshot)->execute();
+                      }
+                    }
 
     - topic: cmnd/queryplayer
       then:
@@ -2054,6 +2123,7 @@ binary_sensor:
         - lambda: |-
             id(currentPage) = "page0";
             id(homeDisplayCacheValid) = false;
+            id(homeSongCacheValid) = false;
         - lambda: |-
             id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/page/page0").c_str(),"{}");
         - script.execute: update_display

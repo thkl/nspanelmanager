@@ -37,6 +37,7 @@ export class MqttRuntime {
   private readonly pendingUnifiedIdentityAssignments = new Set<string>();
   private readonly panelDisplayReadyLastHandledAt = new Map<string, number>();
   private readonly panelBootedEventLastHandledAt = new Map<string, number>();
+  private readonly panelResetReportRequestedAt = new Map<string, number>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
   private readonly discoveredPanels = new Map<string, DiscoveredPanel>();
@@ -550,6 +551,7 @@ export class MqttRuntime {
     this.unifiedInitRetryUsed.delete(panelId);
     this.pendingUnifiedIdentityAssignments.delete(panelId);
     this.panelBootedEventLastHandledAt.delete(panelId);
+    this.panelResetReportRequestedAt.delete(panelId);
     this.publishedPanelFavoriteStates.delete(panelId);
     await this.runtimeState.removePanel(panelId);
   }
@@ -933,7 +935,12 @@ export class MqttRuntime {
 
   /** Asks compatible panel firmware to replay its latest reset reason report. */
   private requestPanelResetReport(panel: Panel): void {
-    this.publish(`${panelTopicRoot(panel)}/cmnd/diag`, "{}");
+    const now = Date.now();
+    const lastRequestedAt = this.panelResetReportRequestedAt.get(panel.id);
+    if (lastRequestedAt !== undefined && now - lastRequestedAt < 5_000) return;
+    if (this.publish(`${panelTopicRoot(panel)}/cmnd/diag`, "{}")) {
+      this.panelResetReportRequestedAt.set(panel.id, now);
+    }
   }
 
   private async dispatchPluginMessage(instances: ResolvedPluginInstance[], message: MqttMessageEnvelope): Promise<void> {

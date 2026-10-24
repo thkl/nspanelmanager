@@ -9,6 +9,8 @@ interface SonosState {
   title: string;
   artist: string;
   playbackState: "playing" | "paused_playback" | "stopped";
+  /** Indicates that the room-specific topic supplied the authoritative track fields. */
+  hasPlayerState?: boolean;
   /** Unknown until the household status packet identifies this player. */
   isCoordinator?: boolean;
 }
@@ -66,7 +68,7 @@ export class MqttSonosPlugin implements PluginDefinition {
     const playerName = playerNameFor(instance);
     if (!playerName) return undefined;
     if (message.topic === `${SONOS_TOPIC_PREFIX}/household/state`) {
-      const householdState = householdStateFor(instance, message.payload);
+      const householdState = householdStateFor(instance, message.payload, currentState);
       if (!householdState) return undefined;
       const changed = Object.fromEntries(
         Object.entries(householdState).filter(([key, value]) => currentState[key] !== value)
@@ -76,6 +78,10 @@ export class MqttSonosPlugin implements PluginDefinition {
     if (message.topic !== `${SONOS_TOPIC_PREFIX}/${playerName}/state`) return undefined;
     const state = parseSonosState(message.payload);
     if (!state) return undefined;
+    // Once the room-specific topic has reported, keep its separate artist/title
+    // fields authoritative. Household snapshots often carry a preformatted
+    // currenttrack string and can otherwise overwrite them with another label.
+    state["hasPlayerState"] = true;
     const changed = Object.fromEntries(
       Object.entries(state).filter(([key, value]) => currentState[key] !== value)
     );
@@ -270,7 +276,11 @@ function playerState(value: PluginState): SonosState {
 }
 
 /** Finds this configured player in the cached household list and normalizes its display state. */
-function householdStateFor(instance: ResolvedPluginInstance, payload: string): PluginState | undefined {
+function householdStateFor(
+  instance: ResolvedPluginInstance,
+  payload: string,
+  currentState: PluginState
+): PluginState | undefined {
   let value: unknown;
   try { value = JSON.parse(payload); } catch { return undefined; }
   if (!Array.isArray(value)) return undefined;
@@ -289,7 +299,9 @@ function householdStateFor(instance: ResolvedPluginInstance, payload: string): P
 
   const patch: PluginState = {};
   if (typeof player["isCoordinator"] === "boolean") patch["isCoordinator"] = player["isCoordinator"];
-  if (typeof player["currenttrack"] === "string") {
+  // Household state is useful as a startup fallback, but the room-specific
+  // state topic has the authoritative artist/title pair once it is available.
+  if (currentState["hasPlayerState"] !== true && typeof player["currenttrack"] === "string") {
     patch["title"] = player["currenttrack"];
     patch["artist"] = "";
     const playbackState = householdPlaybackState(player["currentstate"], player["currenttrack"]);
