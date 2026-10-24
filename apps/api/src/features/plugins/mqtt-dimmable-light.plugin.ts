@@ -17,6 +17,7 @@ export class MqttDimmableLightPlugin implements PluginDefinition {
     { key: "stateValuePath", label: "State level path", type: "text", defaultValue: "level", help: "Dot path to the numeric level in a JSON payload. Leave blank when the payload itself is the number." },
     { key: "zeroLevel", label: "Zero / OFF level", type: "number", required: true, defaultValue: 0, help: "Device level value that represents off." },
     { key: "onLevel", label: "ON / full level", type: "number", required: true, defaultValue: 254, help: "Device level value used when turning the light on and as the top of the dimming range." },
+    { key: "levelFactor", label: "Level conversion factor", type: "number", defaultValue: 0, help: "Zero uses the zero/ON levels to calculate scaling. Set 100 for device levels from 0.00 to 1.00: reported levels are multiplied by 100, and panel percentages are divided by 100. The ON level must match the resulting range." },
     { key: "commandTopic", label: "Command topic", type: "text", required: true, defaultValue: "zigbee2mqtt/{{device}}/set", help: "MQTT topic used by level, on, and off commands." },
     { key: "levelPayloadTemplate", label: "Set level payload template", type: "textarea", defaultValue: "{\"level\":{{value}},\"transition\":{{rampTime}}}", help: "Used while dimming. {{value}} is the device level; {{levelPercent}} is 0–100; {{rampTime}} is the configured ramp time. Add device-specific fields here." },
     { key: "onPayloadTemplate", label: "ON payload template", type: "textarea", defaultValue: "{\"level\":{{value}},\"transition\":{{rampTime}}}", help: "Used when toggling on. {{value}} is the configured ON level; {{levelPercent}} is 100; {{rampTime}} is the configured ramp time." },
@@ -32,6 +33,11 @@ export class MqttDimmableLightPlugin implements PluginDefinition {
     const zeroLevel = numberValue(config, "zeroLevel");
     const onLevel = numberValue(config, "onLevel");
     if (zeroLevel === undefined || onLevel === undefined || onLevel <= zeroLevel) return "The ON level must be greater than the zero level.";
+    const configuredFactor = config["levelFactor"] === undefined ? 0 : numberValue(config, "levelFactor");
+    if (configuredFactor === undefined || configuredFactor < 0) return "The level conversion factor must be zero (automatic) or a positive number.";
+    if (configuredFactor > 0 && Math.abs(zeroLevel + 100 / configuredFactor - onLevel) > 0.5) {
+      return "The ON level must equal the zero level plus 100 divided by the level conversion factor.";
+    }
     const rampTime = numberValue(config, "rampTime");
     if (rampTime === undefined || rampTime < 0 || rampTime > 3600) return "Ramp time must be a number between 0 and 3600.";
     const step = numberValue(config, "brightnessStep");
@@ -69,7 +75,8 @@ export class MqttDimmableLightPlugin implements PluginDefinition {
     if (rawLevel === undefined) return undefined;
     const zeroLevel = tileConfigNumber(instance, "zeroLevel", 0);
     const onLevel = tileConfigNumber(instance, "onLevel", 254);
-    const brightness = toPercent(rawLevel, zeroLevel, onLevel);
+    const factor = resolveLevelFactor(instance, zeroLevel, onLevel);
+    const brightness = clampPercent((rawLevel - zeroLevel) * factor);
     return { power: rawLevel > zeroLevel, brightness };
   }
 
@@ -132,7 +139,8 @@ export class MqttDimmableLightPlugin implements PluginDefinition {
     if (brightness === 0) return this.setPower(instance, false);
     const zeroLevel = tileConfigNumber(instance, "zeroLevel", 0);
     const onLevel = tileConfigNumber(instance, "onLevel", 254);
-    const rawLevel = Math.round(mapRange(brightness, 0, 100, zeroLevel, onLevel));
+    const factor = resolveLevelFactor(instance, zeroLevel, onLevel);
+    const rawLevel = Math.round(zeroLevel + brightness / factor);
     const command = this.levelCommand(instance, "levelPayloadTemplate", rawLevel, brightness);
     return command ? { commands: [command], statePatch: { power: true, brightness } } : undefined;
   }
@@ -161,14 +169,9 @@ function numberValue(config: Record<string, PluginConfigValue>, key: string): nu
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function toPercent(value: number, zeroLevel: number, onLevel: number): number {
-  return clampPercent(mapRange(value, zeroLevel, onLevel, 0, 100));
-}
-
-function mapRange(value: number, fromMinimum: number, fromMaximum: number, toMinimum: number, toMaximum: number): number {
-  if (fromMaximum === fromMinimum) return toMinimum;
-  const ratio = Math.max(0, Math.min(1, (value - fromMinimum) / (fromMaximum - fromMinimum)));
-  return toMinimum + ratio * (toMaximum - toMinimum);
+function resolveLevelFactor(instance: ResolvedPluginInstance, zeroLevel: number, onLevel: number): number {
+  const configuredFactor = tileConfigNumber(instance, "levelFactor", 0);
+  return configuredFactor > 0 ? configuredFactor : 100 / (onLevel - zeroLevel);
 }
 
 function clampPercent(value: number): number { return Math.round(Math.min(100, Math.max(0, value))); }
