@@ -28,6 +28,7 @@ export class HmiPageComponent implements OnInit {
   readonly rolloutStableHours = signal(3);
   readonly savingRolloutSettings = signal(false);
   readonly savingAutoUpdatePanelId = signal("");
+  readonly stagingFirmwarePanelId = signal("");
   readonly forceUpdate = signal(false);
   readonly forceFirmwareUpdate = signal(false);
   readonly maxUploadBytes = signal(32 * 1024 * 1024);
@@ -159,6 +160,36 @@ export class HmiPageComponent implements OnInit {
         this.manager.inform(this.errorMessage(error), "error");
       }
     });
+  }
+
+  /** Starts canary monitoring without reflashing a panel already running the uploaded firmware. */
+  stageFirmwareRollout(panel: Panel): void {
+    if (this.stagingFirmwarePanelId() || !this.canStageFirmwareRollout(panel)) return;
+    this.stagingFirmwarePanelId.set(panel.id);
+    this.manager.stageFirmwareRollout(panel.id).subscribe({
+      next: ({ rollout }) => {
+        this.stagingFirmwarePanelId.set("");
+        this.manager.inform(`${rollout.firmwareVersion} is staged from ${panel.name}. The opted-in panels will update after ${rollout.stableHours} stable hours.`);
+      },
+      error: (error: unknown) => {
+        this.stagingFirmwarePanelId.set("");
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+  }
+
+  /** Shows the restage action when this panel runs the uploaded version and recipients are opted in. */
+  canStageFirmwareRollout(panel: Panel): boolean {
+    const connection = this.manager.panelConnections()[panel.nodeName];
+    const telemetry = connection?.telemetry;
+    return this.manager.config().firmwareRollout.enabled
+      && panel.unifiedFirmware === true
+      && connection?.status === "online"
+      && this.firmwareVersionMatches(panel)
+      && typeof telemetry?.uptimeSeconds === "number"
+      && Date.now() - telemetry.reportedAt <= 180_000
+      && this.manager.config().panels.some((candidate) => candidate.id !== panel.id
+        && candidate.unifiedFirmware === true && candidate.autoUpdateFirmware === true);
   }
 
   /** Keeps one selected `.tft` file and checks the configured size limit in the browser. */

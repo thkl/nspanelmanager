@@ -119,6 +119,43 @@ export class FirmwareUpdateService {
     }
   }
 
+  /** Starts a fresh rollout from a panel that already runs the uploaded firmware. */
+  async stageCurrentCanary(
+    canaryPanel: Panel,
+    artifact: FirmwareArtifactRecord,
+    targetPanelIds: string[],
+    stableHours: number,
+    telemetry: PanelTelemetry
+  ): Promise<FirmwareRollout> {
+    if (!targetPanelIds.length) throw new FirmwareUpdateError("No opted-in unified panels are available for this rollout.");
+    if (this.startingRollout || this.hasActiveRollout()) throw new FirmwareUpdateError("A staged firmware rollout is already active.");
+    this.startingRollout = true;
+    try {
+      const now = Date.now();
+      const rollout: FirmwareRollout = {
+        id: randomUUID(),
+        artifactId: artifact.id,
+        firmwareVersion: artifact.version,
+        canaryPanelId: canaryPanel.id,
+        canaryPanelName: canaryPanel.name,
+        startedAt: now,
+        updatedAt: now,
+        stableHours,
+        status: "monitoring",
+        canaryConfirmed: true,
+        pendingPanelIds: [...new Set(targetPanelIds.filter((panelId) => panelId !== canaryPanel.id))],
+        stableSinceAt: now,
+        lastHeartbeatAt: telemetry.reportedAt,
+        ...(telemetry.uptimeSeconds === undefined ? {} : { lastUptimeSeconds: telemetry.uptimeSeconds }),
+        message: `Canary ${canaryPanel.name} already reports firmware ${artifact.version}. Monitoring it for ${stableHours} stable hours before updating opted-in panels.`
+      };
+      await this.saveRollout(rollout);
+      return rollout;
+    } finally {
+      this.startingRollout = false;
+    }
+  }
+
   /** Stops a rollout from scheduling more panels; an update already in progress is allowed to finish. */
   async cancelRollout(message = "Automatic firmware rollout disabled."): Promise<void> {
     const rollout = this.runtimeState.getFirmwareRollout();

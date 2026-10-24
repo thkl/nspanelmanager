@@ -35,6 +35,59 @@ export function createFirmwareRouter(
     response.json({ firmwareRollout });
   });
 
+  router.post("/panels/:panelId/stage-rollout", async (request, response, next) => {
+    const config = store.get();
+    const panel = config.panels.find((item) => item.id === request.params.panelId);
+    if (!panel) return response.status(404).json({ error: "Panel not found." });
+    if (!config.firmwareRollout.enabled) {
+      return response.status(409).json({ error: "Enable automatic firmware rollout before staging a canary." });
+    }
+    if (panel.unifiedFirmware !== true) {
+      return response.status(409).json({ error: "Only a panel running the unified firmware can be used as a rollout canary." });
+    }
+    if (firmwareUpdateService.hasActiveRollout()) {
+      return response.status(409).json({ error: "A staged firmware rollout is already active." });
+    }
+    if (firmwareUpdateService.hasActiveJob(panel.id)) {
+      return response.status(409).json({ error: `Wait for the firmware update on ${panel.name} to finish before staging it as a canary.` });
+    }
+
+    const artifact = firmwareService.currentArtifact();
+    if (!artifact) return response.status(409).json({ error: "Upload a firmware package before staging a rollout." });
+    const canaryStatus = mqttRuntime.panelConnectionStatuses().find((status) => status.panelId === panel.id);
+    const telemetry = canaryStatus?.telemetry;
+    if (canaryStatus?.status !== "online" || !telemetry || telemetry.firmwareVersion !== artifact.version
+      || typeof telemetry.uptimeSeconds !== "number" || !Number.isFinite(telemetry.uptimeSeconds)) {
+      return response.status(409).json({ error: `Wait for ${panel.name} to report the uploaded firmware version and uptime before staging it as a canary.` });
+    }
+    if (Date.now() - telemetry.reportedAt > 180_000) {
+      return response.status(409).json({ error: `Wait for a fresh heartbeat from ${panel.name} before staging it as a canary.` });
+    }
+
+    const targetPanelIds = config.panels
+      .filter((candidate) => candidate.id !== panel.id && candidate.autoUpdateFirmware === true && candidate.unifiedFirmware === true)
+      .map((candidate) => candidate.id);
+    if (!targetPanelIds.length) {
+      return response.status(409).json({ error: "Mark at least one other unified panel for automatic rollout first." });
+    }
+
+    try {
+      const rollout = await firmwareUpdateService.stageCurrentCanary(panel, artifact, targetPanelIds, config.firmwareRollout.stableHours, telemetry);
+      logger.info("Firmware rollout staged from a panel already running the uploaded version.", {
+        component: "firmware",
+        rolloutId: rollout.id,
+        panel: panel.name,
+        version: artifact.version,
+        targetCount: String(targetPanelIds.length),
+        requestedBy: request.authUser?.email ?? "unknown"
+      });
+      response.status(201).json({ rollout });
+    } catch (error) {
+      if (error instanceof FirmwareUpdateError) response.status(error.statusCode).json({ error: error.message });
+      else next(error);
+    }
+  });
+
   router.get("/panels/:panelId/crash-dump", (request, response) => {
     const panel = store.get().panels.find((item) => item.id === request.params.panelId);
     if (!panel) return response.status(404).json({ error: "Panel not found." });

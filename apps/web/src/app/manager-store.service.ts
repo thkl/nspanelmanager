@@ -167,6 +167,13 @@ export class ManagerStore {
     return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; firmwareVersion: string; job: FirmwareUpdateJob }>(`/api/firmware/panels/${panelId}/update`, { force }).pipe(tap(({ job }) => this.upsertFirmwareUpdateJob(job)));
   }
 
+  /** Starts canary monitoring from a panel that already reports the uploaded firmware version. */
+  stageFirmwareRollout(panelId: string): Observable<{ rollout: FirmwareRollout }> {
+    return this.http.post<{ rollout: FirmwareRollout }>(`/api/firmware/panels/${encodeURIComponent(panelId)}/stage-rollout`, {}).pipe(tap(({ rollout }) => {
+      this.firmwareRollout.set(rollout);
+    }));
+  }
+
   /** Saves the global canary stability window for future staged firmware rollouts. */
   saveFirmwareRolloutSettings(settings: FirmwareRolloutSettings): Observable<{ firmwareRollout: FirmwareRolloutSettings }> {
     return this.http.put<{ firmwareRollout: FirmwareRolloutSettings }>("/api/firmware/rollout-settings", settings).pipe(tap(({ firmwareRollout }) => {

@@ -34,7 +34,7 @@
   <section class="rollout-settings-card" aria-labelledby="firmware-rollout-title">
     <div>
       <h3 id="firmware-rollout-title">Staged firmware rollout</h3>
-      <p>Manually update one panel as the canary. After it reports the new version and maintains continuous uptime for the stability window, opted-in unified panels update one at a time. A failed update stops the rollout.</p>
+      <p>Manually update one panel as the canary. After it reports the new version and maintains continuous uptime for the stability window, opted-in unified panels update one at a time. If you already installed the uploaded version before enabling rollout, stage it from that panel without reflashing.</p>
     </div>
     <label class="rollout-enable-option">
       <input type="checkbox" [checked]="rolloutEnabled()" (change)="setRolloutEnabled($event)">
@@ -104,6 +104,11 @@
                 <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingFirmwarePanelId() !== '' || firmwareUpdateInProgress(panel) || !!manager.firmwareRollout() && (manager.firmwareRollout()?.status === 'monitoring' || manager.firmwareRollout()?.status === 'updating')" (click)="requestFirmwareUpdate(panel)">
                   {{ firmwareUpdateInProgress(panel) ? 'Update in progress' : updatingFirmwarePanelId() === panel.id ? 'Sending…' : forceFirmwareUpdate() ? 'Force update now' : 'Send firmware prompt' }}
                 </button>
+                @if (canStageFirmwareRollout(panel)) {
+                  <button class="stage-button" type="button" [disabled]="stagingFirmwarePanelId() !== '' || !!manager.firmwareRollout() && (manager.firmwareRollout()?.status === 'monitoring' || manager.firmwareRollout()?.status === 'updating')" (click)="stageFirmwareRollout(panel)">
+                    {{ stagingFirmwarePanelId() === panel.id ? 'Staging…' : 'Stage rollout from this panel' }}
+                  </button>
+                }
               </div>
             </article>
           }
