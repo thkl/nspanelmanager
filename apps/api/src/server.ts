@@ -11,6 +11,7 @@ import { UserStore } from "./features/auth/user-store.js";
 import { CredentialEncryption } from "./features/security/credential-encryption.js";
 import { LogFileReader } from "./features/logs/log-file-reader.js";
 import { BackupArchiveService } from "./features/backups/backup-archive-service.js";
+import { BackupScheduler } from "./features/backups/backup-scheduler.js";
 import { HmiArtifactService } from "./features/hmi/hmi-artifact-service.js";
 import { HmiUpdateService } from "./features/hmi/hmi-update-service.js";
 import { FirmwareArtifactService } from "./features/firmware/firmware-artifact-service.js";
@@ -44,7 +45,15 @@ async function startServer(): Promise<void> {
   await store.load();
   const runtimeState = new RuntimeStateStore(dataDir, logger);
   await runtimeState.load();
-  const backupService = new BackupArchiveService(dataDir, () => runtimeState.flush());
+  const backupDirectory = process.env.BACKUP_PATH?.trim() || path.join(dataDir, "backups");
+  const backupService = new BackupArchiveService(dataDir, () => runtimeState.flush(), backupDirectory);
+  await backupService.initialize();
+  const backupScheduler = new BackupScheduler(
+    backupService,
+    logger,
+    process.env.BACKUP_CRON?.trim() || "0 3 * * *",
+    Number(process.env.BACKUP_RETENTION_COUNT?.trim() || 14)
+  );
   const hmiPublicUrl = process.env.HMI_PUBLIC_URL?.trim() || process.env.APP_PUBLIC_URL?.trim() || "";
   const hmiService = new HmiArtifactService(dataDir, hmiPublicUrl);
   await hmiService.load();
@@ -133,17 +142,19 @@ async function startServer(): Promise<void> {
   firmwareUpdateService.start();
   await mqttRuntime.reconnect();
   httpServer.listen(port, () => logger.info(`NSPanel Manager listening on port ${port}`, { component: "server" }));
-  registerShutdownHandlers(httpServer, realtimeServer, hmiUpdateService, firmwareUpdateService, mqttRuntime, runtimeState, logger);
+  backupScheduler.start();
+  registerShutdownHandlers(httpServer, realtimeServer, hmiUpdateService, firmwareUpdateService, mqttRuntime, backupScheduler, runtimeState, logger);
 }
 
 /** Flushes the coalesced runtime snapshot after stopping new HTTP and MQTT work. */
-function registerShutdownHandlers(httpServer: Server, realtimeServer: RealtimeWebSocketServer, hmiUpdateService: HmiUpdateService, firmwareUpdateService: FirmwareUpdateService, mqttRuntime: MqttRuntime, runtimeState: RuntimeStateStore, logger: Logger): void {
+function registerShutdownHandlers(httpServer: Server, realtimeServer: RealtimeWebSocketServer, hmiUpdateService: HmiUpdateService, firmwareUpdateService: FirmwareUpdateService, mqttRuntime: MqttRuntime, backupScheduler: BackupScheduler, runtimeState: RuntimeStateStore, logger: Logger): void {
   let shutdownStarted = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shutdownStarted) return;
     shutdownStarted = true;
     logger.info("Stopping NSPanel Manager.", { component: "server", signal });
     try {
+      await backupScheduler.close();
       hmiUpdateService.close();
       firmwareUpdateService.close();
       await realtimeServer.close();

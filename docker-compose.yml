@@ -6,6 +6,9 @@ services:
     environment:
       PORT: 3000
       DATA_DIR: ${DATA_DIR:-/data}
+      BACKUP_PATH: ${BACKUP_PATH:-}
+      BACKUP_CRON: "${BACKUP_CRON:-0 3 * * *}"
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-14}
       LOG_DIR: ${LOG_DIR:-}
       USER_STORE_SET_PERMISSIONS: ${USER_STORE_SET_PERMISSIONS:-true}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}

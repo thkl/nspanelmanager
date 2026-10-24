@@ -100,7 +100,9 @@ The same page accepts a Nextion `.tft` file up to 32 MB, stores it in `DATA_DIR/
 
 ## Backups and manual restore
 
-Signed-in administrators can open **Backup** and download a ZIP of the complete configured `DATA_DIR`. The archive streams directly to the browser and includes regular files under that directory, including logs when `LOG_DIR` is inside it. Treat the downloaded ZIP as sensitive because it contains user records, configuration, and saved script state.
+Signed-in administrators can open **Backup** and download a ZIP of the configured `DATA_DIR`. The manager also writes scheduled ZIP archives using `BACKUP_CRON`, which defaults to `0 3 * * *` (03:00 in the manager process timezone). `BACKUP_PATH` defaults to `DATA_DIR/backups`, which is on the persistent Docker data volume; set it to another writable path when needed, and mount that path persistently if it is outside `DATA_DIR`. `BACKUP_RETENTION_COUNT` defaults to 14 and prunes older scheduled archives after a successful backup. The backup directory is excluded from generated archives to prevent backups from containing previous backups. Archives and their directory are created with private filesystem permissions.
+
+The downloadable and scheduled ZIPs contain regular files under `DATA_DIR`, including logs when `LOG_DIR` is inside it. Treat them as sensitive because they contain user records, configuration, and saved script state.
 
 The credential-encryption key (`MANAGER_ENCRYPTION_KEY_FILE`) and optional OIDC client secret are outside `DATA_DIR`; back them up separately and keep them protected. Losing the encryption key makes stored MQTT credentials unreadable. To restore manually, stop the manager, extract the ZIP so its `data/` contents replace or populate the configured `DATA_DIR`, restore deployment secrets and configuration separately, then restart the manager. If `LOG_DIR` is outside `DATA_DIR`, back it up separately if those logs are needed. Restore is an operator procedure; the UI does not import archives.
 

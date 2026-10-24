@@ -1,5 +1,8 @@
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { chmod, lstat, mkdir, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import { ZipArchive } from "archiver";
 
 interface BackupEntryBase {
@@ -25,21 +28,32 @@ type BackupEntry =
  */
 export class BackupArchiveService {
   private readonly dataDirectory: string;
+  private backupDirectory: string;
+  private excludedBackupDirectory?: string;
+  private initialization?: Promise<void>;
 
-  /** Binds backup creation to the startup data path and durable runtime-state flush. */
-  constructor(dataDirectory: string, private readonly flushRuntimeState: () => Promise<void>) {
+  /** Binds backup creation to durable data, a private destination, and runtime-state flushing. */
+  constructor(dataDirectory: string, private readonly flushRuntimeState: () => Promise<void>, backupDirectory = path.join(dataDirectory, "backups")) {
     this.dataDirectory = path.resolve(dataDirectory);
+    this.backupDirectory = path.resolve(backupDirectory);
+  }
+
+  /** Creates and protects the archive directory, excluding it from future data archives when nested in DATA_DIR. */
+  async initialize(): Promise<void> {
+    this.initialization ??= this.prepareBackupDirectory();
+    await this.initialization;
   }
 
   /** Flushes cached runtime values, then creates a ZIP rooted under `data/`. */
   async createArchive(): Promise<ZipArchive> {
+    await this.initialize();
     await this.flushRuntimeState();
     const archive = new ZipArchive({ zlib: { level: 6 } });
     const rootPath = await realpath(this.dataDirectory);
     const rootMetadata = await lstat(rootPath);
     if (!rootMetadata.isDirectory()) throw new Error("The configured manager data path is not a directory.");
     archive.append(Buffer.alloc(0), { name: "data/", type: "directory", date: rootMetadata.mtime, mode: rootMetadata.mode });
-    const archiveEntries = await this.listEntries(rootPath);
+    const archiveEntries = await this.listEntries(rootPath, this.excludedBackupDirectory);
     for (const entry of archiveEntries) {
       if (entry.type === "directory") archive.append(Buffer.alloc(0), { name: entry.archivePath, type: "directory", date: entry.date, mode: entry.mode });
       else archive.file(entry.absolutePath, { name: entry.archivePath, date: entry.date, mode: entry.mode });
@@ -47,8 +61,34 @@ export class BackupArchiveService {
     return archive;
   }
 
+  /** Writes a complete ZIP to the scheduled-backup directory and prunes older archives. */
+  async createScheduledBackup(retentionCount: number): Promise<{ filename: string; sizeBytes: number }> {
+    if (!Number.isSafeInteger(retentionCount) || retentionCount < 1) throw new Error("Backup retention must be a positive whole number.");
+    await this.initialize();
+    const filename = `nspanel-manager-data-${new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")}.zip`;
+    const destination = path.join(this.backupDirectory, filename);
+    const temporaryPath = path.join(this.backupDirectory, `.${filename}.${randomUUID()}.partial`);
+    const archive = await this.createArchive();
+    archive.on("warning", (error) => archive.emit("error", error));
+
+    try {
+      const write = pipeline(archive, createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 }));
+      await Promise.all([archive.finalize(), write]);
+      await chmod(temporaryPath, 0o600);
+      await rename(temporaryPath, destination);
+      await chmod(destination, 0o600);
+      const metadata = await stat(destination);
+      await this.pruneScheduledBackups(retentionCount);
+      return { filename, sizeBytes: metadata.size };
+    } catch (error) {
+      archive.abort();
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
   /** Lists directories and regular files recursively, skipping links and special files. */
-  private async listEntries(rootPath: string): Promise<BackupEntry[]> {
+  private async listEntries(rootPath: string, excludedDirectory?: string): Promise<BackupEntry[]> {
     const archiveEntries: BackupEntry[] = [];
     const directories = [""];
 
@@ -59,6 +99,7 @@ export class BackupArchiveService {
       for (const directoryEntry of directoryEntries) {
         const relativePath = path.join(relativeDirectory, directoryEntry.name);
         const absolutePath = path.join(rootPath, relativePath);
+        if (excludedDirectory && isPathWithin(excludedDirectory, absolutePath)) continue;
         const metadata = await lstat(absolutePath);
         const archivePath = `data/${relativePath.split(path.sep).join("/")}`;
         if (directoryEntry.isDirectory() && metadata.isDirectory() && !metadata.isSymbolicLink()) {
@@ -72,4 +113,34 @@ export class BackupArchiveService {
 
     return archiveEntries.sort((left, right) => left.archivePath.localeCompare(right.archivePath));
   }
+
+  private async prepareBackupDirectory(): Promise<void> {
+    await mkdir(this.backupDirectory, { recursive: true, mode: 0o700 });
+    const metadata = await lstat(this.backupDirectory);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error("The configured backup path must be a real directory.");
+    await chmod(this.backupDirectory, 0o700);
+    this.backupDirectory = await realpath(this.backupDirectory);
+
+    const dataRoot = await realpath(this.dataDirectory);
+    if (this.backupDirectory === dataRoot) throw new Error("The backup path cannot be the manager data directory itself.");
+    if (isPathWithin(dataRoot, this.backupDirectory)) this.excludedBackupDirectory = this.backupDirectory;
+  }
+
+  private async pruneScheduledBackups(retentionCount: number): Promise<void> {
+    const entries = await readdir(this.backupDirectory, { withFileTypes: true });
+    const candidates = entries
+      .filter((entry) => entry.isFile() && entry.name.startsWith("nspanel-manager-data-") && entry.name.endsWith(".zip"))
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left));
+    for (const filename of candidates.slice(retentionCount)) {
+      const filePath = path.join(this.backupDirectory, filename);
+      const metadata = await lstat(filePath);
+      if (metadata.isFile() && !metadata.isSymbolicLink()) await rm(filePath);
+    }
+  }
+}
+
+function isPathWithin(parentPath: string, candidatePath: string): boolean {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return relativePath === "" || relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath);
 }
