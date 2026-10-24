@@ -10,11 +10,6 @@
     "dev": "pnpm --parallel --filter @nspanel/api --filter @nspanel/web dev",
     "build": "pnpm --filter @nspanel/web build && pnpm --filter @nspanel/api build",
     "firmware:compile": "node scripts/compile-unified-firmware.mjs",
-    "firmware:compile:bridge": "node scripts/compile-unified-bridge.mjs",
-    "firmware:compile:recovery": "node scripts/compile-unified-recovery.mjs",
-    "firmware:compile:nextion-test": "node scripts/compile-nextion-test.mjs",
-    "firmware:compile:settings-test": "node scripts/compile-unified-settings-test.mjs",
-    "firmware:partition-table": "node scripts/update-unified-partition-table.mjs",
     "security:keygen": "pnpm --filter @nspanel/api security:keygen"
   }
 }
