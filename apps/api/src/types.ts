@@ -52,6 +52,17 @@ export interface FirmwareRolloutSettings {
   stableHours: number;
 }
 
+/** Durable destination and schedule for automatic manager data ZIPs. */
+export interface BackupSettings {
+  enabled: boolean;
+  /** Five-field cron expression interpreted in the manager process timezone. */
+  schedule: string;
+  /** Number of generated scheduled ZIPs to keep. */
+  retentionCount: number;
+  /** Relative to DATA_DIR unless an absolute path is provided. */
+  directory: string;
+}
+
 export type FirmwareRolloutStatus = "monitoring" | "updating" | "completed" | "failed" | "cancelled";
 
 /** Durable status and queue for one canary-gated firmware rollout. */
@@ -242,6 +253,7 @@ export interface BrokerSettings {
 export interface ManagerConfig {
   broker: BrokerSettings;
   firmwareRollout: FirmwareRolloutSettings;
+  backupSettings: BackupSettings;
   panels: Panel[];
   routes: MqttRoute[];
   pluginProfiles: PluginProfile[];

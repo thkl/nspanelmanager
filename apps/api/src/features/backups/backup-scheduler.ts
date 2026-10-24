@@ -1,4 +1,5 @@
 import type { Logger } from "../../services/logger.js";
+import type { BackupSettings } from "../../types.js";
 import { BackupArchiveService } from "./backup-archive-service.js";
 
 interface CronField {
@@ -16,7 +17,10 @@ interface CronSchedule {
 
 /** Runs protected ZIP backups on a five-field cron schedule and records each outcome. */
 export class BackupScheduler {
-  private readonly schedule: CronSchedule;
+  private schedule: CronSchedule;
+  private enabled: boolean;
+  private expression: string;
+  private retentionCount: number;
   private timer?: NodeJS.Timeout;
   private lastScheduledMinute = "";
   private activeBackup?: Promise<void>;
@@ -25,27 +29,40 @@ export class BackupScheduler {
   constructor(
     private readonly backups: BackupArchiveService,
     private readonly logger: Logger,
-    readonly expression: string,
-    private readonly retentionCount: number
+    settings: BackupSettings
   ) {
-    this.schedule = parseCronExpression(expression);
-    if (!Number.isSafeInteger(retentionCount) || retentionCount < 1) {
-      throw new Error("BACKUP_RETENTION_COUNT must be a positive whole number.");
-    }
+    this.schedule = parseCronExpression(settings.schedule);
+    validateRetentionCount(settings.retentionCount);
+    this.enabled = settings.enabled;
+    this.expression = settings.schedule;
+    this.retentionCount = settings.retentionCount;
   }
 
-  /** Starts minute-aligned checks and runs immediately when the current minute matches. */
+  /** Starts minute-aligned checks for the settings loaded from manager configuration. */
   start(): void {
-    if (this.timer) return;
-    this.logger.info("Scheduled ZIP backups enabled.", {
-      component: "backup",
-      schedule: this.expression,
-      retentionCount: String(this.retentionCount),
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "system local"
-    });
-    this.timer = setInterval(() => this.runIfDue(), 15_000);
-    this.timer.unref();
-    this.runIfDue();
+    this.startTimer();
+  }
+
+  /** Applies persisted UI settings, waiting for any in-progress archive before changing its destination. */
+  async reconfigure(settings: BackupSettings): Promise<void> {
+    const nextSchedule = parseCronExpression(settings.schedule);
+    validateRetentionCount(settings.retentionCount);
+    if (typeof settings.directory !== "string" || !settings.directory.trim()) throw new Error("Choose a backup folder.");
+
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    try {
+      await this.activeBackup;
+      await this.backups.setBackupDirectory(settings.directory);
+      this.schedule = nextSchedule;
+      this.enabled = settings.enabled;
+      this.expression = settings.schedule;
+      this.retentionCount = settings.retentionCount;
+      this.startTimer();
+    } catch (error) {
+      this.startTimer();
+      throw error;
+    }
   }
 
   /** Stops future cron checks and waits for an archive already being written. */
@@ -56,6 +73,7 @@ export class BackupScheduler {
   }
 
   private runIfDue(): void {
+    if (!this.enabled) return;
     const now = new Date();
     if (!matchesCron(this.schedule, now)) return;
     const minuteKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;
@@ -77,11 +95,30 @@ export class BackupScheduler {
       this.activeBackup = undefined;
     });
   }
+
+  private startTimer(): void {
+    if (!this.enabled || this.timer) return;
+    this.logger.info("Scheduled ZIP backups enabled.", {
+      component: "backup",
+      schedule: this.expression,
+      retentionCount: String(this.retentionCount),
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "system local"
+    });
+    this.timer = setInterval(() => this.runIfDue(), 15_000);
+    this.timer.unref();
+    this.runIfDue();
+  }
+}
+
+function validateRetentionCount(retentionCount: number): void {
+  if (!Number.isSafeInteger(retentionCount) || retentionCount < 1 || retentionCount > 365) {
+    throw new Error("Keep between 1 and 365 scheduled backups.");
+  }
 }
 
 function parseCronExpression(expression: string): CronSchedule {
   const fields = expression.trim().split(/\s+/);
-  if (fields.length !== 5) throw new Error("BACKUP_CRON must use five cron fields: minute hour day-of-month month day-of-week.");
+  if (fields.length !== 5) throw new Error("Use five schedule fields: minute hour day-of-month month day-of-week.");
   return {
     minute: parseCronField(fields[0], 0, 59),
     hour: parseCronField(fields[1], 0, 23),
@@ -95,11 +132,11 @@ function parseCronField(source: string, minimum: number, maximum: number, normal
   const values = new Set<number>();
   const wildcard = source === "*";
   for (const part of source.split(",")) {
-    if (!part) throw new Error("BACKUP_CRON contains an empty cron value.");
+    if (!part) throw new Error("The schedule contains an empty value.");
     const pieces = part.split("/");
-    if (pieces.length > 2) throw new Error(`BACKUP_CRON has an invalid step in '${part}'.`);
+    if (pieces.length > 2) throw new Error(`The schedule has an invalid step in '${part}'.`);
     const step = pieces.length === 2 ? Number(pieces[1]) : 1;
-    if (!Number.isInteger(step) || step < 1) throw new Error(`BACKUP_CRON has an invalid step in '${part}'.`);
+    if (!Number.isInteger(step) || step < 1) throw new Error(`The schedule has an invalid step in '${part}'.`);
 
     const range = pieces[0];
     let start: number;
@@ -113,14 +150,14 @@ function parseCronField(source: string, minimum: number, maximum: number, normal
       start = Number(range);
       end = pieces.length === 2 ? maximum : start;
     } else {
-      throw new Error(`BACKUP_CRON has an invalid value '${range}'.`);
+      throw new Error(`The schedule has an invalid value '${range}'.`);
     }
     if (start < minimum || end > maximum || start > end) {
-      throw new Error(`BACKUP_CRON value '${range}' is outside the supported range ${minimum}-${maximum}.`);
+      throw new Error(`Schedule value '${range}' is outside the supported range ${minimum}-${maximum}.`);
     }
     for (let value = start; value <= end; value += step) values.add(normalize(value));
   }
-  if (!values.size) throw new Error("BACKUP_CRON must select at least one value in every field.");
+  if (!values.size) throw new Error("Choose at least one value in every schedule field.");
   return { values, wildcard };
 }
 

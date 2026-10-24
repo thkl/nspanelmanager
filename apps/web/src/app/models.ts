@@ -42,6 +42,13 @@ export interface FirmwareRolloutSettings {
   stableHours: number;
 }
 
+export interface BackupSettings {
+  enabled: boolean;
+  schedule: string;
+  retentionCount: number;
+  directory: string;
+}
+
 export type FirmwareRolloutStatus = "monitoring" | "updating" | "completed" | "failed" | "cancelled";
 
 export interface FirmwareRollout {
@@ -161,6 +168,7 @@ export interface PanelBinding {
 export interface ManagerConfig {
   broker: { url: string; username: string; passwordConfigured: boolean };
   firmwareRollout: FirmwareRolloutSettings;
+  backupSettings: BackupSettings;
   panels: Panel[];
   routes: MqttRoute[];
   pluginProfiles: PluginProfile[];

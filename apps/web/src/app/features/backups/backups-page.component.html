@@ -7,6 +7,24 @@
     </div>
   </div>
 
+  <section class="settings-card" aria-labelledby="scheduled-backup-title">
+    <div class="section-heading">
+      <div>
+        <h3 id="scheduled-backup-title">Scheduled ZIP backups</h3>
+        <p>Choose when the manager writes a ZIP and how many recent archives to keep.</p>
+      </div>
+      <label class="enable-setting"><input type="checkbox" [checked]="draft().enabled" (change)="setEnabled($event)"> Enable scheduled backups</label>
+    </div>
+
+    <div class="backup-settings-grid">
+      <label>Schedule (cron)<input [ngModel]="draft().schedule" (ngModelChange)="setSchedule($event)" placeholder="0 3 * * *" autocomplete="off"><small>Five fields: minute hour day-of-month month day-of-week. Example: <code>0 3 * * *</code> runs daily at 03:00 in the manager's timezone.</small></label>
+      <label>Backup folder<input [ngModel]="draft().directory" (ngModelChange)="setDirectory($event)" placeholder="backups" autocomplete="off"><small>Relative paths are inside <code>DATA_DIR</code>. Absolute paths work when the folder is writable and mounted persistently.</small></label>
+      <label>Keep newest<input type="number" min="1" max="365" step="1" [value]="draft().retentionCount" (input)="setRetentionCount($event)"><small>Older scheduled ZIP files are deleted after a successful backup.</small></label>
+    </div>
+
+    <div class="settings-actions"><span>Archives are private ZIP files and are excluded from their own contents.</span><button class="button primary" [disabled]="saving() || !settingsValid()" (click)="saveSettings()">{{ saving() ? 'Saving…' : 'Save backup settings' }}</button></div>
+  </section>
+
   <article class="backup-card">
     <div class="backup-icon" aria-hidden="true">↓</div>
     <div class="backup-copy">

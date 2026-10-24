@@ -33,15 +33,25 @@ export class BackupArchiveService {
   private initialization?: Promise<void>;
 
   /** Binds backup creation to durable data, a private destination, and runtime-state flushing. */
-  constructor(dataDirectory: string, private readonly flushRuntimeState: () => Promise<void>, backupDirectory = path.join(dataDirectory, "backups")) {
+  constructor(dataDirectory: string, private readonly flushRuntimeState: () => Promise<void>, backupDirectory = "backups") {
     this.dataDirectory = path.resolve(dataDirectory);
-    this.backupDirectory = path.resolve(backupDirectory);
+    this.backupDirectory = this.resolveBackupDirectory(backupDirectory);
   }
 
   /** Creates and protects the archive directory, excluding it from future data archives when nested in DATA_DIR. */
   async initialize(): Promise<void> {
-    this.initialization ??= this.prepareBackupDirectory();
+    this.initialization ??= this.prepareBackupDirectory(this.backupDirectory).then((directory) => {
+      this.backupDirectory = directory;
+    });
     await this.initialization;
+  }
+
+  /** Changes the scheduled-archive destination after ensuring it is writable and safe to use. */
+  async setBackupDirectory(directory: string): Promise<void> {
+    const nextDirectory = this.resolveBackupDirectory(directory);
+    const preparedDirectory = await this.prepareBackupDirectory(nextDirectory);
+    this.backupDirectory = preparedDirectory;
+    this.initialization = Promise.resolve();
   }
 
   /** Flushes cached runtime values, then creates a ZIP rooted under `data/`. */
@@ -114,16 +124,22 @@ export class BackupArchiveService {
     return archiveEntries.sort((left, right) => left.archivePath.localeCompare(right.archivePath));
   }
 
-  private async prepareBackupDirectory(): Promise<void> {
-    await mkdir(this.backupDirectory, { recursive: true, mode: 0o700 });
-    const metadata = await lstat(this.backupDirectory);
+  private resolveBackupDirectory(directory: string): string {
+    const value = directory.trim() || "backups";
+    return path.isAbsolute(value) ? path.resolve(value) : path.resolve(this.dataDirectory, value);
+  }
+
+  private async prepareBackupDirectory(directory: string): Promise<string> {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const metadata = await lstat(directory);
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error("The configured backup path must be a real directory.");
-    await chmod(this.backupDirectory, 0o700);
-    this.backupDirectory = await realpath(this.backupDirectory);
+    const resolvedDirectory = await realpath(directory);
 
     const dataRoot = await realpath(this.dataDirectory);
-    if (this.backupDirectory === dataRoot) throw new Error("The backup path cannot be the manager data directory itself.");
-    if (isPathWithin(dataRoot, this.backupDirectory)) this.excludedBackupDirectory = this.backupDirectory;
+    if (resolvedDirectory === dataRoot) throw new Error("The backup path cannot be the manager data directory itself.");
+    await chmod(resolvedDirectory, 0o700);
+    this.excludedBackupDirectory = isPathWithin(dataRoot, resolvedDirectory) ? resolvedDirectory : undefined;
+    return resolvedDirectory;
   }
 
   private async pruneScheduledBackups(retentionCount: number): Promise<void> {

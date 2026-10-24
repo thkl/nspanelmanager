@@ -45,15 +45,10 @@ async function startServer(): Promise<void> {
   await store.load();
   const runtimeState = new RuntimeStateStore(dataDir, logger);
   await runtimeState.load();
-  const backupDirectory = process.env.BACKUP_PATH?.trim() || path.join(dataDir, "backups");
-  const backupService = new BackupArchiveService(dataDir, () => runtimeState.flush(), backupDirectory);
+  const backupSettings = store.get().backupSettings;
+  const backupService = new BackupArchiveService(dataDir, () => runtimeState.flush(), backupSettings.directory);
   await backupService.initialize();
-  const backupScheduler = new BackupScheduler(
-    backupService,
-    logger,
-    process.env.BACKUP_CRON?.trim() || "0 3 * * *",
-    Number(process.env.BACKUP_RETENTION_COUNT?.trim() || 14)
-  );
+  const backupScheduler = new BackupScheduler(backupService, logger, backupSettings);
   const hmiPublicUrl = process.env.HMI_PUBLIC_URL?.trim() || process.env.APP_PUBLIC_URL?.trim() || "";
   const hmiService = new HmiArtifactService(dataDir, hmiPublicUrl);
   await hmiService.load();
@@ -99,7 +94,7 @@ async function startServer(): Promise<void> {
     mqttRuntime,
     (rollout) => realtimeServer?.broadcast({ type: "firmware-rollout", rollout })
   );
-  const app = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, hmiService, hmiUpdateService, firmwareService, firmwareUpdateService, coreDumpStore);
+  const app = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, backupScheduler, hmiService, hmiUpdateService, firmwareService, firmwareUpdateService, coreDumpStore);
   const httpServer = createServer(app);
   realtimeServer = new RealtimeWebSocketServer(httpServer, authService, async () => ({
     panels: mqttRuntime.panelConnectionStatuses(),

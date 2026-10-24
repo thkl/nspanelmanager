@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile, rename, chmod } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { defaultPanelSettings, type ManagerConfig, type Panel } from "../types.js";
+import { defaultPanelSettings, type BackupSettings, type ManagerConfig, type Panel } from "../types.js";
 import { normalizePanelSettings } from "../domain/panel-settings.js";
 import { CredentialEncryption, type EncryptedCredential } from "../features/security/credential-encryption.js";
 
@@ -59,6 +59,7 @@ export class ConfigStore {
       this.config = {
         ...emptyConfig,
         ...saved,
+        backupSettings: normalizeBackupSettings(saved.backupSettings),
         broker: {
           url: typeof savedBroker.url === "string" ? savedBroker.url : emptyConfig.broker.url,
           username: typeof savedBroker.username === "string" ? savedBroker.username : emptyConfig.broker.username,
@@ -130,8 +131,21 @@ export class ConfigStore {
 const emptyConfig: ManagerConfig = {
   broker: { url: "", username: "", password: "" },
   firmwareRollout: { enabled: false, stableHours: 3 },
+  backupSettings: { enabled: true, schedule: "0 3 * * *", retentionCount: 14, directory: "backups" },
   panels: [], routes: [], pluginProfiles: [], pluginInstances: [], panelBindings: []
 };
+
+function normalizeBackupSettings(value: unknown): BackupSettings {
+  if (!isRecord(value)) return structuredClone(emptyConfig.backupSettings);
+  return {
+    enabled: value.enabled !== false,
+    schedule: typeof value.schedule === "string" && value.schedule.trim() ? value.schedule.trim() : emptyConfig.backupSettings.schedule,
+    retentionCount: typeof value.retentionCount === "number" && Number.isInteger(value.retentionCount) && value.retentionCount >= 1
+      ? Math.min(365, value.retentionCount)
+      : emptyConfig.backupSettings.retentionCount,
+    directory: typeof value.directory === "string" && value.directory.trim() ? value.directory.trim() : emptyConfig.backupSettings.directory
+  };
+}
 
 function normalizeFirmwareRolloutSettings(value: unknown): ManagerConfig["firmwareRollout"] {
   if (!isRecord(value)) return structuredClone(emptyConfig.firmwareRollout);

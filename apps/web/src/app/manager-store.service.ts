@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -20,6 +20,7 @@ export class ManagerStore {
   readonly config = signal<ManagerConfig>({
     broker: { url: "", username: "", passwordConfigured: false },
     firmwareRollout: { enabled: false, stableHours: 3 },
+    backupSettings: { enabled: true, schedule: "0 3 * * *", retentionCount: 14, directory: "backups" },
     panels: [],
     routes: [],
     pluginProfiles: [],
@@ -178,6 +179,13 @@ export class ManagerStore {
   saveFirmwareRolloutSettings(settings: FirmwareRolloutSettings): Observable<{ firmwareRollout: FirmwareRolloutSettings }> {
     return this.http.put<{ firmwareRollout: FirmwareRolloutSettings }>("/api/firmware/rollout-settings", settings).pipe(tap(({ firmwareRollout }) => {
       this.config.update((config) => ({ ...config, firmwareRollout }));
+    }));
+  }
+
+  /** Saves scheduled ZIP backup settings and updates the shared configuration snapshot. */
+  saveBackupSettings(settings: BackupSettings): Observable<{ backupSettings: BackupSettings }> {
+    return this.http.put<{ backupSettings: BackupSettings }>("/api/backups/settings", settings).pipe(tap(({ backupSettings }) => {
+      this.config.update((config) => ({ ...config, backupSettings }));
     }));
   }
 
