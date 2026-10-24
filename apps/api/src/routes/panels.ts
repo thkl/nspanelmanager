@@ -37,7 +37,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     if (store.get().panels.some((panel) => panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
     if (macAddress && store.get().panels.some((panel) => normalizeMacAddress(panel.macAddress) === macAddress)) return response.status(409).json({ error: "That device MAC address is already assigned to a panel." });
     const unifiedFirmware = Boolean(macAddress && /^nspanel-[a-f0-9]{6}$/i.test(nodeName));
-    const panel = await store.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}), ...(unifiedFirmware ? { unifiedFirmware: true } : {}), settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {} });
+    const panel = await store.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}), ...(unifiedFirmware ? { unifiedFirmware: true } : {}), settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {}, hardwareButtonPluginInstances: {} });
     mqttRuntime.syncSubscriptions();
     response.status(201).json({ panel });
   });
@@ -84,7 +84,21 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
         return response.status(400).json({ error: `Choose an instance of the '${pluginId}' plugin, which must support panel event handling.` });
       }
     }
+    const hardwareButtonPluginInstances = normalizeHardwareButtonPluginInstances(
+      input.hardwareButtonPluginInstances === undefined ? current.hardwareButtonPluginInstances : input.hardwareButtonPluginInstances
+    );
+    for (const [index, instanceId] of Object.entries(hardwareButtonPluginInstances) as Array<["0" | "1", string]>) {
+      const instance = store.get().pluginInstances.find((item) => item.id === instanceId);
+      const profile = instance && store.get().pluginProfiles.find((item) => item.id === instance.pluginProfileId);
+      const definition = profile && pluginRegistry.get(profile.pluginId);
+      if (!instance?.enabled || !definition?.capabilities.includes("favorite-toggle") || !definition.handleFavoritePress) {
+        return response.status(400).json({ error: `Choose an enabled toggle-capable plugin instance for physical button ${Number(index) + 1}.` });
+      }
+    }
     const settings = normalizePanelSettings(input.settings, name);
+    for (const index of ["0", "1"] as const) {
+      if (hardwareButtonPluginInstances[index]) settings.hwbuttons[index] = 1;
+    }
     for (const [index, button] of settings.buttons.entries()) {
       if (!button.pluginInstanceId) {
         continue;
@@ -99,7 +113,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
         return response.status(400).json({ error: `Main button ${index + 1} uses the level page and must be assigned to a cover plugin.` });
       }
     }
-    const panel: Panel = { ...current, name, nodeName, settings, nativePluginInstances, panelEventPluginInstances };
+    const panel: Panel = { ...current, name, nodeName, settings, nativePluginInstances, panelEventPluginInstances, hardwareButtonPluginInstances };
     await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
     mqttRuntime.syncSubscriptions();
     const settingsTopicRoot = current.nodeName !== nodeName
@@ -131,7 +145,8 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       ...target,
       settings,
       nativePluginInstances: structuredClone(source.nativePluginInstances ?? {}),
-      panelEventPluginInstances: structuredClone(source.panelEventPluginInstances ?? {})
+      panelEventPluginInstances: structuredClone(source.panelEventPluginInstances ?? {}),
+      hardwareButtonPluginInstances: structuredClone(source.hardwareButtonPluginInstances ?? {})
     };
     const sourceBindings = store.get().panelBindings.filter((binding) => binding.panelId === source.id);
     const copiedBindings = sourceBindings.map((binding) => ({
@@ -196,4 +211,12 @@ function normalizeMacAddress(value: unknown): string | undefined {
 function normalizeNativePluginInstances(input: unknown): Record<string, string> {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
   return Object.fromEntries(Object.entries(input).filter((entry): entry is [string, string] => typeof entry[1] === "string" && Boolean(entry[1].trim())));
+}
+
+function normalizeHardwareButtonPluginInstances(input: unknown): Partial<Record<"0" | "1", string>> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return Object.fromEntries((["0", "1"] as const).flatMap((index) => {
+    const instanceId = (input as Record<string, unknown>)[index];
+    return typeof instanceId === "string" && instanceId.trim() ? [[index, instanceId.trim()] as const] : [];
+  }));
 }

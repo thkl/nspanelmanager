@@ -203,10 +203,22 @@
         </div>
         @if (!favoritesValid(panel)) { <p class="favorite-validation" role="alert">Add a favorite name for each slot assigned to a plugin instance.</p> }
 
-        <div class="section-title section-spaced"><span class="section-number">06</span><div><h3>Physical buttons</h3><p>Choose whether each relay responds locally or through an MQTT route.</p></div></div>
+        <div class="section-title section-spaced"><span class="section-number">06</span><div><h3>Physical buttons</h3><p>Choose a local relay action, publish an event, or assign a toggle-capable plugin instance.</p></div></div>
         <div class="form-grid two-col hardware-grid">
-          <label>Left hardware button<select [(ngModel)]="panel.settings.hwbuttons['0']"><option [ngValue]="0">Toggle relay locally</option><option [ngValue]="1">Publish event only</option></select></label>
-          <label>Right hardware button<select [(ngModel)]="panel.settings.hwbuttons['1']"><option [ngValue]="0">Toggle relay locally</option><option [ngValue]="1">Publish event only</option></select></label>
+          <label>Left hardware button
+            <select [ngModel]="hardwareButtonAction('0')" (ngModelChange)="setHardwareButtonAction('0', $event)">
+              <option value="relay">Toggle relay locally</option><option value="event">Publish event only</option>
+              <optgroup label="Toggle plugin instance">@for (instance of hardwareToggleInstances(); track instance.id) { <option [value]="'plugin:' + instance.id">{{ instance.name }}</option> }</optgroup>
+              @if (unavailableHardwareButtonPlugin('0')) { <option [value]="'plugin:' + unavailableHardwareButtonPlugin('0')">Unavailable: {{ unavailableHardwareButtonPlugin('0') }}</option> }
+            </select>
+          </label>
+          <label>Right hardware button
+            <select [ngModel]="hardwareButtonAction('1')" (ngModelChange)="setHardwareButtonAction('1', $event)">
+              <option value="relay">Toggle relay locally</option><option value="event">Publish event only</option>
+              <optgroup label="Toggle plugin instance">@for (instance of hardwareToggleInstances(); track instance.id) { <option [value]="'plugin:' + instance.id">{{ instance.name }}</option> }</optgroup>
+              @if (unavailableHardwareButtonPlugin('1')) { <option [value]="'plugin:' + unavailableHardwareButtonPlugin('1')">Unavailable: {{ unavailableHardwareButtonPlugin('1') }}</option> }
+            </select>
+          </label>
         </div>
 
         <div class="save-bottom"><span>Apply saves your current edits and sends the full settings profile to the panel.</span><button class="button primary" [disabled]="saving() || !manager.mqtt().connected" (click)="applyPanel()">Apply to panel <span>↗</span></button></div>

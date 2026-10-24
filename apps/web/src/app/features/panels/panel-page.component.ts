@@ -267,6 +267,47 @@ export class PanelPageComponent implements OnInit {
     return this.manager.config().pluginInstances.filter((instance) => instance.enabled && favoriteProfileIds.has(instance.pluginProfileId));
   }
 
+  /** Lists enabled plugin instances that expose a direct toggle action. */
+  hardwareToggleInstances() {
+    const togglePluginIds = new Set(this.pluginDefinitions()
+      .filter((plugin) => plugin.capabilities.includes("favorite-toggle"))
+      .flatMap((plugin) => [plugin.id, ...(plugin.aliases ?? [])]));
+    const profileIds = new Set(this.manager.config().pluginProfiles
+      .filter((profile) => togglePluginIds.has(profile.pluginId))
+      .map((profile) => profile.id));
+    return this.manager.config().pluginInstances.filter((instance) => instance.enabled && profileIds.has(instance.pluginProfileId));
+  }
+
+  /** Returns the physical button's selected relay, event, or plugin action. */
+  hardwareButtonAction(index: "0" | "1"): string {
+    const pluginInstanceId = this.draft()?.hardwareButtonPluginInstances?.[index];
+    if (pluginInstanceId) return `plugin:${pluginInstanceId}`;
+    return this.draft()?.settings.hwbuttons[index] === 0 ? "relay" : "event";
+  }
+
+  /** Returns a stale assignment so the editor can display and clear it. */
+  unavailableHardwareButtonPlugin(index: "0" | "1"): string {
+    const pluginInstanceId = this.draft()?.hardwareButtonPluginInstances?.[index] ?? "";
+    return pluginInstanceId && !this.hardwareToggleInstances().some((instance) => instance.id === pluginInstanceId) ? pluginInstanceId : "";
+  }
+
+  /** Assigns a toggle-capable plugin or restores the selected relay/event mode. */
+  setHardwareButtonAction(index: "0" | "1", action: string): void {
+    const panel = this.draft();
+    if (!panel) return;
+    if (action.startsWith("plugin:")) {
+      const pluginInstanceId = action.slice("plugin:".length);
+      if (!this.hardwareToggleInstances().some((instance) => instance.id === pluginInstanceId)) return;
+      panel.hardwareButtonPluginInstances = { ...(panel.hardwareButtonPluginInstances ?? {}), [index]: pluginInstanceId };
+      panel.settings.hwbuttons[index] = 1;
+      return;
+    }
+    const assignments = { ...(panel.hardwareButtonPluginInstances ?? {}) };
+    delete assignments[index];
+    panel.hardwareButtonPluginInstances = assignments;
+    panel.settings.hwbuttons[index] = action === "relay" ? 0 : 1;
+  }
+
   /** Returns the instance assigned to a firmware-owned screen, if any. */
   nativePageInstance(pageId: string): string { return this.draft()?.nativePluginInstances?.[pageId] ?? ""; }
 

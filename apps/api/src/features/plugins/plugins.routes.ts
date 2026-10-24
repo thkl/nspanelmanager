@@ -170,6 +170,10 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     if (instanceError) return response.status(400).json({ error: instanceError });
     const identityError = validateSharedNativePageInstance(instance, definition, store.get().pluginInstances, store.get().pluginProfiles, registry);
     if (identityError) return response.status(400).json({ error: identityError });
+    const assignedToHardwareButton = store.get().panels.some((panel) => Object.values(panel.hardwareButtonPluginInstances ?? {}).includes(instance.id));
+    if (assignedToHardwareButton && (!instance.enabled || !definition?.capabilities.includes("favorite-toggle") || !definition.handleFavoritePress)) {
+      return response.status(400).json({ error: "Remove this instance from the physical button assignments before disabling it or changing it to a plugin without toggle support." });
+    }
     await store.update((config) => { config.pluginInstances = config.pluginInstances.map((item) => item.id === instance.id ? instance : item); });
     await runtime.refreshPluginInstances();
     if (definition?.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
@@ -187,7 +191,8 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const panelsUsingInstance = new Set(config.panels.filter((panel) =>
       panel.settings.buttons.some((button) => button.pluginInstanceId === id) ||
       Object.values(panel.nativePluginInstances ?? {}).includes(id) ||
-      Object.values(panel.panelEventPluginInstances ?? {}).includes(id)
+      Object.values(panel.panelEventPluginInstances ?? {}).includes(id) ||
+      Object.values(panel.hardwareButtonPluginInstances ?? {}).includes(id)
     ).map((panel) => panel.id));
     for (const binding of removedBindings) {
       const panel = config.panels.find((item) => item.id === binding.panelId);
@@ -205,7 +210,8 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
             : button)
         },
         nativePluginInstances: Object.fromEntries(Object.entries(panel.nativePluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id)),
-        panelEventPluginInstances: Object.fromEntries(Object.entries(panel.panelEventPluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id))
+        panelEventPluginInstances: Object.fromEntries(Object.entries(panel.panelEventPluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id)),
+        hardwareButtonPluginInstances: Object.fromEntries(Object.entries(panel.hardwareButtonPluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id))
       }));
       current.pluginInstances = current.pluginInstances.filter((item) => item.id !== id);
     });

@@ -1638,6 +1638,23 @@ export class MqttRuntime {
   }
 
   private async handlePanelInput(panel: Panel, event: PanelInputEvent, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<void> {
+    if (event.type === "hardware-button") {
+      if (event.action !== "press") return;
+      const pluginInstanceId = panel.hardwareButtonPluginInstances?.[String(event.index) as "0" | "1"];
+      const instance = pluginInstanceId ? instances.find((item) => item.id === pluginInstanceId && item.enabled) : undefined;
+      const definition = instance ? this.plugins.get(instance.pluginId) : undefined;
+      if (!instance || !definition?.capabilities.includes("favorite-toggle") || !definition.handleFavoritePress) return;
+      const binding: PanelBinding = {
+        id: `hardware-button:${panel.id}:${event.index}`,
+        name: instance.name,
+        panelId: panel.id,
+        pluginInstanceId: instance.id,
+        trigger: { type: "favorite", index: 0 }
+      };
+      await this.executeDirectFavoritePress(panel, binding, instance, definition);
+      return;
+    }
+
     if (event.type === "favorite-longpress") {
       const activeMenu = this.runtimeState.getPanelSession(panel.id);
       if (activeMenu?.menuPageActive) return;

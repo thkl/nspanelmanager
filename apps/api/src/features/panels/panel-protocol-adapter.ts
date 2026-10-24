@@ -4,6 +4,7 @@ import type { PluginScreen } from "../plugins/plugin-contract.js";
 
 /** Event decoded from the firmware's favorite, menu-page, and universal info-page topics. */
 export type PanelInputEvent =
+  | { type: "hardware-button"; index: 0 | 1; action: "press" | "doubleClick" }
   | { type: "favorite"; index: number }
   | { type: "favorite-longpress"; index: number }
   | { type: "favorite-menu-button"; index: number; bindingId: string }
@@ -50,6 +51,10 @@ export class PanelProtocolAdapter {
     const prefix = `${nodeName}/event/`;
     if (!topic.startsWith(prefix)) return undefined;
     const eventTopic = topic.slice(prefix.length);
+    const hardwareButtonMatch = /^hwbutton\/([01])$/.exec(eventTopic);
+    if (hardwareButtonMatch && (payload === "press" || payload === "doubleClick")) {
+      return { type: "hardware-button", index: Number(hardwareButtonMatch[1]) as 0 | 1, action: payload };
+    }
     const favoriteMatch = /^favorites\/(\d+)$/.exec(eventTopic);
     if (favoriteMatch && payload === "press") return { type: "favorite", index: Number(favoriteMatch[1]) - 1 };
     if (favoriteMatch && payload === "longpress") return { type: "favorite-longpress", index: Number(favoriteMatch[1]) - 1 };

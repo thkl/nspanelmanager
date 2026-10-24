@@ -33,6 +33,7 @@ export interface Panel {
   settings: PanelSettings;
   nativePluginInstances?: Record<string, string>;
   panelEventPluginInstances?: Record<string, string>;
+  hardwareButtonPluginInstances?: Partial<Record<"0" | "1", string>>;
 }
 
 export interface DiscoveredPanel {

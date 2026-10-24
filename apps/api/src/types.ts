@@ -39,6 +39,8 @@ export interface Panel {
   nativePluginInstances?: Record<string, string>;
   /** Reusable plugin instances that observe every firmware page-change event, keyed by plugin ID. */
   panelEventPluginInstances?: Record<string, string>;
+  /** Toggle-capable plugin instances assigned to the two physical buttons. */
+  hardwareButtonPluginInstances?: Partial<Record<"0" | "1", string>>;
 }
 
 /** Recently discovered ESPHome device awaiting a manager panel assignment. */
