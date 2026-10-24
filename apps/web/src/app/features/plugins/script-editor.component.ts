@@ -74,6 +74,7 @@ export class ScriptEditorComponent implements ControlValueAccessor, AfterViewIni
             ".cm-content": { minHeight: "420px", padding: "9px 0", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
             ".cm-gutters": { borderRight: "1px solid var(--code-gutter-line)", backgroundColor: "var(--code-gutter-bg)", color: "var(--code-gutter-ink)" },
             ".cm-line": { padding: "0 10px" },
+            ".cm-cursor": { borderLeft: "2px solid var(--focus)" },
             ".cm-matchingBracket": { backgroundColor: "var(--code-match-bg)", outline: "1px solid var(--code-match-line)", color: "inherit" },
             ".cm-nonmatchingBracket": { backgroundColor: "var(--code-mismatch-bg)", outline: "1px solid var(--code-mismatch-line)", color: "inherit" }
           })

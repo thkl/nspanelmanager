@@ -632,11 +632,13 @@ export class PluginsPageComponent implements OnInit {
     this.clearPagePreview();
   }
 
-  /** Starts a fresh instance draft without changing the reusable plugin editor. */
+  /** Clears every field from the current instance before starting a fresh draft. */
   cancelEdit(): void {
     this.editingInstanceId.set(null);
     this.instanceName.set("");
+    this.selectedPluginProfileId.set("");
     this.instanceVariables.set({});
+    this.clearPagePreview();
   }
 
   /** Selects a reusable plugin for the instance draft. */

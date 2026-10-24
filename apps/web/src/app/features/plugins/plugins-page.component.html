@@ -367,7 +367,7 @@
   <article class="card instance-editor-card">
     <div class="card-heading">
       <div><h2>{{ editingInstanceId() ? 'Edit instance' : 'Create an instance' }}</h2><p>Choose a saved plugin and give this device its own name and variable values.</p></div>
-      @if (editingInstanceId()) { <button type="button" class="text-action" (click)="cancelEdit()">＋ New instance</button> }
+      @if (editingInstanceId()) { <button type="button" class="text-action" [disabled]="savingInstance()" (click)="cancelEdit()">＋ New instance</button> }
     </div>
     @if (manager.config().pluginProfiles.length > 0) {
     <div class="instance-form">
@@ -383,7 +383,7 @@
           <div><span id="instance-variables-heading" class="field-label">Instance variables</span><small>{{ instanceVariableHelp() }}</small></div>
           <button type="button" class="text-action" (click)="addVariable()">＋ Add variable</button>
         </div>
-        @for (entry of variableEntries(); track $index; let variableIndex = $index) {
+        @for (entry of variableEntries(); track entry.name; let variableIndex = $index) {
           <div class="variable-row">
             <label><span class="variable-label">{{ variableLabel(entry.name) }}@if (variableField(entry.name)?.required) { <em>Required</em> }</span><input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" [placeholder]="isFixedVariable(entry.name) ? entry.name : 'room'" [disabled]="isFixedVariable(entry.name)" autocomplete="off"></label>
             <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" [placeholder]="isFixedVariable(entry.name) ? 'Required value' : 'livingroom'"></textarea>@if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }</label>
@@ -402,7 +402,7 @@
       </section>
       <div class="form-actions">
         <button class="button primary" [disabled]="savingInstance() || !instanceName().trim() || !selectedPluginProfileId() || !variablesValid()" (click)="saveInstance()">{{ savingInstance() ? 'Saving…' : editingInstanceId() ? 'Save instance' : 'Create instance' }} <span>＋</span></button>
-        @if (editingInstanceId()) { <button class="button secondary" (click)="cancelEdit()">Cancel</button> }
+        @if (editingInstanceId()) { <button class="button secondary" [disabled]="savingInstance()" (click)="cancelEdit()">Cancel</button> }
       </div>
     </div>
     } @else {
