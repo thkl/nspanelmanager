@@ -456,11 +456,13 @@ export class MqttRuntime {
   }
 
   /** Publishes the firmware's 12 favorite indicator bits from directly bound devices. */
-  private async publishPanelFavoriteState(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<boolean> {
+  private async publishPanelFavoriteState(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[], force = false): Promise<boolean> {
     let mask = 0;
     for (const binding of bindings) {
       const index = binding.trigger.index;
       if (binding.panelId !== panel.id || !Number.isInteger(index) || index < 0 || index > 11) continue;
+      // Ignore stale bindings for slots that are now blank in the panel settings.
+      if (!panel.settings.favorites.buttons[index]?.label.trim()) continue;
       const instance = instances.find((candidate) => candidate.id === binding.pluginInstanceId && candidate.enabled);
       const definition = instance && this.plugins.get(instance.pluginId);
       if (!instance || !definition?.favoriteStateActive) continue;
@@ -480,7 +482,7 @@ export class MqttRuntime {
     }
     const payload = String(mask);
     const fingerprint = `${panelTopicRoot(panel)}:${payload}`;
-    if (this.publishedPanelFavoriteStates.get(panel.id) === fingerprint) return true;
+    if (!force && this.publishedPanelFavoriteStates.get(panel.id) === fingerprint) return true;
     const published = this.publish(`${panelTopicRoot(panel)}/cmnd/favstate`, payload);
     if (published) this.publishedPanelFavoriteStates.set(panel.id, fingerprint);
     return published;
@@ -758,7 +760,9 @@ export class MqttRuntime {
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/page/favs`) {
       this.publishPanelFavorites(eventPanel);
-      await this.publishPanelFavoriteState(eventPanel, config.panelBindings, instances);
+      // Re-send the mask when the page opens so the firmware can rebuild its
+      // visible indicators even when the underlying plugin states did not change.
+      await this.publishPanelFavoriteState(eventPanel, config.panelBindings, instances, true);
     }
     if (eventPanel && isPanelPageEvent(eventPanel, topic)) {
       this.nativePanelPages.delete(eventPanel.id);

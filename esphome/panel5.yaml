@@ -521,15 +521,16 @@ script:
   - id: update_favstate
     then:
       - lambda: |-
+                ESP_LOGD("custom","Updating pageUniversal favorite state");
+                const int fs = (int)id(favState).state;
+                id(disp1).send_command_printf("pageUniversal.va0.val=%d", fs);
                 if (id(currentPage)=="pageUniversal") {
-                  ESP_LOGD("custom","Updating pageUniversal");
-                  id(disp1).send_command_printf("pageUniversal.va0.val=%d",(int)id(favState).state);
-                  int fs = id(favState).state;
-                    for (int i = 0; i < 12; i++){
-                      int y = 1U << i;
-                      int isSet = fs & y;
-                      id(disp1).send_command_printf("ptI%d.txt=\"%s\"",i+1,isSet==y?"A":"");
-                    }
+                  for (int i = 0; i < 12; i++) {
+                    const int bit = 1U << i;
+                    const bool isActive = (fs & bit) == bit;
+                    id(disp1).send_command_printf("vis ptI%d,%d", i + 1, isActive ? 1 : 0);
+                    id(disp1).send_command_printf("ptI%d.txt=\"%s\"", i + 1, isActive ? "A" : "");
+                  }
                 }
 
   - id: switch_player
@@ -1090,11 +1091,9 @@ mqtt:
                     }
                   }
                   // also save the name into a var
-                  if (favorites.containsKey("name")) {
-                    id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", (favorites["name"].as<std::string>()).c_str());
-                  } else {
-                    id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"Favs\"");
-                  }
+                  std::string title = favorites.containsKey("name") ? favorites["name"].as<std::string>() : "Favs";
+                  id(favoritesTitle) = title;
+                  id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", title.c_str());
             }
     
     - topic: $node_name/cmnd/settings/brightness
@@ -1202,11 +1201,9 @@ mqtt:
                     }
                   }
                   // also save the name into a var
-                  if (favorites.containsKey("name")) {
-                    id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", (favorites["name"].as<std::string>()).c_str());
-                  } else {
-                    id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"Favs\"");
-                  }
+                  std::string title = favorites.containsKey("name") ? favorites["name"].as<std::string>() : "Favs";
+                  id(favoritesTitle) = title;
+                  id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", title.c_str());
               }
 
 
@@ -1334,6 +1331,7 @@ mqtt:
                     id(favoritesTitle) = title;
                     id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", id(favoritesTitle).c_str());
                   } else {
+                    id(favoritesTitle) = "Favs";
                     id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"Favs\"");
                   }
                   if (items.containsKey("topic")) {
