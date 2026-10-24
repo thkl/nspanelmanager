@@ -424,7 +424,9 @@ export class MqttRuntime {
 
   /** Requests an immediate reboot through the panel firmware's supported command topic. */
   rebootPanel(panel: Panel): boolean {
-    return this.publish(`${panelTopicRoot(panel)}/cmnd/reboot`, "");
+    // The firmware handles this topic through ESPHome's on_json_message hook,
+    // so publish valid JSON even though the handler does not use its contents.
+    return this.publish(`${panelTopicRoot(panel)}/cmnd/reboot`, "{}");
   }
 
   /** Assigns a unified panel's operational topic root, then waits for its ready report before sending full settings. */
