@@ -140,18 +140,20 @@ export class MqttDimmableLightPlugin implements PluginDefinition {
     const zeroLevel = tileConfigNumber(instance, "zeroLevel", 0);
     const onLevel = tileConfigNumber(instance, "onLevel", 254);
     const factor = resolveLevelFactor(instance, zeroLevel, onLevel);
-    const rawLevel = Math.round(zeroLevel + brightness / factor);
+    const rawLevel = zeroLevel + brightness / factor;
     const command = this.levelCommand(instance, "levelPayloadTemplate", rawLevel, brightness);
     return command ? { commands: [command], statePatch: { power: true, brightness } } : undefined;
   }
 
   private levelCommand(instance: ResolvedPluginInstance, templateKey: string, rawLevel: number, brightness: number): PluginCommand | undefined {
+    const configuredFactor = tileConfigNumber(instance, "levelFactor", 0);
+    const deviceLevel = configuredFactor > 0 ? Number(rawLevel.toFixed(6)).toString() : Math.round(rawLevel).toString();
     return tileCommand(
       instance,
       tileConfigString(instance, "commandTopic"),
       tileConfigString(instance, templateKey),
       {
-        value: String(rawLevel),
+        value: deviceLevel,
         levelPercent: String(brightness),
         rampTime: String(tileConfigNumber(instance, "rampTime", 0.5))
       }
