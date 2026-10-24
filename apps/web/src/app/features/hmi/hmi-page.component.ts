@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from "@angular/common/http";
 import { Component, ElementRef, OnInit, signal, viewChild } from "@angular/core";
 import { ManagerStore } from "../../manager-store.service";
-import type { FirmwareArtifact, FirmwareUpdateJob, HmiArtifact, HmiUpdateJob, Panel } from "../../models";
+import type { FirmwareArtifact, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiUpdateJob, Panel } from "../../models";
 
 type UpdateTab = "firmware" | "hmi";
 
@@ -24,6 +24,10 @@ export class HmiPageComponent implements OnInit {
   readonly uploadingFirmware = signal(false);
   readonly updatingPanelId = signal("");
   readonly updatingFirmwarePanelId = signal("");
+  readonly rolloutEnabled = signal(false);
+  readonly rolloutStableHours = signal(3);
+  readonly savingRolloutSettings = signal(false);
+  readonly savingAutoUpdatePanelId = signal("");
   readonly forceUpdate = signal(false);
   readonly forceFirmwareUpdate = signal(false);
   readonly maxUploadBytes = signal(32 * 1024 * 1024);
@@ -63,8 +67,15 @@ export class HmiPageComponent implements OnInit {
     this.refresh();
   }
 
-  /** Refreshes the latest artifact without reloading editable panel configuration. */
+  /** Refreshes update artifacts and the saved rollout policy. */
   refresh(): void {
+    this.manager.refresh().subscribe({
+      next: ({ config }) => {
+        this.rolloutEnabled.set(config.firmwareRollout.enabled);
+        this.rolloutStableHours.set(config.firmwareRollout.stableHours);
+      },
+      error: () => this.manager.inform("Could not load firmware rollout settings.", "error")
+    });
     this.loading.set(true);
     this.manager.loadHmiArtifact().subscribe({
       next: ({ artifact, maxUploadBytes }) => {
@@ -85,6 +96,66 @@ export class HmiPageComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.firmwareLoading.set(false);
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+  }
+
+  /** Reads the staged-rollout checkbox without saving until the administrator applies the settings. */
+  setRolloutEnabled(event: Event): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) this.rolloutEnabled.set(target.checked);
+  }
+
+  /** Keeps the canary stability period within the supported whole-hour range. */
+  setRolloutStableHours(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    const value = Number(target.value);
+    this.rolloutStableHours.set(Number.isInteger(value) ? value : 0);
+  }
+
+  /** Persists the global rollout gate and stability window. */
+  saveRolloutSettings(): void {
+    const settings: FirmwareRolloutSettings = { enabled: this.rolloutEnabled(), stableHours: this.rolloutStableHours() };
+    if (!this.rolloutSettingsValid() || this.savingRolloutSettings()) return;
+    this.savingRolloutSettings.set(true);
+    this.manager.saveFirmwareRolloutSettings(settings).subscribe({
+      next: () => {
+        this.savingRolloutSettings.set(false);
+        this.manager.inform(settings.enabled ? "Staged firmware rollout settings saved." : "Automatic firmware rollout disabled.");
+      },
+      error: (error: unknown) => {
+        this.savingRolloutSettings.set(false);
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+  }
+
+  /** Enables saving only when the configured stability window is a supported whole-hour value. */
+  rolloutSettingsValid(): boolean {
+    const hours = this.rolloutStableHours();
+    return Number.isInteger(hours) && hours >= 1 && hours <= 24;
+  }
+
+  /** Resolves the currently active rollout target to its configured panel name. */
+  rolloutCurrentPanelName(): string {
+    const panelId = this.manager.firmwareRollout()?.currentPanelId;
+    return this.manager.config().panels.find((panel) => panel.id === panelId)?.name ?? "panel";
+  }
+
+  /** Saves one panel's opt-in for future automatic rollout stages. */
+  setAutoUpdatePanel(panel: Panel, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || this.savingAutoUpdatePanelId()) return;
+    this.savingAutoUpdatePanelId.set(panel.id);
+    this.manager.setPanelAutoUpdateFirmware(panel.id, target.checked).subscribe({
+      next: () => {
+        this.savingAutoUpdatePanelId.set("");
+        this.manager.inform(target.checked ? `${panel.name} will join automatic firmware rollouts.` : `${panel.name} was removed from automatic firmware rollouts.`);
+      },
+      error: (error: unknown) => {
+        this.savingAutoUpdatePanelId.set("");
         this.manager.inform(this.errorMessage(error), "error");
       }
     });

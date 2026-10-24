@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareUpdateJob, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -19,6 +19,7 @@ export interface ManagerNotice { text: string; kind: NoticeKind }
 export class ManagerStore {
   readonly config = signal<ManagerConfig>({
     broker: { url: "", username: "", passwordConfigured: false },
+    firmwareRollout: { enabled: false, stableHours: 3 },
     panels: [],
     routes: [],
     pluginProfiles: [],
@@ -30,6 +31,7 @@ export class ManagerStore {
   readonly discoveredPanels = signal<DiscoveredPanel[]>([]);
   readonly hmiUpdateJobs = signal<HmiUpdateJob[]>([]);
   readonly firmwareUpdateJobs = signal<FirmwareUpdateJob[]>([]);
+  readonly firmwareRollout = signal<FirmwareRollout | null>(null);
   readonly panelCoreDumps = signal<Record<string, CoreDumpRecord>>({});
   readonly realtimeConnected = signal(false);
   readonly notice = signal<ManagerNotice | null>(null);
@@ -165,6 +167,20 @@ export class ManagerStore {
     return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; firmwareVersion: string; job: FirmwareUpdateJob }>(`/api/firmware/panels/${panelId}/update`, { force }).pipe(tap(({ job }) => this.upsertFirmwareUpdateJob(job)));
   }
 
+  /** Saves the global canary stability window for future staged firmware rollouts. */
+  saveFirmwareRolloutSettings(settings: FirmwareRolloutSettings): Observable<{ firmwareRollout: FirmwareRolloutSettings }> {
+    return this.http.put<{ firmwareRollout: FirmwareRolloutSettings }>("/api/firmware/rollout-settings", settings).pipe(tap(({ firmwareRollout }) => {
+      this.config.update((config) => ({ ...config, firmwareRollout }));
+    }));
+  }
+
+  /** Adds or removes one unified panel from future automatic firmware rollouts. */
+  setPanelAutoUpdateFirmware(panelId: string, enabled: boolean): Observable<{ panel: Panel }> {
+    return this.http.patch<{ panel: Panel }>(`/api/panels/${panelId}/firmware-rollout`, { autoUpdateFirmware: enabled }).pipe(tap(({ panel }) => {
+      this.config.update((config) => ({ ...config, panels: config.panels.map((item) => item.id === panel.id ? panel : item) }));
+    }));
+  }
+
   /** Loads the most recent crash dump metadata for one configured panel. */
   loadPanelCoreDump(panelId: string): Observable<{ dump: CoreDumpRecord | null }> {
     return this.http.get<{ dump: CoreDumpRecord | null }>(`/api/firmware/panels/${encodeURIComponent(panelId)}/crash-dump`).pipe(tap(({ dump }) => {
@@ -243,6 +259,7 @@ export class ManagerStore {
       this.discoveredPanels.set(Array.isArray(event.discoveredPanels) ? event.discoveredPanels : []);
       this.mergeHmiUpdateJobs(event.hmiJobs);
       this.mergeFirmwareUpdateJobs(event.firmwareJobs);
+      this.firmwareRollout.set(event.firmwareRollout ?? null);
       this.mqtt.set(event.mqtt);
     } else if (event.type === "panels") {
       this.setPanelConnections(event.panels);
@@ -252,6 +269,8 @@ export class ManagerStore {
       this.upsertHmiUpdateJob(event.job);
     } else if (event.type === "firmware-job") {
       this.upsertFirmwareUpdateJob(event.job);
+    } else if (event.type === "firmware-rollout") {
+      this.firmwareRollout.set(event.rollout);
     } else if (event.type === "core-dump") {
       this.panelCoreDumps.update((dumps) => ({ ...dumps, [event.dump.panelId]: event.dump }));
     } else if (event.type === "mqtt") {

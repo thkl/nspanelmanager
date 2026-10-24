@@ -58,6 +58,20 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     response.json({ panel });
   });
 
+  router.patch("/:id/firmware-rollout", async (request, response) => {
+    const current = store.get().panels.find((panel) => panel.id === request.params.id);
+    if (!current) return response.status(404).json({ error: "Panel not found." });
+    if (typeof request.body?.autoUpdateFirmware !== "boolean") {
+      return response.status(400).json({ error: "Choose whether this panel should join automatic firmware rollouts." });
+    }
+    if (request.body.autoUpdateFirmware && current.unifiedFirmware !== true) {
+      return response.status(409).json({ error: "Automatic firmware rollouts require a panel running compatible unified firmware." });
+    }
+    const panel: Panel = { ...current, autoUpdateFirmware: request.body.autoUpdateFirmware };
+    await store.update((config) => { config.panels = config.panels.map((item) => item.id === panel.id ? panel : item); });
+    response.json({ panel });
+  });
+
   router.put("/:id", async (request, response) => {
     const input = request.body as Partial<Panel>;
     const current = store.get().panels.find((panel) => panel.id === request.params.id);

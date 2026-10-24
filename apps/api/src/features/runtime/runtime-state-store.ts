@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PluginState, PluginStorageScope } from "../plugins/plugin-contract.js";
-import type { FirmwareUpdateJob, HmiUpdateJob, PanelResetReport } from "../../types.js";
+import type { FirmwareRollout, FirmwareUpdateJob, HmiUpdateJob, PanelResetReport } from "../../types.js";
 import type { Logger } from "../../services/logger.js";
 
 const MIN_PERSIST_INTERVAL_MS = 1_000;
@@ -52,6 +52,7 @@ interface RuntimeSnapshot {
   panelResetReports: Record<string, PanelResetReport>;
   hmiUpdateJobs: HmiUpdateJob[];
   firmwareUpdateJobs: FirmwareUpdateJob[];
+  firmwareRollout: FirmwareRollout | null;
   values: Record<string, unknown>;
   pluginStates: Record<string, PluginState>;
 }
@@ -103,12 +104,14 @@ export class RuntimeStateStore {
     const panelResetReports = normalizePanelResetReports(value.panelResetReports);
     const hmiUpdateJobs = normalizeHmiUpdateJobs(value.hmiUpdateJobs);
     const firmwareUpdateJobs = normalizeFirmwareUpdateJobs(value.firmwareUpdateJobs);
+    const firmwareRollout = normalizeFirmwareRollout(value.firmwareRollout);
     this.snapshot = {
       version: 1,
       panelSessions: isRecord(value.panelSessions) ? value.panelSessions as Record<string, PanelFlowSession> : {},
       panelResetReports,
       hmiUpdateJobs,
       firmwareUpdateJobs,
+      firmwareRollout,
       values: isRecord(value.values) ? value.values : {},
       pluginStates
     };
@@ -124,7 +127,9 @@ export class RuntimeStateStore {
       || !Array.isArray(value.hmiUpdateJobs)
       || JSON.stringify(value.hmiUpdateJobs) !== JSON.stringify(hmiUpdateJobs)
       || !Array.isArray(value.firmwareUpdateJobs)
-      || JSON.stringify(value.firmwareUpdateJobs) !== JSON.stringify(firmwareUpdateJobs);
+      || JSON.stringify(value.firmwareUpdateJobs) !== JSON.stringify(firmwareUpdateJobs)
+      || !Object.hasOwn(value, "firmwareRollout")
+      || JSON.stringify(value.firmwareRollout) !== JSON.stringify(firmwareRollout);
     if (needsSnapshotUpgrade) {
       this.persist();
       await this.flush();
@@ -267,6 +272,17 @@ export class RuntimeStateStore {
     this.persist();
   }
 
+  /** Returns the active or most recently completed firmware rollout. */
+  getFirmwareRollout(): FirmwareRollout | null {
+    return this.snapshot.firmwareRollout ? structuredClone(this.snapshot.firmwareRollout) : null;
+  }
+
+  /** Persists rollout progress, its stability timer, and the remaining panel queue. */
+  async setFirmwareRollout(rollout: FirmwareRollout | null): Promise<void> {
+    this.snapshot.firmwareRollout = rollout ? structuredClone(rollout) : null;
+    this.persist();
+  }
+
   /** Removes one panel's restored flow state when its saved profile is deleted. */
   async removePanel(panelId: string): Promise<void> {
     delete this.snapshot.panelSessions[panelId];
@@ -399,7 +415,7 @@ export class RuntimeStateStore {
   }
 }
 
-function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, hmiUpdateJobs: [], firmwareUpdateJobs: [], values: {}, pluginStates: {} }; }
+function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, hmiUpdateJobs: [], firmwareUpdateJobs: [], firmwareRollout: null, values: {}, pluginStates: {} }; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 
 function normalizePanelResetReports(value: unknown): Record<string, PanelResetReport> {
@@ -489,6 +505,45 @@ function normalizeFirmwareUpdateJobs(value: unknown): FirmwareUpdateJob[] {
     }];
   });
   return jobs.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_PERSISTED_FIRMWARE_UPDATE_JOBS);
+}
+
+function normalizeFirmwareRollout(value: unknown): FirmwareRollout | null {
+  if (!isRecord(value)
+    || typeof value.id !== "string" || !/^[0-9a-f-]{36}$/i.test(value.id)
+    || typeof value.artifactId !== "string" || !/^[0-9a-f-]{36}$/i.test(value.artifactId)
+    || typeof value.firmwareVersion !== "string" || !/^[0-9A-Za-z._+-]{1,40}$/.test(value.firmwareVersion)
+    || typeof value.canaryPanelId !== "string" || !value.canaryPanelId
+    || typeof value.canaryPanelName !== "string" || !value.canaryPanelName
+    || typeof value.startedAt !== "number" || !Number.isFinite(value.startedAt) || value.startedAt < 0
+    || typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt) || value.updatedAt < 0
+    || typeof value.stableHours !== "number" || !Number.isInteger(value.stableHours) || value.stableHours < 1 || value.stableHours > 24
+    || typeof value.status !== "string" || !["monitoring", "updating", "completed", "failed", "cancelled"].includes(value.status)
+    || typeof value.canaryConfirmed !== "boolean" || !Array.isArray(value.pendingPanelIds)
+    || typeof value.message !== "string") return null;
+  const pendingPanelIds = value.pendingPanelIds.filter((item): item is string => typeof item === "string" && item.length > 0).slice(0, 512);
+  const message = value.message.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 240);
+  const stableSinceAt = typeof value.stableSinceAt === "number" && Number.isFinite(value.stableSinceAt) && value.stableSinceAt >= 0 ? value.stableSinceAt : undefined;
+  const lastHeartbeatAt = typeof value.lastHeartbeatAt === "number" && Number.isFinite(value.lastHeartbeatAt) && value.lastHeartbeatAt >= 0 ? value.lastHeartbeatAt : undefined;
+  const lastUptimeSeconds = typeof value.lastUptimeSeconds === "number" && Number.isFinite(value.lastUptimeSeconds) && value.lastUptimeSeconds >= 0 ? value.lastUptimeSeconds : undefined;
+  const currentPanelId = typeof value.currentPanelId === "string" && value.currentPanelId ? value.currentPanelId : undefined;
+  return {
+    id: value.id,
+    artifactId: value.artifactId,
+    firmwareVersion: value.firmwareVersion,
+    canaryPanelId: value.canaryPanelId.slice(0, 80),
+    canaryPanelName: value.canaryPanelName.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120),
+    startedAt: value.startedAt,
+    updatedAt: value.updatedAt,
+    stableHours: value.stableHours,
+    status: value.status as FirmwareRollout["status"],
+    canaryConfirmed: value.canaryConfirmed,
+    pendingPanelIds,
+    ...(currentPanelId ? { currentPanelId: currentPanelId.slice(0, 80) } : {}),
+    ...(stableSinceAt === undefined ? {} : { stableSinceAt }),
+    ...(lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt }),
+    ...(lastUptimeSeconds === undefined ? {} : { lastUptimeSeconds }),
+    message
+  };
 }
 
 function storageKey(scope: PluginStorageScope, ownerId: string, key: string): string { return `${scope}:${ownerId}:${key}`; }

@@ -31,6 +31,33 @@
     </div>
   </article>
 
+  <section class="rollout-settings-card" aria-labelledby="firmware-rollout-title">
+    <div>
+      <h3 id="firmware-rollout-title">Staged firmware rollout</h3>
+      <p>Manually update one panel as the canary. After it reports the new version and maintains continuous uptime for the stability window, opted-in unified panels update one at a time. A failed update stops the rollout.</p>
+    </div>
+    <label class="rollout-enable-option">
+      <input type="checkbox" [checked]="rolloutEnabled()" (change)="setRolloutEnabled($event)">
+      <span><b>Enable automatic rollout</b><small>Panels marked below can be updated after the canary passes.</small></span>
+    </label>
+    <div class="rollout-settings-actions">
+      <label>Canary stable for
+        <span class="rollout-hour-input"><input type="number" min="1" max="24" step="1" [value]="rolloutStableHours()" (input)="setRolloutStableHours($event)"><span>hours</span></span>
+      </label>
+      <button class="primary-button" type="button" [disabled]="savingRolloutSettings() || !rolloutSettingsValid()" (click)="saveRolloutSettings()">{{ savingRolloutSettings() ? 'Saving…' : 'Save rollout settings' }}</button>
+    </div>
+  </section>
+
+  @if (manager.firmwareRollout(); as rollout) {
+    <section class="rollout-status-card" [class]="'rollout-status-card status-' + rollout.status" aria-live="polite">
+      <div class="rollout-status-heading"><b>Rollout · {{ rollout.firmwareVersion }}</b><span>{{ rollout.status }}</span></div>
+      <p>{{ rollout.message }}</p>
+      @if (rollout.status === 'monitoring' || rollout.status === 'updating') {
+        <small>Canary: {{ rollout.canaryPanelName }}@if (rollout.currentPanelId) { · Updating {{ rolloutCurrentPanelName() }} }@if (rollout.pendingPanelIds.length) { · {{ rollout.pendingPanelIds.length }} queued }</small>
+      }
+    </section>
+  }
+
   @if (firmwareLoading()) {
     <p class="loading-note" aria-live="polite">Loading stored firmware…</p>
   } @else if (firmwareArtifact(); as currentFirmware) {
@@ -46,7 +73,7 @@
 
     <section class="panel-section" aria-labelledby="firmware-targets-title">
       <div class="section-heading">
-        <div><h3 id="firmware-targets-title">Push firmware to a panel</h3><p>The panel downloads the binary from this manager and verifies it with MD5 before flashing.</p></div>
+        <div><h3 id="firmware-targets-title">Push firmware to a panel</h3><p>Manually update the canary panel here. The panel downloads the binary from this manager and verifies it with MD5 before flashing.</p></div>
         <div class="connection-badges"><span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'MQTT connected' : 'MQTT disconnected' }}</span><span class="live-state" [class.connected]="manager.realtimeConnected()">{{ manager.realtimeConnected() ? 'Live updates' : 'Reconnecting…' }}</span></div>
       </div>
       <label class="force-option" [class.force-active]="forceFirmwareUpdate()">
@@ -65,9 +92,19 @@
                   <p class="panel-job-status" [class]="'panel-job-status status-' + job.status">{{ firmwareUpdateStatusLabel(job) }} · {{ formatJobTime(job.updatedAt) }}@if (job.message) { · {{ job.message }} }</p>
                 }
               </div>
-              <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingFirmwarePanelId() !== '' || firmwareUpdateInProgress(panel)" (click)="requestFirmwareUpdate(panel)">
-                {{ firmwareUpdateInProgress(panel) ? 'Update in progress' : updatingFirmwarePanelId() === panel.id ? 'Sending…' : forceFirmwareUpdate() ? 'Force update now' : 'Send firmware prompt' }}
-              </button>
+              <div class="panel-actions">
+                @if (panel.unifiedFirmware) {
+                  <label class="auto-rollout-option">
+                    <input type="checkbox" [checked]="panel.autoUpdateFirmware === true" [disabled]="savingAutoUpdatePanelId() !== ''" (change)="setAutoUpdatePanel(panel, $event)">
+                    <span><b>Include in automatic rollout</b><small>Opted-in panels update after the canary passes.</small></span>
+                  </label>
+                } @else {
+                  <small class="auto-rollout-unavailable">Automatic rollout requires detected unified firmware.</small>
+                }
+                <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingFirmwarePanelId() !== '' || firmwareUpdateInProgress(panel) || !!manager.firmwareRollout() && (manager.firmwareRollout()?.status === 'monitoring' || manager.firmwareRollout()?.status === 'updating')" (click)="requestFirmwareUpdate(panel)">
+                  {{ firmwareUpdateInProgress(panel) ? 'Update in progress' : updatingFirmwarePanelId() === panel.id ? 'Sending…' : forceFirmwareUpdate() ? 'Force update now' : 'Send firmware prompt' }}
+                </button>
+              </div>
             </article>
           }
         </div>

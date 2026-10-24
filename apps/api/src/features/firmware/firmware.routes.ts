@@ -23,6 +23,18 @@ export function createFirmwareRouter(
 
   router.get("/", (_request, response) => response.json({ artifact: firmwareService.currentArtifact(), maxUploadBytes: MAX_FIRMWARE_UPLOAD_BYTES }));
 
+  router.put("/rollout-settings", async (request, response) => {
+    const enabled = request.body?.enabled;
+    const stableHours = request.body?.stableHours;
+    if (typeof enabled !== "boolean" || typeof stableHours !== "number" || !Number.isInteger(stableHours) || stableHours < 1 || stableHours > 24) {
+      return response.status(400).json({ error: "Enablement must be boolean and the canary stability period must be a whole number from 1 to 24 hours." });
+    }
+    const firmwareRollout = { enabled, stableHours };
+    await store.update((config) => { config.firmwareRollout = firmwareRollout; });
+    if (!enabled) await firmwareUpdateService.cancelRollout("Automatic staged rollout disabled by the administrator.");
+    response.json({ firmwareRollout });
+  });
+
   router.get("/panels/:panelId/crash-dump", (request, response) => {
     const panel = store.get().panels.find((item) => item.id === request.params.panelId);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
@@ -58,6 +70,9 @@ export function createFirmwareRouter(
 
   router.post("/upload", express.raw({ type: "application/octet-stream", limit: MAX_FIRMWARE_UPLOAD_BYTES }), async (request, response, next) => {
     try {
+      if (firmwareUpdateService.hasActiveRollout()) {
+        return response.status(409).json({ error: "A staged firmware rollout is active. Wait for it to finish before replacing the firmware package." });
+      }
       if (!Buffer.isBuffer(request.body)) return response.status(415).json({ error: "Upload the versioned firmware package as application/octet-stream." });
       const artifact = await firmwareService.upload(
         request.body,
@@ -89,10 +104,26 @@ export function createFirmwareRouter(
     if (!mqttRuntime.status().connected) return response.status(503).json({ error: "The MQTT broker is not connected." });
     if (hmiUpdateService.hasActiveJob(panel.id)) return response.status(409).json({ error: `An HMI update for ${panel.name} is already in progress.` });
 
+    const config = store.get();
+    const activeArtifact = firmwareService.currentArtifact();
+    const canaryVersion = mqttRuntime.panelConnectionStatuses().find((status) => status.panelId === panel.id)?.telemetry?.firmwareVersion;
+    const canaryNeedsUpdate = Boolean(activeArtifact && canaryVersion !== activeArtifact.version);
+    const rolloutTargets = config.firmwareRollout.enabled && panel.unifiedFirmware === true && canaryNeedsUpdate
+      ? config.panels.filter((candidate) => candidate.id !== panel.id && candidate.autoUpdateFirmware === true && candidate.unifiedFirmware === true).map((candidate) => candidate.id)
+      : [];
+    if (firmwareUpdateService.hasActiveRollout()) {
+      return response.status(409).json({ error: "A staged firmware rollout is already active. Wait for it to finish before starting another canary update." });
+    }
+    const rolloutReserved = rolloutTargets.length > 0;
+    if (rolloutReserved && !firmwareUpdateService.reserveRolloutStart()) {
+      return response.status(409).json({ error: "Another firmware rollout is being started. Try again in a moment." });
+    }
+
     try {
       const download = await firmwareService.createDownloadUrl();
       const topic = `${panelBootstrapTopicRoot(panel)}/cmnd/updatefirmware`;
       const job = await firmwareUpdateService.begin(panel, download.artifact, force, download.expiresAt, request.authUser?.email);
+      if (rolloutTargets.length) await firmwareUpdateService.startRollout(job, rolloutTargets, config.firmwareRollout.stableHours);
       if (!mqttRuntime.publishFirmwareUpdate(panel, download.url, download.artifact.md5, download.artifact.version, job.id, force)) {
         await firmwareUpdateService.markPublishFailed(job.id, "The MQTT broker disconnected before the firmware request could be sent.");
         return response.status(503).json({ error: "The MQTT broker disconnected before the firmware request could be sent.", job: firmwareUpdateService.getJob(job.id) });
@@ -120,6 +151,8 @@ export function createFirmwareRouter(
       if (error instanceof FirmwareArtifactError) response.status(error.statusCode).json({ error: error.message });
       else if (error instanceof FirmwareUpdateError) response.status(error.statusCode).json({ error: error.message });
       else next(error);
+    } finally {
+      if (rolloutReserved) firmwareUpdateService.releaseRolloutStart();
     }
   });
 

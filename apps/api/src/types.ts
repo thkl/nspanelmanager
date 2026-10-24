@@ -41,6 +41,37 @@ export interface Panel {
   panelEventPluginInstances?: Record<string, string>;
   /** Toggle-capable plugin instances assigned to the two physical buttons. */
   hardwareButtonPluginInstances?: Partial<Record<"0" | "1", string>>;
+  /** Includes this unified panel in firmware rollouts after the canary passes its stability window. */
+  autoUpdateFirmware?: boolean;
+}
+
+/** Global settings for manually-started canary firmware rollouts. */
+export interface FirmwareRolloutSettings {
+  enabled: boolean;
+  /** Continuous canary uptime required before opted-in panels are updated. */
+  stableHours: number;
+}
+
+export type FirmwareRolloutStatus = "monitoring" | "updating" | "completed" | "failed" | "cancelled";
+
+/** Durable status and queue for one canary-gated firmware rollout. */
+export interface FirmwareRollout {
+  id: string;
+  artifactId: string;
+  firmwareVersion: string;
+  canaryPanelId: string;
+  canaryPanelName: string;
+  startedAt: number;
+  updatedAt: number;
+  stableHours: number;
+  status: FirmwareRolloutStatus;
+  canaryConfirmed: boolean;
+  pendingPanelIds: string[];
+  currentPanelId?: string;
+  stableSinceAt?: number;
+  lastHeartbeatAt?: number;
+  lastUptimeSeconds?: number;
+  message: string;
 }
 
 /** Recently discovered ESPHome device awaiting a manager panel assignment. */
@@ -210,6 +241,7 @@ export interface BrokerSettings {
 
 export interface ManagerConfig {
   broker: BrokerSettings;
+  firmwareRollout: FirmwareRolloutSettings;
   panels: Panel[];
   routes: MqttRoute[];
   pluginProfiles: PluginProfile[];

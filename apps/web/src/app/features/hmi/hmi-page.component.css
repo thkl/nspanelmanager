@@ -10,6 +10,29 @@
 .update-tab-panel { display: grid; min-width: 0; gap: 18px; }
 .update-tab-panel[hidden] { display: none; }
 .hmi-card, .artifact-card, .panel-section, .empty-artifact, .hmi-notice { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.rollout-settings-card, .rollout-status-card { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.rollout-settings-card { display: grid; gap: 15px; padding: 18px 21px; }
+.rollout-settings-card h3 { margin: 0 0 6px; color: var(--ink); font-size: 15px; }
+.rollout-settings-card > div:first-child > p, .rollout-status-card p { margin: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.rollout-enable-option, .auto-rollout-option { display: flex; align-items: center; gap: 10px; }
+.rollout-enable-option input, .auto-rollout-option input { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--green); }
+.rollout-enable-option b, .auto-rollout-option b { display: block; color: var(--ink); font-size: 12px; }
+.rollout-enable-option small, .auto-rollout-option small { display: block; margin-top: 3px; color: var(--ink-soft); font-size: 10px; line-height: 1.45; }
+.rollout-settings-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.rollout-settings-actions > label { display: grid; gap: 5px; color: var(--ink-soft); font-size: 11px; font-weight: 700; }
+.rollout-hour-input { display: flex; align-items: center; gap: 8px; }
+.rollout-hour-input input { width: 82px; min-height: 38px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--field-bg); color: var(--ink); font: inherit; }
+.rollout-hour-input span { color: var(--ink-soft); font-size: 11px; }
+.rollout-status-card { padding: 14px 18px; }
+.rollout-status-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.rollout-status-heading b { color: var(--ink); font-size: 12px; }
+.rollout-status-heading span { padding: 4px 8px; border-radius: 99px; background: var(--surface-subtle); color: var(--ink-soft); font-size: 10px; font-weight: 750; text-transform: uppercase; }
+.rollout-status-card.status-monitoring { border-color: var(--amber-line); background: var(--amber-soft); }
+.rollout-status-card.status-monitoring .rollout-status-heading span { background: var(--paper); color: var(--amber-text); }
+.rollout-status-card.status-completed { border-color: var(--green-line); background: var(--green-soft); }
+.rollout-status-card.status-completed .rollout-status-heading span { color: var(--green-text); }
+.rollout-status-card.status-failed { border-color: var(--red); }
+.rollout-status-card > small { display: block; margin-top: 7px; color: var(--ink-soft); font-size: 10px; }
 .hmi-card { display: flex; align-items: flex-start; gap: 17px; padding: 22px; }
 .hmi-icon { display: grid; width: 42px; height: 42px; flex: 0 0 42px; place-items: center; border-radius: 11px; background: var(--surface-subtle); color: var(--green-text); font-size: 25px; font-weight: 700; }
 .card-copy { min-width: 0; flex: 1; }
@@ -53,6 +76,10 @@
 .panel-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 19px; }
 .panel-row + .panel-row { border-top: 1px solid var(--line); }
 .panel-copy { min-width: 0; }
+.panel-actions { display: grid; min-width: 220px; justify-items: stretch; gap: 9px; }
+.auto-rollout-option { cursor: pointer; }
+.auto-rollout-option input:focus-visible, .rollout-enable-option input:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.auto-rollout-unavailable { max-width: 240px; color: var(--ink-faint); font-size: 10px; line-height: 1.45; }
 .panel-copy h4 { margin: 0 0 3px; color: var(--ink); font-size: 13px; }
 .panel-copy p { margin: 0; overflow-wrap: anywhere; color: var(--ink-faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 .panel-copy .panel-hmi-version { margin-top: 5px; color: var(--amber-text); font-family: inherit; font-size: 11px; }
@@ -77,5 +104,6 @@
   .selected-file { width: 100%; }
   .section-heading { align-items: flex-start; flex-direction: column; }
   .panel-row { align-items: flex-start; flex-direction: column; }
+  .panel-actions { width: 100%; }
   .send-button { width: 100%; }
 }

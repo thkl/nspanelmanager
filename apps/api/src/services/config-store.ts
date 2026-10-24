@@ -64,8 +64,10 @@ export class ConfigStore {
           username: typeof savedBroker.username === "string" ? savedBroker.username : emptyConfig.broker.username,
           password: brokerPassword.value
         },
+        firmwareRollout: normalizeFirmwareRolloutSettings(saved.firmwareRollout),
         panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
           ...panel,
+          autoUpdateFirmware: panel.autoUpdateFirmware === true,
           ...(normalizeMacAddress(panel.macAddress) ? { macAddress: normalizeMacAddress(panel.macAddress) } : { macAddress: undefined }),
           unifiedFirmware: panel.unifiedFirmware === true && Boolean(normalizeMacAddress(panel.macAddress)),
           nativePluginInstances: normalizeNativePluginInstances(panel.nativePluginInstances),
@@ -127,8 +129,17 @@ export class ConfigStore {
 
 const emptyConfig: ManagerConfig = {
   broker: { url: "", username: "", password: "" },
+  firmwareRollout: { enabled: false, stableHours: 3 },
   panels: [], routes: [], pluginProfiles: [], pluginInstances: [], panelBindings: []
 };
+
+function normalizeFirmwareRolloutSettings(value: unknown): ManagerConfig["firmwareRollout"] {
+  if (!isRecord(value)) return structuredClone(emptyConfig.firmwareRollout);
+  const stableHours = typeof value.stableHours === "number" && Number.isInteger(value.stableHours)
+    ? Math.min(24, Math.max(1, value.stableHours))
+    : emptyConfig.firmwareRollout.stableHours;
+  return { enabled: value.enabled === true, stableHours };
+}
 
 function migratePluginConfiguration(profilesValue: unknown, instancesValue: unknown): {
   profiles: ManagerConfig["pluginProfiles"];

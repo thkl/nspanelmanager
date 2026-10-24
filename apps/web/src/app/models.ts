@@ -34,6 +34,33 @@ export interface Panel {
   nativePluginInstances?: Record<string, string>;
   panelEventPluginInstances?: Record<string, string>;
   hardwareButtonPluginInstances?: Partial<Record<"0" | "1", string>>;
+  autoUpdateFirmware?: boolean;
+}
+
+export interface FirmwareRolloutSettings {
+  enabled: boolean;
+  stableHours: number;
+}
+
+export type FirmwareRolloutStatus = "monitoring" | "updating" | "completed" | "failed" | "cancelled";
+
+export interface FirmwareRollout {
+  id: string;
+  artifactId: string;
+  firmwareVersion: string;
+  canaryPanelId: string;
+  canaryPanelName: string;
+  startedAt: number;
+  updatedAt: number;
+  stableHours: number;
+  status: FirmwareRolloutStatus;
+  canaryConfirmed: boolean;
+  pendingPanelIds: string[];
+  currentPanelId?: string;
+  stableSinceAt?: number;
+  lastHeartbeatAt?: number;
+  lastUptimeSeconds?: number;
+  message: string;
 }
 
 export interface DiscoveredPanel {
@@ -133,6 +160,7 @@ export interface PanelBinding {
 
 export interface ManagerConfig {
   broker: { url: string; username: string; passwordConfigured: boolean };
+  firmwareRollout: FirmwareRolloutSettings;
   panels: Panel[];
   routes: MqttRoute[];
   pluginProfiles: PluginProfile[];
@@ -246,11 +274,12 @@ export interface FirmwareUpdateJob {
 }
 
 export type ManagerRealtimeEvent =
-  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; mqtt: MqttStatus }
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: MqttStatus }
   | { type: "panels"; panels: PanelConnectionStatus[] }
   | { type: "discovered-panels"; panels: DiscoveredPanel[] }
   | { type: "hmi-job"; job: HmiUpdateJob }
   | { type: "firmware-job"; job: FirmwareUpdateJob }
+  | { type: "firmware-rollout"; rollout: FirmwareRollout | null }
   | { type: "core-dump"; dump: CoreDumpRecord }
   | { type: "mqtt"; mqtt: MqttStatus };
 
