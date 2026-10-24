@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { normalizePanelSettings, validNodeName } from "../domain/panel-settings.js";
 import { defaultPanelSettings, type Panel } from "../types.js";
@@ -10,9 +11,11 @@ import { panelBootstrapTopicRoot, panelTopicRoot } from "../domain/panel-topics.
  * Creates the HTTP endpoints for panel profile lifecycle operations.
  *
  * `GET /status` returns in-memory MQTT connectivity, `POST /` creates a profile,
- * `PUT /:id` normalizes and publishes changed settings, `DELETE /:id` removes its
- * associated routes, and `POST /:id/apply` manually resends the profile to
- * firmware. Broker setup and generic MQTT route editing live in separate routers.
+ * `PUT /:id` normalizes and publishes changed settings, `POST /:id/copy-settings`
+ * copies a saved profile onto another panel while retaining its identity,
+ * `DELETE /:id` removes its associated routes, and `POST /:id/apply` manually
+ * resends the profile to firmware. Broker setup and generic MQTT route editing
+ * live in separate routers.
  */
 export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry): Router {
   const router = Router();
@@ -110,6 +113,53 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       : mqttRuntime.publishPanelSettings(panel, false, settingsTopicRoot);
     if (!panel.unifiedFirmware) await mqttRuntime.refreshNativePanel(panel);
     response.json({ panel, published, topic: `${settingsTopicRoot}/cmnd/${identityAssignment ? "identity" : "settings"}` });
+  });
+
+  router.post("/:id/copy-settings", async (request, response) => {
+    const target = store.get().panels.find((panel) => panel.id === request.params.id);
+    if (!target) return response.status(404).json({ error: "Destination panel not found." });
+    const sourcePanelId = stringValue(request.body?.sourcePanelId);
+    const source = store.get().panels.find((panel) => panel.id === sourcePanelId);
+    if (!source) return response.status(404).json({ error: "Source panel not found." });
+    if (source.id === target.id) return response.status(400).json({ error: "Choose a different destination panel." });
+
+    const settings = normalizePanelSettings({
+      ...source.settings,
+      panelname: target.settings.panelname
+    }, target.name);
+    const panel: Panel = {
+      ...target,
+      settings,
+      nativePluginInstances: structuredClone(source.nativePluginInstances ?? {}),
+      panelEventPluginInstances: structuredClone(source.panelEventPluginInstances ?? {})
+    };
+    const sourceBindings = store.get().panelBindings.filter((binding) => binding.panelId === source.id);
+    const copiedBindings = sourceBindings.map((binding) => ({
+      ...binding,
+      id: randomUUID(),
+      panelId: target.id,
+      trigger: structuredClone(binding.trigger)
+    }));
+
+    for (const binding of store.get().panelBindings.filter((item) => item.panelId === target.id)) {
+      await mqttRuntime.closePanelBinding(target, binding.id);
+    }
+    const updated = await store.update((config) => {
+      config.panels = config.panels.map((item) => item.id === target.id ? panel : item);
+      config.panelBindings = [
+        ...config.panelBindings.filter((binding) => binding.panelId !== target.id),
+        ...copiedBindings
+      ];
+    });
+    mqttRuntime.syncSubscriptions();
+    const published = mqttRuntime.publishPanelSettings(panel, true);
+    await mqttRuntime.refreshNativePanel(panel);
+    response.json({
+      panel,
+      panelBindings: updated.panelBindings.filter((binding) => binding.panelId === target.id),
+      published,
+      topic: panelTopicRoot(panel) + "/cmnd/settings"
+    });
   });
 
   router.delete("/:id", async (request, response) => {

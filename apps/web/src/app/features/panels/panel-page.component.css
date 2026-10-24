@@ -362,6 +362,38 @@ nspanel-screen-preview { margin-bottom: 22px; }
   border-bottom: 1px solid var(--line);
 }
 
+.copy-settings-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px) auto;
+  align-items: end;
+  gap: 16px;
+  padding: 15px 21px;
+  border-bottom: 1px solid var(--line);
+  background: var(--canvas-soft);
+}
+
+.copy-settings-panel > div:first-child { min-width: 0; }
+
+.copy-settings-panel b,
+.copy-settings-panel small { display: block; }
+
+.copy-settings-panel b { color: var(--ink); font-size: 11px; }
+
+.copy-settings-panel small {
+  max-width: 620px;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.copy-settings-panel label { width: 100%; }
+
+.copy-settings-panel .inline-actions {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
 .device-title {
   display: flex;
   min-width: 0;
@@ -829,8 +861,18 @@ label input::placeholder {
 
   .editor-actions {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: flex-end;
   }
+
+  .copy-settings-panel {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .copy-settings-panel .inline-actions { justify-content: flex-end; }
 
   .settings-scroll {
     padding: 16px 14px 0;

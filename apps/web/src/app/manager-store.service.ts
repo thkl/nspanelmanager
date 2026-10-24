@@ -341,6 +341,23 @@ export class ManagerStore {
     }));
   }
 
+  /** Copies one saved panel's settings and favorite bindings onto another panel profile. */
+  copyPanelSettings(sourcePanelId: string, targetPanelId: string): Observable<{ panel: Panel; panelBindings: PanelBinding[]; published: boolean; topic: string }> {
+    return this.http.post<{ panel: Panel; panelBindings: PanelBinding[]; published: boolean; topic: string }>(
+      "/api/panels/" + targetPanelId + "/copy-settings",
+      { sourcePanelId }
+    ).pipe(tap(({ panel, panelBindings }) => {
+      this.config.update((config) => ({
+        ...config,
+        panels: config.panels.map((item) => item.id === panel.id ? panel : item),
+        panelBindings: [
+          ...config.panelBindings.filter((binding) => binding.panelId !== panel.id),
+          ...panelBindings
+        ]
+      }));
+    }));
+  }
+
   /** Publishes one saved profile to `<nodeName>/cmnd/settings`. */
   applyPanel(panel: Panel): Observable<{ published: boolean; topic: string }> {
     return this.http.post<{ published: boolean; topic: string }>(`/api/panels/${panel.id}/apply`, {});

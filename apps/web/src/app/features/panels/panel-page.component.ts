@@ -11,8 +11,9 @@ import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
  *
  * A panel's draft is a detached copy of the server record, so choosing another
  * panel or refreshing cannot silently mutate the shared manager state. Saving
- * synchronizes favorite bindings and persists the profile; applying publishes
- * the firmware's supported settings packet to the selected panel's settings topic.
+ * synchronizes favorite bindings and persists the profile; copying sends saved
+ * settings to another profile while keeping its identity; applying publishes the
+ * firmware's supported settings packet to the selected panel's settings topic.
  */
 @Component({
   selector: "nspanel-panel-page",
@@ -33,6 +34,9 @@ export class PanelPageComponent implements OnInit {
   readonly newNodeName = signal("");
   readonly newMacAddress = signal("");
   readonly discoveryAssignmentTargets = signal<Record<string, string>>({});
+  readonly showCopySettings = signal(false);
+  readonly copyTargetPanelId = signal("");
+  readonly copyingPanelSettings = signal(false);
   readonly saving = signal(false);
   readonly coreDump = signal<CoreDumpRecord | null>(null);
   readonly coreDumpLoading = signal(false);
@@ -104,6 +108,43 @@ export class PanelPageComponent implements OnInit {
       },
       error: (error) => this.manager.inform(error.error?.error || "Could not add panel.", "error")
     });
+  }
+
+  /** Lists possible destinations other than the source panel. */
+  copyTargets(source: Panel): Panel[] {
+    return this.manager.config().panels.filter((panel) => panel.id !== source.id);
+  }
+
+  /** Copies the source's saved configuration onto the selected destination panel. */
+  copySettingsToPanel(): void {
+    const source = this.draft();
+    const target = this.manager.config().panels.find((panel) => panel.id === this.copyTargetPanelId());
+    if (!source || !target || this.copyingPanelSettings()) return;
+    const confirmation = "Replace " + target.name + "'s saved settings and plugin assignments with those from " +
+      source.name + "? The destination name, display title, MQTT node, and device assignment will stay unchanged.";
+    if (!confirm(confirmation)) return;
+
+    this.copyingPanelSettings.set(true);
+    this.manager.copyPanelSettings(source.id, target.id).subscribe({
+      next: ({ published, topic }) => {
+        this.copyingPanelSettings.set(false);
+        this.showCopySettings.set(false);
+        this.copyTargetPanelId.set("");
+        this.manager.inform(published
+          ? "Copied settings to " + target.name + " and sent them to " + topic + "."
+          : "Copied settings to " + target.name + "; they will be sent when MQTT reconnects.");
+      },
+      error: (error) => {
+        this.copyingPanelSettings.set(false);
+        this.manager.inform(error.error?.error || "Could not copy panel settings.", "error");
+      }
+    });
+  }
+
+  /** Closes the copy controls without changing either panel. */
+  cancelCopySettings(): void {
+    this.showCopySettings.set(false);
+    this.copyTargetPanelId.set("");
   }
 
   /** Requests a fresh discovery broadcast from ESPHome devices on the connected broker. */
@@ -363,6 +404,10 @@ export class PanelPageComponent implements OnInit {
   }
 
   private setDraft(panel: Panel | null): void {
+    if (this.selectedPanelId() !== (panel?.id ?? null)) {
+      this.showCopySettings.set(false);
+      this.copyTargetPanelId.set("");
+    }
     this.selectedPanelId.set(panel?.id ?? null);
     this.panelSelectionChange.emit(panel?.id ?? null);
     this.draft.set(panel ? structuredClone(panel) : null);
