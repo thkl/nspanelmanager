@@ -1,5 +1,5 @@
-import type { Panel, PluginConfigValue, ResolvedPluginInstance } from "../../types.js";
-import type { MqttMessageEnvelope, PluginActionResult, PluginConfigField, PluginDefinition, PluginHomeTileResult, PluginRuntimeContext, PluginScreen, PluginState } from "./plugin-contract.js";
+import type { Panel, PanelBinding, PluginConfigValue, ResolvedPluginInstance } from "../../types.js";
+import type { MqttMessageEnvelope, PluginActionResult, PluginConfigField, PluginDefinition, PluginFavoriteLongPressResult, PluginFavoritePressResult, PluginHomeTileResult, PluginRuntimeContext, PluginScreen, PluginState } from "./plugin-contract.js";
 import { isTopicTemplateValid, readPayloadValue, scalarNumber, scalarPower, tileCommand, tileConfigNumber, tileConfigString } from "./home-tile-utils.js";
 import { interpolatePluginTemplate } from "./plugin-variables.js";
 import { decodeNextionRgb, XYToRGB } from "./nextion-color-wheel.js";
@@ -10,7 +10,8 @@ export class MqttLightPlugin implements PluginDefinition {
   readonly name = "MQTT light";
   readonly version = 3;
   readonly description = "Control an MQTT light from a panel home tile and the firmware's brightness/color screen.";
-  readonly capabilities = ["mqtt", "light", "home-tile", "brightness", "color"];
+  readonly capabilities = ["mqtt", "light", "home-tile", "brightness", "color", "favorite-toggle"];
+  readonly favoriteFlow = true;
   readonly homeTileType = "light" as const;
   readonly configSchema: readonly PluginConfigField[] = [
     { key: "statusTopicFilter", label: "Status topic filter", type: "text", required: true, defaultValue: "zigbee2mqtt/{{device}}", help: "MQTT filter that reports the light state. Use instance variables such as {{device}}." },
@@ -107,6 +108,24 @@ export class MqttLightPlugin implements PluginDefinition {
     if (typeof state.power === "boolean") return state.power;
     const brightness = scalarNumber(state.brightness);
     return brightness === undefined ? undefined : brightness > 0;
+  }
+
+  /** Toggles the light directly when its favorite is tapped. */
+  handleFavoritePress(instance: ResolvedPluginInstance, _panel: Panel, _binding: PanelBinding, state: PluginState, _context: PluginRuntimeContext): PluginFavoritePressResult | undefined {
+    return this.togglePower(instance, state);
+  }
+
+  /** Opens the existing firmware light controls when the favorite is held. */
+  handleFavoriteLongPress(instance: ResolvedPluginInstance, panel: Panel, binding: PanelBinding, _state: PluginState, _context: PluginRuntimeContext): PluginFavoriteLongPressResult | undefined {
+    const setTopic = interpolatePluginTemplate(tileConfigString(instance, "setTopic"), instance.variables);
+    if (!isTopicTemplateValid(setTopic)) return undefined;
+    const commands = [{
+      topic: `${panel.nodeName}/cmnd/colorLamp`,
+      payload: JSON.stringify({ label: binding.name, id: setTopic })
+    }];
+    const request = tileCommand(instance, tileConfigString(instance, "requestTopic"), tileConfigString(instance, "requestPayloadTemplate", "{}"));
+    if (request) commands.push(request);
+    return { page: "light", commands };
   }
 
   /** Home tiles launch from their configured tile and do not use universal favorites. */

@@ -5,6 +5,7 @@ import type { PluginScreen } from "../plugins/plugin-contract.js";
 /** Event decoded from the firmware's favorite, menu-page, and universal info-page topics. */
 export type PanelInputEvent =
   | { type: "favorite"; index: number }
+  | { type: "favorite-longpress"; index: number }
   | { type: "favorite-menu-button"; index: number; bindingId: string }
   | { type: "info-button"; index: number; bindingId: string; action: string }
   | { type: "info-back"; bindingId: string };
@@ -51,6 +52,7 @@ export class PanelProtocolAdapter {
     const eventTopic = topic.slice(prefix.length);
     const favoriteMatch = /^favorites\/(\d+)$/.exec(eventTopic);
     if (favoriteMatch && payload === "press") return { type: "favorite", index: Number(favoriteMatch[1]) - 1 };
+    if (favoriteMatch && payload === "longpress") return { type: "favorite-longpress", index: Number(favoriteMatch[1]) - 1 };
     if (eventTopic === "menupage") {
       let menuEvent: Record<string, unknown>;
       try {

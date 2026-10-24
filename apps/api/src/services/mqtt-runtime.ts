@@ -31,6 +31,7 @@ export class MqttRuntime {
   private readonly pendingMessages = new Set<Promise<void>>();
   private readonly nativePanelPages = new Map<string, string>();
   private readonly panelHomeTilePages = new Map<string, { page: "home" | "light" | "level"; index?: number }>();
+  private readonly activeFavoriteLightPages = new Map<string, { bindingId: string; pluginInstanceId: string }>();
   private readonly publishedPanelSettings = new Map<string, string>();
   private readonly unifiedInitSettingsSentAt = new Map<string, number>();
   private readonly unifiedInitRetryUsed = new Set<string>();
@@ -546,6 +547,7 @@ export class MqttRuntime {
   async removePanelRuntimeState(panelId: string): Promise<void> {
     this.nativePanelPages.delete(panelId);
     this.panelHomeTilePages.delete(panelId);
+    this.activeFavoriteLightPages.delete(panelId);
     this.publishedPanelSettings.delete(panelId);
     this.unifiedInitSettingsSentAt.delete(panelId);
     this.unifiedInitRetryUsed.delete(panelId);
@@ -572,6 +574,7 @@ export class MqttRuntime {
 
   /** Closes a currently visible flow screen before its favorite binding is removed. */
   async closePanelBinding(panel: Panel, bindingId: string): Promise<void> {
+    if (this.activeFavoriteLightPages.get(panel.id)?.bindingId === bindingId) this.activeFavoriteLightPages.delete(panel.id);
     const session = this.runtimeState.getPanelSession(panel.id);
     if (!session || session.bindingId !== bindingId && !session.ancestors?.some((ancestor) => ancestor.bindingId === bindingId)) return;
     await this.runtimeState.setPanelSession(panel.id);
@@ -760,6 +763,7 @@ export class MqttRuntime {
     if (eventPanel && isPanelPageEvent(eventPanel, topic)) {
       this.nativePanelPages.delete(eventPanel.id);
       const page = topic.slice(`${eventPanel.nodeName}/event/page/`.length);
+      if (page !== "pageColorLight" && page !== "colorlamp") this.activeFavoriteLightPages.delete(eventPanel.id);
       const session = this.runtimeState.getPanelSession(eventPanel.id);
       if (page === "page0" && session?.ancestors?.length) {
         await this.restoreParentPanelFlow(eventPanel, config.panelBindings, instances, session);
@@ -787,6 +791,7 @@ export class MqttRuntime {
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && (payload === "booted" || payload === "sleep")) {
       this.nativePanelPages.delete(eventPanel.id);
       this.panelHomeTilePages.delete(eventPanel.id);
+      this.activeFavoriteLightPages.delete(eventPanel.id);
       if (payload === "booted") this.publishedPanelFavoriteStates.delete(eventPanel.id);
     }
 
@@ -795,7 +800,10 @@ export class MqttRuntime {
     if (eventPanel) await this.dispatchNativePanelEvent(eventPanel, message, instances);
     if (eventPanel) await this.dispatchPanelEventObservers(eventPanel, message, instances);
     const favoritePageHandled = eventPanel ? await this.dispatchFavoritePanelEvent(eventPanel, message, instances, config.panelBindings) : false;
-    if (eventPanel && !favoritePageHandled) await this.dispatchHomeTileEvent(eventPanel, message, instances);
+    const favoriteLightPageHandled = eventPanel && !favoritePageHandled
+      ? await this.dispatchFavoriteLightPageEvent(eventPanel, message, instances, config.panelBindings)
+      : false;
+    if (eventPanel && !favoritePageHandled && !favoriteLightPageHandled) await this.dispatchHomeTileEvent(eventPanel, message, instances);
 
     if (eventPanel && topic === `${eventPanel.nodeName}/event/display` && payload === "booted") {
       this.requestPanelResetReport(eventPanel);
@@ -1576,6 +1584,38 @@ export class MqttRuntime {
     }
   }
 
+  /** Runs a plugin's long-press action and tracks its native light page when opened. */
+  private async executeFavoriteLongPress(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance, definition: PluginDefinition): Promise<void> {
+    if (!definition.handleFavoriteLongPress) return;
+    try {
+      const previousState = this.runtimeState.getPluginState(instance.id);
+      const result = await definition.handleFavoriteLongPress(
+        instance,
+        panel,
+        binding,
+        previousState,
+        this.createPluginContext(panel, binding, instance)
+      );
+      const nextState = result?.statePatch ? { ...previousState, ...result.statePatch } : previousState;
+      if (result?.statePatch) await this.setPluginState(instance, nextState);
+      if (result?.page === "light") {
+        this.panelHomeTilePages.delete(panel.id);
+        this.activeFavoriteLightPages.set(panel.id, { bindingId: binding.id, pluginInstanceId: instance.id });
+      } else if (result?.page === "closed") {
+        this.activeFavoriteLightPages.delete(panel.id);
+      }
+      for (const command of result?.commands ?? []) {
+        if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.lastError = detail;
+      this.logger.error("Favorite long-press action failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "favorite long press", detail
+      });
+    }
+  }
+
   /** Sends a favorite native page's normalized state only while that flow is active. */
   private publishFavoritePanelState(definition: PluginDefinition, instance: ResolvedPluginInstance, panel: Panel, state: PluginState): void {
     if (!definition.renderFavoritePanelState) return;
@@ -1598,6 +1638,17 @@ export class MqttRuntime {
   }
 
   private async handlePanelInput(panel: Panel, event: PanelInputEvent, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<void> {
+    if (event.type === "favorite-longpress") {
+      const activeMenu = this.runtimeState.getPanelSession(panel.id);
+      if (activeMenu?.menuPageActive) return;
+      const binding = bindings.find((item) => item.panelId === panel.id && item.trigger.type === "favorite" && item.trigger.index === event.index);
+      const instance = binding && instances.find((item) => item.id === binding.pluginInstanceId && item.enabled);
+      const definition = instance && this.plugins.get(instance.pluginId);
+      if (!binding || !instance || !definition?.handleFavoriteLongPress) return;
+      await this.executeFavoriteLongPress(panel, binding, instance, definition);
+      return;
+    }
+
     if (event.type === "favorite") {
       const activeMenu = this.runtimeState.getPanelSession(panel.id);
       const menuInstance = activeMenu?.menuPageActive ? instances.find((item) => item.id === activeMenu.pluginInstanceId && item.enabled) : undefined;
@@ -1694,6 +1745,48 @@ export class MqttRuntime {
     if (result.navigation?.type !== "reload" && result.screen !== session.screen) history.push(session.screen);
     await this.runtimeState.setPanelSession(panel.id, { ...session, screen: result.screen, history });
     await this.showScreen(panel, binding, instance, nextState, result.screen);
+  }
+
+  /** Routes color-page MQTT events to the light instance opened from a favorite. */
+  private async dispatchFavoriteLightPageEvent(panel: Panel, message: MqttMessageEnvelope, instances: ResolvedPluginInstance[], bindings: PanelBinding[]): Promise<boolean> {
+    const prefix = `${panelTopicRoot(panel)}/event/`;
+    if (!message.topic.startsWith(prefix)) return false;
+    const suffix = message.topic.slice(prefix.length);
+    if (!["colorLamp", "colorLamp/set", "colorscene", "page/colorlamp"].includes(suffix)) return false;
+    const active = this.activeFavoriteLightPages.get(panel.id);
+    if (!active) return false;
+
+    const instance = instances.find((candidate) => candidate.id === active.pluginInstanceId && candidate.enabled);
+    const binding = bindings.find((candidate) => candidate.id === active.bindingId && candidate.panelId === panel.id);
+    const definition = instance && this.plugins.get(instance.pluginId);
+    const button = panel.settings.buttons[0];
+    if (!instance || !binding || !definition?.handleHomeTileEvent || !button) return false;
+
+    try {
+      const previousState = this.runtimeState.getPluginState(instance.id);
+      const result = await definition.handleHomeTileEvent(
+        instance,
+        panel,
+        0,
+        button,
+        message,
+        previousState,
+        this.createPluginLifecycleContext(instance, "favorite light page")
+      );
+      const nextState = result?.statePatch ? { ...previousState, ...result.statePatch } : previousState;
+      if (result?.statePatch) await this.setPluginState(instance, nextState);
+      for (const command of result?.commands ?? []) {
+        if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+      }
+      if (result?.page === "home" || result?.page === "closed") this.activeFavoriteLightPages.delete(panel.id);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.lastError = detail;
+      this.logger.error("Favorite light page event failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "favorite light page", topic: message.topic, detail
+      });
+    }
+    return true;
   }
 
   private async restorePanelSession(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<void> {

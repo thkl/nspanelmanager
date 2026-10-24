@@ -60,6 +60,11 @@ export interface PluginFavoritePressResult {
   statePatch?: PluginState;
 }
 
+/** Commands and optional light-page navigation produced by holding a favorite. */
+export interface PluginFavoriteLongPressResult extends PluginFavoritePressResult {
+  page?: "light" | "closed";
+}
+
 /** Normalized device state cached per instance and restored from the last durable runtime snapshot after restart. */
 export type PluginState = Record<string, unknown>;
 
@@ -237,6 +242,8 @@ export interface PluginDefinition {
   favoriteStateActive?(instance: ResolvedPluginInstance, state: PluginState, context: PluginRuntimeContext): boolean | undefined | Promise<boolean | undefined>;
   /** Handles a directly bound favorite press without opening a plugin screen. */
   handleFavoritePress?(instance: ResolvedPluginInstance, panel: Panel, binding: PanelBinding, state: PluginState, context: PluginRuntimeContext): PluginFavoritePressResult | void | Promise<PluginFavoritePressResult | void>;
+  /** Handles a long press on a directly bound favorite, optionally opening a native light page. */
+  handleFavoriteLongPress?(instance: ResolvedPluginInstance, panel: Panel, binding: PanelBinding, state: PluginState, context: PluginRuntimeContext): PluginFavoriteLongPressResult | void | Promise<PluginFavoriteLongPressResult | void>;
   /** Maps a native menu selection to a configured plugin instance to open. */
   handleMenuPageAction?(instance: ResolvedPluginInstance, index: number, context: PluginRuntimeContext): PluginMenuPageAction | void | Promise<PluginMenuPageAction | void>;
   /** Opens a native favorite page, including its page navigation and initial configuration. */
