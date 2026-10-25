@@ -20,6 +20,8 @@ export interface PanelSettings {
   screensaver?: number;
   roomstatus?: number;
   nightmode?: number;
+  /** Play a short buzzer click when the touchscreen is pressed. */
+  touchClick?: boolean;
   buttons: MainButton[];
   favorites: { name: string; buttons: FavoriteButton[] };
   hwbuttons: { "0": number; "1": number };
@@ -288,6 +290,7 @@ export function defaultPanelSettings(name = "New NSPanel"): PanelSettings {
     brightness: 100,
     screensaver: 0,
     nightmode: 0,
+    touchClick: false,
     buttons: Array.from({ length: 4 }, () => ({ label: "", image: "1", mode: 0 })),
     favorites: {
       name: "Favorites",

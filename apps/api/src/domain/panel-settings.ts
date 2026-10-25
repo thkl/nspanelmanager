@@ -43,6 +43,7 @@ export function normalizePanelSettings(input: unknown, fallbackName: string): Pa
     screensaver: boundedNumber(settings.screensaver, 0, 1, 0),
     roomstatus: numericValue(settings.roomstatus),
     nightmode: boundedNumber(settings.nightmode, 0, 1, 0),
+    touchClick: settings.touchClick === true || settings.touchClick === 1,
     buttons: buttons.map((item) => {
       const button = item && typeof item === "object" ? item as Record<string, unknown> : {};
       const image = typeof button.image === "number" ? String(button.image) : stringValue(button.image);

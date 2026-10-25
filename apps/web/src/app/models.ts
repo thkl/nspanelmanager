@@ -18,6 +18,7 @@ export interface PanelSettings {
   screensaver?: number;
   roomstatus?: number;
   nightmode?: number;
+  touchClick?: boolean;
   buttons: MainButton[];
   favorites: { name: string; buttons: FavoriteButton[] };
   hwbuttons: { "0": number; "1": number };

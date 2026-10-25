@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.23"
+  firmware_version: "6.0.27"
   diagnostic_ignore_music_commands: "false"
   diagnostic_skip_music_display: "false"
 
@@ -84,6 +84,11 @@ globals:
     type: int
     restore_value: no
     initial_value: "0"
+
+  - id: touchClickEnabled
+    type: bool
+    restore_value: no
+    initial_value: "false"
 
   - id: sleeping
     type: bool
@@ -186,6 +191,16 @@ globals:
     type: std::vector<std::string>
     restore_value: no
     initial_value: '{"", "", "", "", "", "", "", "", "", "", "", ""}'
+
+  - id: renderedFavoriteState
+    type: int
+    restore_value: no
+    initial_value: "-1"
+
+  - id: lastFavoriteStateSent
+    type: int
+    restore_value: no
+    initial_value: "-1"
 
   - id: favTx
     type: std::string
@@ -662,15 +677,28 @@ script:
       - lambda: |-
                 ESP_LOGD("custom","Updating pageUniversal favorite state");
                 const int fs = (int)id(favState).state;
-                id(disp1).send_command_printf("pageUniversal.va0.val=%d", fs);
-                if (id(currentPage)=="pageUniversal") {
-                  for (int i = 0; i < 12; i++) {
-                    const int bit = 1U << i;
-                    const bool isActive = (fs & bit) == bit;
-                    id(disp1).send_command_printf("vis ptI%d,%d", i + 1, isActive ? 1 : 0);
-                    id(disp1).send_command_printf("ptI%d.txt=\"%s\"", i + 1, isActive ? "A" : "");
-                  }
+                if (id(lastFavoriteStateSent) != fs) {
+                  id(disp1).send_command_printf("pageUniversal.va0.val=%d", fs);
+                  id(lastFavoriteStateSent) = fs;
                 }
+                if (id(currentPage) != "pageUniversal") {
+                  return;
+                }
+                const int previousState = id(renderedFavoriteState);
+                const int changedBits = previousState < 0 ? 0x0FFF : previousState ^ fs;
+                if (changedBits == 0) {
+                  return;
+                }
+                for (int i = 0; i < 12; i++) {
+                  const int bit = 1U << i;
+                  if ((changedBits & bit) == 0) {
+                    continue;
+                  }
+                  const bool isActive = (fs & bit) == bit;
+                  id(disp1).send_command_printf("vis ptI%d,%d", i + 1, isActive ? 1 : 0);
+                  id(disp1).send_command_printf("ptI%d.txt=\"%s\"", i + 1, isActive ? "A" : "");
+                }
+                id(renderedFavoriteState) = fs;
 
   - id: switch_player
     then:
@@ -1336,6 +1364,10 @@ panel_mqtt:
                   id(disp1).send_command_printf("page0.vaBrightness.val=%d", brightness);
               }
 
+              if (x["touchClick"].is<bool>()) {
+                id(touchClickEnabled) = x["touchClick"].as<bool>();
+              }
+
               if (x.containsKey("screensaver")){
                   int iScreenSaver = 0;
                   ESP_LOGD("SETTINGS","Update Screensaver");
@@ -1526,7 +1558,6 @@ panel_mqtt:
                   // also save the name into a var
                   if (items.containsKey("name")) {
                     std::string title = items["name"].as<std::string>();
-                    id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", title.c_str());
                     id(favoritesTitle) = title;
                     id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", id(favoritesTitle).c_str());
                   } else {
@@ -1542,9 +1573,11 @@ panel_mqtt:
                   if (x["favstate"].is<int>()) {
                     const int favoriteState = x["favstate"].as<int>();
                     id(favState).state = favoriteState;
-                    id(disp1).send_command_printf("pageUniversal.va0.val=%d", favoriteState);
                     if (isShown) {
                       id(update_favstate).execute();
+                    } else if (id(lastFavoriteStateSent) != favoriteState) {
+                      id(disp1).send_command_printf("pageUniversal.va0.val=%d", favoriteState);
+                      id(lastFavoriteStateSent) = favoriteState;
                     }
                   }
                   if (!isShown) {
@@ -3779,6 +3812,8 @@ display:
       then:
         - lambda: |-
                 id(roomstatus).state = 0;
+                id(renderedFavoriteState) = -1;
+                id(lastFavoriteStateSent) = -1;
         - if:
             condition:
               lambda: return id(hmi_update_pending) && !id(pending_hmi_version).empty();
@@ -3804,3 +3839,10 @@ display:
                   id(publish_hmi_update_status)->execute(completed_job_id, "succeeded", completed_version, "The display reconnected with the requested HMI.");
               - script.execute: publish_panel_ping
         - script.execute: publish_panel_display_ready
+    on_touch:
+      then:
+        - if:
+            condition:
+              lambda: return touch_event && component_id != 0 && id(touchClickEnabled);
+            then:
+              - rtttl.play: "beep:d=32,o=5,b=200:e"
