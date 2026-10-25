@@ -1,4 +1,4 @@
-import type { Panel, PanelBinding } from "../../types.js";
+import type { FavoriteButton, Panel, PanelBinding } from "../../types.js";
 import { panelTopicRoot } from "../../domain/panel-topics.js";
 import type { PluginScreen } from "../plugins/plugin-contract.js";
 
@@ -40,6 +40,33 @@ export class PanelProtocolAdapter {
     const buttons = Array.from({ length: 12 }, (_, index) => ({ label: page.buttons[index]?.label ?? "",topic: page.buttons[index]?.topic ?? "" }));
     return this.publish(`${panelTopicRoot(panel)}/cmnd/menupage`, JSON.stringify({
       page: { name: page.title, topic: "", buttons }
+    }));
+  }
+
+  /** Sends favorite labels, per-button bindings, modes, and active state as one menu-page command. */
+  showFavoritesPage(
+    panel: Panel,
+    favorites: { name: string; buttons: FavoriteButton[] },
+    bindings: PanelBinding[],
+    favoriteState: number
+  ): boolean {
+    const buttons = Array.from({ length: 12 }, (_, index) => {
+      const favorite = favorites.buttons[index];
+      const binding = bindings.find((candidate) =>
+        candidate.panelId === panel.id &&
+        candidate.trigger.type === "favorite" &&
+        candidate.trigger.index === index
+      );
+      return {
+        label: favorite?.label ?? "",
+        mode: favorite?.mode ?? 0,
+        topic: binding?.id ?? ""
+      };
+    });
+    return this.publish(`${panelTopicRoot(panel)}/cmnd/menupage`, JSON.stringify({
+      page: { name: favorites.name, topic: "", buttons },
+      favorite_bindings: true,
+      favstate: favoriteState
     }));
   }
 

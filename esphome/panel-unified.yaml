@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.22"
+  firmware_version: "6.0.23"
   diagnostic_ignore_music_commands: "false"
   diagnostic_skip_music_display: "false"
 
@@ -181,6 +181,11 @@ globals:
     type: std::vector<int>
     restore_value: no
     initial_value: "{0,0,0,0,0,0,0,0,0,0,0,0}"
+
+  - id: favButtonTopics
+    type: std::vector<std::string>
+    restore_value: no
+    initial_value: '{"", "", "", "", "", "", "", "", "", "", "", ""}'
 
   - id: favTx
     type: std::string
@@ -718,6 +723,18 @@ script:
                   id(mqtt_client).publish_json((id(panel_mqtt_client).get_active_topic_prefix() + "/event/colorscene").c_str(),[=](JsonObject root) { root["topic"] =id(colorLamp);root["page"] = id(colorScenePage); root["button"] = (button+1); });
               } else
 
+              if (button >= 0 &&
+                  button < static_cast<int>(id(favModes).size()) &&
+                  button < static_cast<int>(id(favButtonTopics).size()) &&
+                  id(favModes)[button] == 0 &&
+                  !id(favButtonTopics)[button].empty()) {
+                  const std::string binding_id = id(favButtonTopics)[button];
+                  id(mqtt_client).publish_json((id(panel_mqtt_client).get_active_topic_prefix() + "/event/menupage").c_str(),[=](JsonObject root) {
+                    root["topic"] = binding_id;
+                    root["button"] = (button+1);
+                  });
+              } else
+
               if (id(favModes)[button]==0) {
                   sprintf(buf, (id(panel_mqtt_client).get_active_topic_prefix() + "/event/favorites/%d").c_str(),(button+1));
                   id(mqtt_client).publish(buf,"press");
@@ -1244,32 +1261,6 @@ panel_mqtt:
         - script.execute: update_time
         - rtttl.play: !lambda 'if (id(silentMessage) == false) {return  "mario:d=4,o=5,b=100:16e6,16e6,32p,8e6,16c6,8e6,8g6,8p";} else {return "";}'
 
-    - topic: cmnd/settings/favorites
-      then:
-        - lambda: |-
-            if (x.containsKey("favorites")) {
-                  ESP_LOGD("SETTINGS","Update FAVS");
-                  JsonObjectConst favorites = x["favorites"];
-                  if (favorites.containsKey("buttons")){
-                    JsonArrayConst array = favorites["buttons"];
-                    int arraySize =  array.size();
-                    for (int i = 0; i < 12; i++) {
-                      if (arraySize > i) {
-                        // we will save these labels to the variables in the display so no need to store it localy
-                        id(disp1).send_command_printf("pageUniversal.vFav%d.txt=\"%s\"",(i+1), (array[i]["label"].as<std::string>()).c_str());
-                        id(disp1).send_command_printf("p6B%d.txt=\"%s\"",(i+1), (array[i]["label"].as<std::string>()).c_str());
-                        if (array[i].containsKey("mode")) {
-                          id(favModes)[i] = array[i]["mode"].as<int>();
-                        }
-                      }
-                    }
-                  }
-                  // also save the name into a var
-                  std::string title = favorites.containsKey("name") ? favorites["name"].as<std::string>() : "Favs";
-                  id(favoritesTitle) = title;
-                  id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", title.c_str());
-            }
-    
     - topic: cmnd/settings/brightness
       then:
         - lambda: |-
@@ -1392,30 +1383,6 @@ panel_mqtt:
                     }
 
               }
-
-               //Setup the favorites Page if we have values here
-              if (x.containsKey("favorites")) {
-                  ESP_LOGD("SETTINGS","Update FAVS");
-                  JsonObjectConst favorites = x["favorites"];
-                  if (favorites.containsKey("buttons")){
-                    JsonArrayConst array = favorites["buttons"];
-                    int arraySize =  array.size();
-                    for (int i = 0; i < 12; i++) {
-                      if (arraySize > i) {
-                        // we will save these labels to the variables in the display so no need to store it localy
-                        id(disp1).send_command_printf("pageUniversal.vFav%d.txt=\"%s\"",(i+1), (array[i]["label"].as<std::string>()).c_str());
-                        if (array[i].containsKey("mode")) {
-                          id(favModes)[i] = array[i]["mode"].as<int>();
-                        }
-                      }
-                    }
-                  }
-                  // also save the name into a var
-                  std::string title = favorites.containsKey("name") ? favorites["name"].as<std::string>() : "Favs";
-                  id(favoritesTitle) = title;
-                  id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", title.c_str());
-              }
-
 
               if (x.containsKey("hwbuttons")) {
                 ESP_LOGD("SETTINGS","Update HWButtons");
@@ -1541,6 +1508,7 @@ panel_mqtt:
               bool isShown = (id(currentPage)=="pageUniversal");
               if (x.containsKey("page")) {
                   JsonObjectConst items = x["page"];
+                  const bool hasFavoriteBindings = x["favorite_bindings"].is<bool>() && x["favorite_bindings"].as<bool>();
                   if (items.containsKey("buttons")){
                     JsonArrayConst array = items["buttons"];
                     int arraySize =  array.size();
@@ -1548,10 +1516,11 @@ panel_mqtt:
                       const char *label = i < arraySize ? array[i]["label"].as<const char *>() : "";
                       if (label == nullptr) label = "";
                       id(disp1).send_command_printf("pageUniversal.vFav%d.txt=\"%s\"",(i+1), label);
-                      id(disp1).send_command_printf("pageUniversal.va0.val=%d",0);
-                      if (isShown) {
-                        id(disp1).send_command_printf("p6B%d.txt=\"%s\"",(i+1), label);
-                      }
+                      id(disp1).send_command_printf("p6B%d.txt=\"%s\"",(i+1), label);
+                      id(favModes)[i] = i < arraySize && array[i]["mode"].is<int>() ? array[i]["mode"].as<int>() : 0;
+                      id(favButtonTopics)[i] = hasFavoriteBindings && i < arraySize && array[i]["topic"].is<std::string>()
+                        ? array[i]["topic"].as<std::string>()
+                        : "";
                     }
                   }
                   // also save the name into a var
@@ -1564,11 +1533,23 @@ panel_mqtt:
                     id(favoritesTitle) = "Favs";
                     id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"Favs\"");
                   }
-                  if (items.containsKey("topic")) {
+                  if (items["topic"].is<std::string>()) {
                     std::string topic = items["topic"].as<std::string>();
                     id(menuPageTopic) = topic;
+                  } else {
+                    id(menuPageTopic).clear();
                   }
-                  id(disp1).send_command_printf("page pageUniversal");
+                  if (x["favstate"].is<int>()) {
+                    const int favoriteState = x["favstate"].as<int>();
+                    id(favState).state = favoriteState;
+                    id(disp1).send_command_printf("pageUniversal.va0.val=%d", favoriteState);
+                    if (isShown) {
+                      id(update_favstate).execute();
+                    }
+                  }
+                  if (!isShown) {
+                    id(disp1).send_command_printf("page pageUniversal");
+                  }
               }
 
     - topic: cmnd/status
@@ -2393,8 +2374,10 @@ binary_sensor:
         - lambda: |-
               id(colorScenePage) = "";
               id(menuPageTopic) = "";
-              id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/page/favs").c_str(), "0");
-              id(disp1).send_command_printf("page pageUniversal");
+              id(mqtt_client).publish_json(
+                (id(panel_mqtt_client).get_active_topic_prefix() + "/event/page/favs").c_str(),
+                [](JsonObject root) { root["favorites_protocol"] = "menu-v1"; }
+              );
 
 #Music shows up
   - platform: nextion

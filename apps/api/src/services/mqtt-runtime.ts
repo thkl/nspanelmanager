@@ -49,6 +49,7 @@ export class MqttRuntime {
   private readonly panelBootedEventLastHandledAt = new Map<string, number>();
   private readonly panelResetReportRequestedAt = new Map<string, number>();
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
+  private readonly panelFirmwareVersions = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
   private readonly discoveredPanels = new Map<string, DiscoveredPanel>();
   private readonly panelConnectionListeners = new Set<(panels: PanelConnectionStatus[]) => void>();
@@ -423,12 +424,13 @@ export class MqttRuntime {
     const defaultPlayer = panel.nativePluginInstances ? panel.nativePluginInstances['music'] : undefined;
     const configuredPlayers = this.configuredNativePagePlayers("music",defaultPlayer);
 
-    const settings = {
+    const settings: Record<string, unknown> = {
       ...panel.settings,
       ...(panel.unifiedFirmware ? { mqtt_alias: panel.nodeName } : {}),
       music: configuredPlayers,
       buttons: panel.settings.buttons.map(({ label, image, mode }) => ({ label, image, mode }))
     };
+    if (this.panelSupportsUnifiedFavoritesPage(panel)) delete settings["favorites"];
     const configFingerprint = JSON.stringify({
       nodeName: panel.nodeName,
       topicRoot,
@@ -634,6 +636,17 @@ export class MqttRuntime {
 
   /** Publishes the firmware's 12 favorite indicator bits from directly bound devices. */
   private async publishPanelFavoriteState(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[], force = false): Promise<boolean> {
+    const mask = await this.panelFavoriteStateMask(panel, bindings, instances);
+    const payload = String(mask);
+    const fingerprint = `${panelTopicRoot(panel)}:${payload}`;
+    if (!force && this.publishedPanelFavoriteStates.get(panel.id) === fingerprint) return true;
+    const published = this.publish(`${panelTopicRoot(panel)}/cmnd/favstate`, payload);
+    if (published) this.publishedPanelFavoriteStates.set(panel.id, fingerprint);
+    return published;
+  }
+
+  /** Builds the twelve-bit active-state mask for a panel's bound favorite buttons. */
+  private async panelFavoriteStateMask(panel: Panel, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<number> {
     let mask = 0;
     for (const binding of bindings) {
       const index = binding.trigger.index;
@@ -657,16 +670,37 @@ export class MqttRuntime {
         });
       }
     }
-    const payload = String(mask);
-    const fingerprint = `${panelTopicRoot(panel)}:${payload}`;
-    if (!force && this.publishedPanelFavoriteStates.get(panel.id) === fingerprint) return true;
-    const published = this.publish(`${panelTopicRoot(panel)}/cmnd/favstate`, payload);
-    if (published) this.publishedPanelFavoriteStates.set(panel.id, fingerprint);
+    return mask;
+  }
+
+  /** Sends the full Favorites page and active-state mask in one firmware command. */
+  private async publishPanelFavorites(
+    panel: Panel,
+    bindings: PanelBinding[],
+    instances: ResolvedPluginInstance[],
+    unifiedProtocolRequested = false
+  ): Promise<boolean> {
+    if (!unifiedProtocolRequested && !this.panelSupportsUnifiedFavoritesPage(panel)) {
+      this.publishLegacyPanelFavorites(panel);
+      return this.publishPanelFavoriteState(panel, bindings, instances, true);
+    }
+    const favoriteState = await this.panelFavoriteStateMask(panel, bindings, instances);
+    const published = this.panelProtocol.showFavoritesPage(panel, panel.settings.favorites, bindings, favoriteState);
+    if (published) this.publishedPanelFavoriteStates.set(panel.id, `${panelTopicRoot(panel)}:${favoriteState}`);
     return published;
   }
 
-  /** Publishes only the Favorites configuration used by the firmware's Favorites page. */
-  private publishPanelFavorites(panel: Panel): boolean {
+  /** Keeps old firmware operational until it reports support for the unified menu response. */
+  private panelSupportsUnifiedFavoritesPage(panel: Panel): boolean {
+    const version = this.panelFirmwareVersions.get(panel.id) ?? "";
+    const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version);
+    if (!match) return false;
+    const [major, minor, patch] = match.slice(1).map(Number);
+    return major > 6 || (major === 6 && (minor > 0 || (minor === 0 && patch >= 23)));
+  }
+
+  /** Sends the previous Favorites configuration to firmware before version 6.0.23. */
+  private publishLegacyPanelFavorites(panel: Panel): boolean {
     return this.publish(
       `${panelTopicRoot(panel)}/cmnd/settings/favorites`,
       JSON.stringify({ favorites: panel.settings.favorites })
@@ -736,6 +770,7 @@ export class MqttRuntime {
     this.publishedPanelFavoriteStates.delete(panelId);
     this.panelGroupAckCapabilities.delete(panelId);
     this.panelGroupStatuses.delete(panelId);
+    this.panelFirmwareVersions.delete(panelId);
     this.clearPanelGroupAckTimeout(panelId);
     await this.runtimeState.removePanel(panelId);
   }
@@ -945,6 +980,7 @@ export class MqttRuntime {
         });
         return;
       }
+      if (displayIdentity.firmwareVersion) this.panelFirmwareVersions.set(eventPanelRecord.id, displayIdentity.firmwareVersion);
       const lastHandledAt = this.panelDisplayReadyLastHandledAt.get(eventPanelRecord.id);
       if (lastHandledAt !== undefined && message.receivedAt - lastHandledAt < 2_000) return;
       this.panelDisplayReadyLastHandledAt.set(eventPanelRecord.id, message.receivedAt);
@@ -994,6 +1030,7 @@ export class MqttRuntime {
         return;
       }
       this.panelGroupAckCapabilities.set(eventPanelRecord.id, parsePanelGroupAckCapability(payload) === true);
+      if (readyIdentity.firmwareVersion) this.panelFirmwareVersions.set(eventPanelRecord.id, readyIdentity.firmwareVersion);
       if (this.pendingUnifiedIdentityAssignments.has(eventPanelRecord.id)) {
         this.logger.info("Panel identity confirmed; waiting for the Nextion display to finish setup before sending full settings.", {
           component: "mqtt",
@@ -1022,6 +1059,7 @@ export class MqttRuntime {
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/ping`) {
       const telemetry = readPanelTelemetry(payload, message.receivedAt);
+      if (telemetry?.firmwareVersion) this.panelFirmwareVersions.set(eventPanel.id, telemetry.firmwareVersion);
       if (telemetry?.supportsGroupSettingsAck !== undefined) {
         const previousCapability = this.panelGroupAckCapabilities.get(eventPanel.id);
         this.panelGroupAckCapabilities.set(eventPanel.id, telemetry.supportsGroupSettingsAck);
@@ -1030,10 +1068,12 @@ export class MqttRuntime {
       for (const listener of this.panelPingListeners) await listener(eventPanelRecord ?? eventPanel, telemetry, message.receivedAt);
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/page/favs`) {
-      this.publishPanelFavorites(eventPanel);
-      // Re-send the mask when the page opens so the firmware can rebuild its
-      // visible indicators even when the underlying plugin states did not change.
-      await this.publishPanelFavoriteState(eventPanel, config.panelBindings, instances, true);
+      await this.publishPanelFavorites(
+        eventPanel,
+        config.panelBindings,
+        instances,
+        isUnifiedFavoritesPageRequest(payload)
+      );
     }
     if (eventPanel && isPanelPageEvent(eventPanel, topic)) {
       this.nativePanelPages.delete(eventPanel.id);
@@ -2014,13 +2054,40 @@ export class MqttRuntime {
     }
 
     const session = this.runtimeState.getPanelSession(panel.id);
-    if (event.type === "favorite-menu-button" && session?.menuPageActive && session.bindingId === event.bindingId) {
-      const menuBinding = this.resolveSessionBinding(panel, session, bindings);
-      const menuInstance = instances.find((item) => item.id === session.pluginInstanceId && item.enabled);
-      const menuDefinition = menuInstance && this.plugins.get(menuInstance.pluginId);
-      if (menuBinding && menuInstance && menuDefinition?.renderMenuPage) {
-        await this.openMenuTarget(panel, session, menuBinding, menuInstance, menuDefinition, event.index, instances);
+    if (event.type === "favorite-menu-button") {
+      if (session?.menuPageActive && session.bindingId === event.bindingId) {
+        const menuBinding = this.resolveSessionBinding(panel, session, bindings);
+        const menuInstance = instances.find((item) => item.id === session.pluginInstanceId && item.enabled);
+        const menuDefinition = menuInstance && this.plugins.get(menuInstance.pluginId);
+        if (menuBinding && menuInstance && menuDefinition?.renderMenuPage) {
+          await this.openMenuTarget(panel, session, menuBinding, menuInstance, menuDefinition, event.index, instances);
+        }
+        return;
       }
+
+      const binding = bindings.find((item) =>
+        item.id === event.bindingId &&
+        item.panelId === panel.id &&
+        item.trigger.type === "favorite" &&
+        item.trigger.index === event.index
+      );
+      const instance = binding && instances.find((item) => item.id === binding.pluginInstanceId && item.enabled);
+      const definition = instance && this.plugins.get(instance.pluginId);
+      if (!binding || !instance || !definition) return;
+      if (definition.handleFavoritePress) {
+        await this.executeDirectFavoritePress(panel, binding, instance, definition);
+        return;
+      }
+      const startScreen = definition.startScreen?.(instance) ?? "overview";
+      await this.runtimeState.setPanelSession(panel.id, {
+        bindingId: binding.id,
+        pluginInstanceId: instance.id,
+        screen: startScreen,
+        ...(definition.renderMenuPage ? { menuPageActive: true } : {}),
+        ...(definition.favoritePanelPage ? { favoritePanelPage: definition.favoritePanelPage } : {}),
+        history: []
+      });
+      await this.renderBinding(panel, binding, instance, startScreen);
       return;
     }
     if (!session?.screen || session.bindingId !== event.bindingId) return;
@@ -2497,19 +2564,26 @@ function parsePanelMacAddress(payload: string): string | undefined {
 }
 
 /** Parses and normalizes the identity sent after the firmware adopts its configured topic. */
-function parsePanelReadyIdentity(payload: string): { mac: string; nodeName: string } | undefined {
+function parsePanelReadyIdentity(payload: string): { mac: string; nodeName: string; firmwareVersion?: string } | undefined {
   const parsed = parseRoutePayloadJson(payload);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
   const record = parsed as Record<string, unknown>;
   const mac = normalizeMacAddress(typeof record.mac === "string" ? record.mac : undefined);
   const nodeName = typeof record.node_name === "string" ? record.node_name : undefined;
-  return mac && nodeName ? { mac, nodeName } : undefined;
+  const firmwareVersion = typeof record["firmware_version"] === "string" ? record["firmware_version"].trim().slice(0, 40) : "";
+  return mac && nodeName ? { mac, nodeName, ...(firmwareVersion ? { firmwareVersion } : {}) } : undefined;
 }
 
 /** Reads whether a valid ready message advertises the group settings acknowledgement protocol. */
 function parsePanelGroupAckCapability(payload: string): boolean | undefined {
   const record = readPayloadRecord(payload);
   return typeof record?.["group_settings_ack"] === "boolean" ? record["group_settings_ack"] : undefined;
+}
+
+/** Detects a panel requesting the atomic Favorites page response. */
+function isUnifiedFavoritesPageRequest(payload: string): boolean {
+  const record = readPayloadRecord(payload);
+  return record?.["favorites_protocol"] === "menu-v1";
 }
 
 /** Checks the raw payload or one scalar value parsed from its JSON body. */
