@@ -8,6 +8,7 @@ import type {
   PluginFavoritePanelPageResult,
   PluginFavoritePressResult,
   PluginHomeTileResult,
+  PluginApiRoute,
   PluginRuntimeContext,
   PluginScreen,
   PluginState
@@ -16,6 +17,7 @@ import { configNumber } from "./plugin-contract.js";
 import {
   entityDomain,
   entityStatePatch,
+  fetchHomeAssistantEntityOptions,
   getHomeAssistantEntity,
   isSupportedEntityId,
   numberValue,
@@ -137,6 +139,38 @@ export class HomeAssistantPlugin implements PluginDefinition {
   /** Builds Home Assistant controllers with the manager's structured logger. */
   constructor(logger: Logger = new Logger()) {
     this.vacuumControls = new HomeAssistantVacuumControls(logger);
+  }
+
+  /** Registers Home Assistant API endpoints inside this plugin's route namespace. */
+  registerRoutes(): readonly PluginApiRoute[] {
+    return [{
+      method: "get",
+      url: "entities",
+      callback: async ({ profile, response, logger }) => {
+        const baseUrl = stringValue(profile.config, "baseUrl").trim();
+        const accessToken = stringValue(profile.config, "accessToken");
+        if (!accessToken) {
+          response.status(409).json({ error: "Save the Home Assistant URL and access token before loading devices." });
+          return;
+        }
+
+        try {
+          response.json(await fetchHomeAssistantEntityOptions(baseUrl, accessToken, logger));
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          logger.error("Home Assistant entity API request failed.", {
+            component: "api",
+            plugin: "home-assistant",
+            phase: "entity options",
+            profile: profile.name,
+            detail
+          });
+          response.status(502).json({
+            error: error instanceof Error ? error.message : "Could not load entities from Home Assistant."
+          });
+        }
+      }
+    }];
   }
 
   /** Validates the HA connection, refresh interval, and device-control options. */

@@ -1,4 +1,25 @@
-import type { Panel, PanelBinding, PluginConfigValue, PluginVariables, ResolvedPluginInstance } from "../../types.js";
+import type { Request, Response } from "express";
+import type { Logger } from "../../services/logger.js";
+import type { Panel, PanelBinding, PluginConfigValue, PluginProfile, PluginVariables, ResolvedPluginInstance } from "../../types.js";
+
+/** HTTP methods a plugin may expose inside its manager-owned API namespace. */
+export type PluginApiRouteMethod = "get" | "post" | "put" | "patch" | "delete";
+
+/** Data and manager services supplied to one plugin-owned API callback. */
+export interface PluginApiRouteContext {
+  request: Request;
+  response: Response;
+  profile: PluginProfile;
+  logger: Logger;
+}
+
+/** One plugin-relative route; the manager adds the plugin and profile prefix. */
+export interface PluginApiRoute {
+  method: PluginApiRouteMethod;
+  /** Plugin-relative URL below `/profiles/:id/plugin/<plugin-id>/`. */
+  url: string;
+  callback(context: PluginApiRouteContext): void | Promise<void>;
+}
 
 /** Describes one editable setting, including optional schema-driven row tables. */
 export interface PluginConfigField {
@@ -229,6 +250,9 @@ export interface PluginDefinition {
   /** Resolves the selected favorite page for an entity-aware plugin instance. */
   favoritePanelPageForInstance?(instance: ResolvedPluginInstance): "level" | undefined;
   readonly configSchema: readonly PluginConfigField[];
+
+  /** Declares HTTP endpoints mounted under this plugin's isolated API namespace. */
+  registerRoutes?(): readonly PluginApiRoute[];
 
   /** Returns an error message when reusable plugin configuration is incomplete. */
   validateConfig(config: Record<string, PluginConfigValue>): string | undefined;

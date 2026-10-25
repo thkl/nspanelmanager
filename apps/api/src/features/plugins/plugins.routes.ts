@@ -1,13 +1,19 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { randomUUID } from "node:crypto";
 import type { Panel, PanelBinding, PluginConfigValue, PluginInstance, PluginProfile, ResolvedPluginInstance } from "../../types.js";
 import type { ConfigStore } from "../../services/config-store.js";
 import type { MqttRuntime } from "../../services/mqtt-runtime.js";
 import type { Logger } from "../../services/logger.js";
-import { pluginConfigSchema, type MqttMessageEnvelope, type PluginDefinition, type PluginRuntimeContext } from "./plugin-contract.js";
+import {
+  pluginConfigSchema,
+  type MqttMessageEnvelope,
+  type PluginApiRoute,
+  type PluginApiRouteMethod,
+  type PluginDefinition,
+  type PluginRuntimeContext
+} from "./plugin-contract.js";
 import type { PluginRegistry } from "./plugin-registry.js";
 import { checkScriptSyntax } from "./script-runtime.js";
-import { fetchHomeAssistantEntityOptions } from "./home-assistant.plugin.js";
 import { preserveBlankPluginSecrets, presentPluginProfile } from "./plugin-profile-utils.js";
 
 /**
@@ -17,37 +23,12 @@ import { preserveBlankPluginSecrets, presentPluginProfile } from "./plugin-profi
  */
 export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, registry: PluginRegistry, logger: Logger): Router {
   const router = Router();
+  registerPluginApiRoutes(router, store, registry, logger);
 
   router.get("/", (_request, response) => response.json({ plugins: registry.list() }));
   router.get("/profiles", (_request, response) => response.json({
     profiles: store.get().pluginProfiles.map((profile) => presentPluginProfile(profile, registry))
   }));
-  router.get("/profiles/:id/home-assistant-entities", async (request, response) => {
-    const profile = store.get().pluginProfiles.find((item) => item.id === request.params.id);
-    if (!profile || registry.get(profile.pluginId)?.id !== "home-assistant") {
-      return response.status(404).json({ error: "Home Assistant profile not found." });
-    }
-    const baseUrl = stringValue(profile.config["baseUrl"]).trim();
-    const accessToken = stringValue(profile.config["accessToken"]);
-    if (!accessToken) {
-      return response.status(409).json({ error: "Save the Home Assistant URL and access token before loading devices." });
-    }
-    try {
-      const options = await fetchHomeAssistantEntityOptions(baseUrl, accessToken, logger);
-      const result =  response.json(options);
-      return result;
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      logger.error("Home Assistant entity API request failed.", {
-        component: "api",
-        plugin: "home-assistant",
-        phase: "entity options",
-        profile: profile.name,
-        detail
-      });
-      return response.status(502).json({ error: error instanceof Error ? error.message : "Could not load entities from Home Assistant." });
-    }
-  });
   router.get("/instances", (_request, response) => response.json({
     instances: store.get().pluginInstances,
     bindings: store.get().panelBindings
@@ -308,6 +289,71 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
   });
 
   return router;
+}
+
+/** Mounts each plugin's declared API routes below its manager-owned namespace. */
+function registerPluginApiRoutes(router: Router, store: ConfigStore, registry: PluginRegistry, logger: Logger): void {
+  for (const pluginMetadata of registry.list()) {
+    const definition = registry.get(pluginMetadata.id);
+    if (!definition?.registerRoutes) continue;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(definition.id)) {
+      throw new Error(`Plugin '${definition.id}' has an invalid identifier for API routes.`);
+    }
+
+    for (const route of definition.registerRoutes()) {
+      const path = normalizePluginApiRoutePath(route.url, definition.id);
+      if (!isPluginApiRouteMethod(route.method)) {
+        throw new Error(`Plugin '${definition.id}' declared unsupported API method '${String(route.method)}'.`);
+      }
+
+      const fullPath = `/profiles/:id/plugin/${definition.id}/${path}`;
+      const handler: RequestHandler = (request, response, next) => {
+        const profile = store.get().pluginProfiles.find((item) => item.id === request.params["id"]);
+        if (!profile || profile.pluginId !== definition.id) {
+          response.status(404).json({ error: `${definition.name} profile not found.` });
+          return;
+        }
+
+        void Promise.resolve()
+          .then(() => route.callback({ request, response, profile, logger }))
+          .catch(next);
+      };
+
+      switch (route.method) {
+        case "get":
+          router.get(fullPath, handler);
+          break;
+        case "post":
+          router.post(fullPath, handler);
+          break;
+        case "put":
+          router.put(fullPath, handler);
+          break;
+        case "patch":
+          router.patch(fullPath, handler);
+          break;
+        case "delete":
+          router.delete(fullPath, handler);
+          break;
+      }
+    }
+  }
+}
+
+/** Ensures a plugin can declare only relative, plugin-owned route path segments. */
+function normalizePluginApiRoutePath(path: string, pluginId: string): string {
+  const segments = path.split("/");
+  const validSegment = (segment: string): boolean =>
+    /^[a-zA-Z0-9_-]+$/.test(segment) || /^:[a-zA-Z][a-zA-Z0-9_]*$/.test(segment);
+  if (!path || path.startsWith("/") || path.endsWith("/") || !segments.every(validSegment)) {
+    throw new Error(`Plugin '${pluginId}' declared an invalid relative API route path '${path}'.`);
+  }
+  return segments.join("/");
+}
+
+/** Checks the HTTP methods supported by the plugin route contract. */
+function isPluginApiRouteMethod(method: string): method is PluginApiRouteMethod {
+  return ["get", "post", "put", "patch", "delete"].includes(method);
 }
 
 /** Applies schema defaults and migrates older MQTT light brightness factors to ranges. */
