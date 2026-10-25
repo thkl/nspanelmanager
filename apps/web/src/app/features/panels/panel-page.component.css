@@ -219,12 +219,6 @@ nspanel-screen-preview { margin-bottom: 22px; }
   gap: 8px;
 }
 
-.panel-group-settings {
-  align-items: end;
-  margin-top: 12px !important;
-  margin-left: 5px !important;
-  margin-bottom: 12px !important;
-}
 
 .panel-group-help {
   min-width: 0;
@@ -558,6 +552,14 @@ code {
   display: grid;
   gap: 13px 14px;
   margin: 16px 0 0 35px;
+}
+
+
+.panel-group-settings {
+  align-items: end;
+  margin-top: 12px;
+  margin-left: 5px;
+  margin-bottom: 30px;
 }
 
 .three-col {

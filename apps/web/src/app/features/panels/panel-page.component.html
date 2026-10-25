@@ -103,7 +103,7 @@
       }
       <div class="settings-scroll">
         <div class="panel-identity"><div><b>Hardware identity</b><small>{{ panel.macAddress || 'No device assigned' }}</small></div>@if (panel.macAddress) { <button class="button ghost small" (click)="clearPanelMacAddress(panel)">Unassign device</button> }</div>
-        <div class="form-grid two-col panel-group-settings">
+        <div class="panel-group-settings form-grid two-col">
           <label>Panel group<input [(ngModel)]="panel.groupName" placeholder="downstairs" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}"></label>
           <div class="panel-group-help">
             @if (panel.groupName) {
