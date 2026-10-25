@@ -107,8 +107,9 @@ export type PluginVariables = Record<string, string>;
 export interface PluginConfigField {
   key: string;
   label: string;
-  type: "text" | "number" | "textarea" | "table" | "checkbox";
+  type: "text" | "number" | "textarea" | "table" | "checkbox" | "password";
   required?: boolean;
+  secret?: boolean;
   defaultValue: PluginConfigValue;
   help?: string;
   columns?: PluginConfigColumn[];
@@ -141,7 +142,7 @@ export interface PluginDefinition {
   nativePanelStateUpdatesWhenClosed?: boolean;
   supportsPanelStateReplay?: boolean;
   panelEventObserver?: boolean;
-  instanceVariableFields?: Array<{ key: string; label: string; required?: boolean; help?: string }>;
+  instanceVariableFields?: Array<{ key: string; label: string; required?: boolean; help?: string; optionSource?: "home-assistant-entities" }>;
   homeTileType?: "light" | "cover";
   configSchema: PluginConfigField[];
 }
@@ -159,6 +160,22 @@ export interface PluginProfile {
   name: string;
   pluginId: string;
   config: Record<string, PluginConfigValue>;
+  configuredSecrets?: string[];
+}
+
+export interface PluginInstanceActivity {
+  instanceId: string;
+  status: "waiting" | "active" | "error";
+  lastActivityAt?: number;
+  lastError?: string;
+  lastErrorAt?: number;
+}
+
+export interface HomeAssistantEntityOption {
+  entityId: string;
+  name: string;
+  state: string;
+  domain: string;
 }
 
 export interface PanelBinding {
@@ -301,9 +318,10 @@ export interface FirmwareUpdateJob {
 }
 
 export type ManagerRealtimeEvent =
-  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: MqttStatus }
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; pluginActivities: PluginInstanceActivity[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: MqttStatus }
   | { type: "panels"; panels: PanelConnectionStatus[] }
   | { type: "discovered-panels"; panels: DiscoveredPanel[] }
+  | { type: "plugin-activity"; activity: PluginInstanceActivity }
   | { type: "hmi-job"; job: HmiUpdateJob }
   | { type: "firmware-job"; job: FirmwareUpdateJob }
   | { type: "firmware-rollout"; rollout: FirmwareRollout | null }

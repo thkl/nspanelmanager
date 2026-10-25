@@ -6,6 +6,8 @@ import type { MqttRuntime } from "../../services/mqtt-runtime.js";
 import { pluginConfigSchema, type MqttMessageEnvelope, type PluginDefinition, type PluginRuntimeContext } from "./plugin-contract.js";
 import type { PluginRegistry } from "./plugin-registry.js";
 import { checkScriptSyntax } from "./script-runtime.js";
+import { fetchHomeAssistantEntityOptions } from "./home-assistant.plugin.js";
+import { preserveBlankPluginSecrets, presentPluginProfile } from "./plugin-profile-utils.js";
 
 /**
  * Exposes plugin discovery, reusable plugin profiles, device instances, and
@@ -17,8 +19,25 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
 
   router.get("/", (_request, response) => response.json({ plugins: registry.list() }));
   router.get("/profiles", (_request, response) => response.json({
-    profiles: store.get().pluginProfiles.map((profile) => ({ ...profile, pluginId: registry.canonicalId(profile.pluginId) }))
+    profiles: store.get().pluginProfiles.map((profile) => presentPluginProfile(profile, registry))
   }));
+  router.get("/profiles/:id/home-assistant-entities", async (request, response) => {
+    const profile = store.get().pluginProfiles.find((item) => item.id === request.params.id);
+    if (!profile || registry.get(profile.pluginId)?.id !== "home-assistant") {
+      return response.status(404).json({ error: "Home Assistant profile not found." });
+    }
+    const baseUrl = stringValue(profile.config["baseUrl"]).trim();
+    const accessToken = stringValue(profile.config["accessToken"]);
+    if (!accessToken) {
+      return response.status(409).json({ error: "Save the Home Assistant URL and access token before loading devices." });
+    }
+    try {
+      const entities = await fetchHomeAssistantEntityOptions(baseUrl, accessToken);
+      return response.json({ entities });
+    } catch (error) {
+      return response.status(502).json({ error: error instanceof Error ? error.message : "Could not load entities from Home Assistant." });
+    }
+  });
   router.get("/instances", (_request, response) => response.json({
     instances: store.get().pluginInstances,
     bindings: store.get().panelBindings
@@ -93,7 +112,7 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const profile: PluginProfile = { id: randomUUID(), name, pluginId: definition.id, config };
     await store.update((current) => { current.pluginProfiles.push(profile); });
     await runtime.refreshPluginInstances();
-    response.status(201).json({ profile });
+    response.status(201).json({ profile: presentPluginProfile(profile, registry) });
   });
 
   router.put("/profiles/:id", async (request, response) => {
@@ -103,7 +122,8 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const name = stringValue(request.body?.name).trim();
     const definition = registry.get(stringValue(request.body?.pluginId));
     if (!name || !definition) return response.status(400).json({ error: "A name and registered plugin type are required." });
-    const config = normalizePluginConfig(definition, request.body?.config);
+    const normalizedConfig = normalizePluginConfig(definition, request.body?.config);
+    const config = preserveBlankPluginSecrets(definition, current.config, normalizedConfig);
     const error = definition.validateConfig(config);
     if (error) return response.status(400).json({ error });
     const startupError = await validateConfiguredScripts(config, {});
@@ -118,7 +138,7 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     });
     await runtime.refreshPluginInstances();
     if (previousDefinition?.nativePanelSharedInstances || definition.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
-    response.json({ profile });
+    response.json({ profile: presentPluginProfile(profile, registry) });
   });
 
   router.delete("/profiles/:id", async (request, response) => {

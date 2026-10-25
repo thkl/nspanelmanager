@@ -4,8 +4,9 @@ import type { Panel, PanelBinding, PluginConfigValue, PluginVariables, ResolvedP
 export interface PluginConfigField {
   key: string;
   label: string;
-  type: "text" | "number" | "textarea" | "table" | "checkbox";
+  type: "text" | "number" | "textarea" | "table" | "checkbox" | "password";
   required?: boolean;
+  secret?: boolean;
   defaultValue: PluginConfigValue;
   help?: string;
   columns?: readonly PluginConfigColumn[];
@@ -34,6 +35,7 @@ export interface PluginInstanceVariableField {
   label: string;
   required?: boolean;
   help?: string;
+  optionSource?: "home-assistant-entities";
 }
 
 /** Firmware-native 12-button menu page shown by a plugin favorite. */

@@ -247,6 +247,17 @@ export interface PluginProfile {
   name: string;
   pluginId: string;
   config: Record<string, PluginConfigValue>;
+  /** Names of secret settings saved by the API but redacted from this response. */
+  configuredSecrets?: string[];
+}
+
+/** Latest runtime activity and error state for one reusable plugin instance. */
+export interface PluginInstanceActivity {
+  instanceId: string;
+  status: "waiting" | "active" | "error";
+  lastActivityAt?: number;
+  lastError?: string;
+  lastErrorAt?: number;
 }
 
 /** Instance reference combined with its profile data for plugin runtime calls. */

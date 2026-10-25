@@ -3,6 +3,7 @@ import type { ConfigStore } from "../services/config-store.js";
 import type { MqttRuntime } from "../services/mqtt-runtime.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 import type { BrokerSettings } from "../types.js";
+import { presentPluginProfile } from "../features/plugins/plugin-profile-utils.js";
 
 /**
  * Creates endpoints for the manager's single broker connection.
@@ -48,6 +49,6 @@ function publicConfig(config: ReturnType<ConfigStore["get"]>, pluginRegistry: Pl
   return {
     ...config,
     broker: { ...broker, passwordConfigured: Boolean(password) },
-    pluginProfiles: config.pluginProfiles.map((profile) => ({ ...profile, pluginId: pluginRegistry.canonicalId(profile.pluginId) }))
+    pluginProfiles: config.pluginProfiles.map((profile) => presentPluginProfile(profile, pluginRegistry))
   };
 }

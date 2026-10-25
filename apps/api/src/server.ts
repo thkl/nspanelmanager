@@ -99,6 +99,7 @@ async function startServer(): Promise<void> {
   realtimeServer = new RealtimeWebSocketServer(httpServer, authService, async () => ({
     panels: mqttRuntime.panelConnectionStatuses(),
     discoveredPanels: mqttRuntime.discoveredPanelStatuses(),
+    pluginActivities: mqttRuntime.pluginActivityStatuses(),
     hmiJobs: await hmiUpdateService.getJobsForSnapshot(),
     firmwareJobs: await firmwareUpdateService.getJobsForSnapshot(),
     firmwareRollout: firmwareUpdateService.getRolloutForSnapshot(),
@@ -106,6 +107,7 @@ async function startServer(): Promise<void> {
   }), logger);
   mqttRuntime.onPanelConnectionsChanged((panels) => realtimeServer?.broadcast({ type: "panels", panels }));
   mqttRuntime.onDiscoveredPanelsChanged((panels) => realtimeServer?.broadcast({ type: "discovered-panels", panels }));
+  mqttRuntime.onPluginActivityChanged((activity) => realtimeServer?.broadcast({ type: "plugin-activity", activity }));
   mqttRuntime.onMqttStatusChanged((mqtt) => realtimeServer?.broadcast({ type: "mqtt", mqtt }));
   mqttRuntime.onHmiUpdateReport((panel, payload, receivedAt) => hmiUpdateService.handlePanelReport(panel, payload, receivedAt));
   mqttRuntime.onFirmwareUpdateReport(async (panel, payload, receivedAt) => {

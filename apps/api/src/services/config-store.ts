@@ -1,13 +1,20 @@
 import { mkdir, readFile, writeFile, rename, chmod } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { defaultPanelSettings, type BackupSettings, type ManagerConfig, type Panel } from "../types.js";
+import { defaultPanelSettings, type BackupSettings, type ManagerConfig, type Panel, type PluginConfigValue, type PluginProfile } from "../types.js";
 import { normalizePanelSettings } from "../domain/panel-settings.js";
 import { CredentialEncryption, type EncryptedCredential } from "../features/security/credential-encryption.js";
 
-type PersistedManagerConfig = Omit<ManagerConfig, "broker"> & {
+const HOME_ASSISTANT_SECRET_PURPOSE = "plugin:home-assistant:access-token";
+
+type PersistedPluginProfile = Omit<PluginProfile, "config"> & {
+  config: Record<string, PluginConfigValue | EncryptedCredential>;
+};
+
+type PersistedManagerConfig = Omit<ManagerConfig, "broker" | "pluginProfiles"> & {
   credentialEncryptionVersion: 1;
   broker: Omit<ManagerConfig["broker"], "password"> & { password: string | EncryptedCredential };
+  pluginProfiles: PersistedPluginProfile[];
 };
 
 type LoadedManagerConfig = Partial<ManagerConfig> & { credentialEncryptionVersion?: unknown };
@@ -19,8 +26,9 @@ type LoadedManagerConfig = Partial<ManagerConfig> & { credentialEncryptionVersio
  * it needs no database service and works with Docker's named-volume persistence.
  * Mutations are applied to a cloned snapshot, written to a mode-0600 temporary
  * file, and atomically renamed so a process interruption cannot leave a
- * partially written manager configuration. The MQTT broker password is
- * encrypted before persistence and decrypted only into the server-side snapshot.
+ * partially written manager configuration. MQTT broker passwords and Home
+ * Assistant access tokens are encrypted before persistence and decrypted only
+ * into the server-side snapshot.
  */
 export class ConfigStore {
   private config: ManagerConfig = structuredClone(emptyConfig);
@@ -48,6 +56,7 @@ export class ConfigStore {
         throw new Error("The manager configuration uses an unsupported credential encryption version.");
       }
       const pluginConfiguration = migratePluginConfiguration(saved.pluginProfiles, saved.pluginInstances);
+      const pluginProfiles = decryptHomeAssistantTokens(pluginConfiguration.profiles, this.credentialEncryption);
       const savedBroker = isRecord(saved.broker as unknown) ? saved.broker as unknown as Record<string, unknown> : {};
       const savedPassword = Object.hasOwn(savedBroker, "password") ? savedBroker.password : "";
       if (saved.credentialEncryptionVersion === 1 && typeof savedPassword === "string" && savedPassword.length > 0) {
@@ -77,11 +86,11 @@ export class ConfigStore {
           settings: normalizePanelSettings(panel.settings, panel.name)
         })) : [],
         routes: Array.isArray(saved.routes) ? saved.routes : [],
-        pluginProfiles: pluginConfiguration.profiles,
+        pluginProfiles: pluginProfiles.profiles,
         pluginInstances: pluginConfiguration.instances,
         panelBindings: Array.isArray(saved.panelBindings) ? saved.panelBindings : []
       };
-      if (pluginConfiguration.migrated || brokerPassword.needsMigration || credentialFormatNeedsMigration) await this.save();
+      if (pluginConfiguration.migrated || pluginProfiles.needsMigration || brokerPassword.needsMigration || credentialFormatNeedsMigration) await this.save();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       await this.save();
@@ -118,6 +127,18 @@ export class ConfigStore {
     const persistedConfig: PersistedManagerConfig = {
       ...this.config,
       credentialEncryptionVersion: 1,
+      pluginProfiles: this.config.pluginProfiles.map((profile) => profile.pluginId === "home-assistant"
+        ? {
+          ...profile,
+          config: {
+            ...profile.config,
+            accessToken: this.credentialEncryption.encrypt(
+              typeof profile.config["accessToken"] === "string" ? profile.config["accessToken"] as string : "",
+              HOME_ASSISTANT_SECRET_PURPOSE
+            ) as string | EncryptedCredential
+          }
+        }
+        : profile),
       broker: {
         ...this.config.broker,
         password: this.credentialEncryption.encrypt(this.config.broker.password)
@@ -135,6 +156,17 @@ const emptyConfig: ManagerConfig = {
   backupSettings: { enabled: true, schedule: "0 3 * * *", retentionCount: 14, directory: "backups" },
   panels: [], routes: [], pluginProfiles: [], pluginInstances: [], panelBindings: []
 };
+
+function decryptHomeAssistantTokens(profiles: PluginProfile[], credentialEncryption: CredentialEncryption): { profiles: PluginProfile[]; needsMigration: boolean } {
+  let needsMigration = false;
+  const decryptedProfiles = profiles.map((profile) => {
+    if (profile.pluginId !== "home-assistant" || profile.config["accessToken"] === undefined) return profile;
+    const token = credentialEncryption.decryptStored(profile.config["accessToken"], HOME_ASSISTANT_SECRET_PURPOSE);
+    needsMigration ||= token.needsMigration;
+    return { ...profile, config: { ...profile.config, accessToken: token.value } };
+  });
+  return { profiles: decryptedProfiles, needsMigration };
+}
 
 function normalizeBackupSettings(value: unknown): BackupSettings {
   if (!isRecord(value)) return structuredClone(emptyConfig.backupSettings);

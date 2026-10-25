@@ -10,6 +10,7 @@ import { MqttCoverPlugin } from "./mqtt-cover.plugin.js";
 import { FavoritesPagePlugin } from "./favorites-page.plugin.js";
 import { MqttSonosPlugin } from "./mqtt-sonos.plugin.js";
 import { ScreenDimmerPlugin } from "./screen-dimmer.plugin.js";
+import { HomeAssistantPlugin } from "./home-assistant.plugin.js";
 
 /** Creates the built-in integration registry for one manager process. */
 export function createDefaultPluginRegistry(): PluginRegistry {
@@ -25,6 +26,7 @@ export function createDefaultPluginRegistry(): PluginRegistry {
   registry.register(new FavoritesPagePlugin());
   registry.register(new MqttSonosPlugin());
   registry.register(new ScreenDimmerPlugin());
+  registry.register(new HomeAssistantPlugin());
   registry.registerAlias("mqtt-fan", "mqtt-scripted");
   return registry;
 }

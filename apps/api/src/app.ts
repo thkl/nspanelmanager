@@ -22,6 +22,7 @@ import { createFirmwareDownloadRouter, createFirmwareRouter } from "./features/f
 import type { FirmwareArtifactService } from "./features/firmware/firmware-artifact-service.js";
 import type { FirmwareUpdateService } from "./features/firmware/firmware-update-service.js";
 import type { CoreDumpStore } from "./features/firmware/core-dump-store.js";
+import { presentPluginProfile } from "./features/plugins/plugin-profile-utils.js";
 
 const logger = new Logger();
 
@@ -95,6 +96,6 @@ function publicConfig(config: ReturnType<ConfigStore["get"]>, pluginRegistry: Pl
   return {
     ...config,
     broker: { ...broker, passwordConfigured: Boolean(password) },
-    pluginProfiles: config.pluginProfiles.map((profile) => ({ ...profile, pluginId: pluginRegistry.canonicalId(profile.pluginId) }))
+    pluginProfiles: config.pluginProfiles.map((profile) => presentPluginProfile(profile, pluginRegistry))
   };
 }

@@ -1,7 +1,7 @@
 import mqtt, { type ISubscriptionMap, type MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store.js";
-import type { DiscoveredPanel, ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelGroupSettingsStatus, PanelTelemetry, ResolvedPluginInstance } from "../types.js";
+import type { DiscoveredPanel, ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelGroupSettingsStatus, PanelTelemetry, PluginInstanceActivity, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
 import type { PanelFlowSession, PanelGroupRuntimeSettings, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
@@ -53,8 +53,10 @@ export class MqttRuntime {
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
   private readonly discoveredPanels = new Map<string, DiscoveredPanel>();
   private readonly panelIps = new Map<string, { ip: string; macAddress: string; name: string }>();
+  private readonly pluginActivities = new Map<string, PluginInstanceActivity>();
   private readonly panelConnectionListeners = new Set<(panels: PanelConnectionStatus[]) => void>();
   private readonly discoveredPanelListeners = new Set<(panels: DiscoveredPanel[]) => void>();
+  private readonly pluginActivityListeners = new Set<(activity: PluginInstanceActivity) => void>();
   private readonly mqttStatusListeners = new Set<(status: { connected: boolean; error: string }) => void>();
   private readonly hmiUpdateReportListeners = new Set<(panel: Panel, payload: string, receivedAt: number) => void | Promise<void>>();
   private readonly firmwareUpdateReportListeners = new Set<(panel: Panel, payload: string, receivedAt: number) => void | Promise<void>>();
@@ -95,6 +97,20 @@ export class MqttRuntime {
   onDiscoveredPanelsChanged(listener: (panels: DiscoveredPanel[]) => void): () => void {
     this.discoveredPanelListeners.add(listener);
     return () => this.discoveredPanelListeners.delete(listener);
+  }
+
+  /** Subscribes to plugin-instance activity and failure changes for live clients. */
+  onPluginActivityChanged(listener: (activity: PluginInstanceActivity) => void): () => void {
+    this.pluginActivityListeners.add(listener);
+    return () => this.pluginActivityListeners.delete(listener);
+  }
+
+  /** Returns a live status row for each currently configured plugin instance. */
+  pluginActivityStatuses(): PluginInstanceActivity[] {
+    return this.resolvePluginInstances().map((instance) => this.pluginActivities.get(instance.id) ?? {
+      instanceId: instance.id,
+      status: "waiting"
+    });
   }
 
   /** Returns recently discovered ESPHome devices, dropping entries older than five minutes. */
@@ -303,6 +319,10 @@ export class MqttRuntime {
   /** Initializes enabled plugin instances and refreshes their registered MQTT callbacks. */
   async refreshPluginInstances(): Promise<void> {
     const instances = this.resolvePluginInstances();
+    const activeInstanceIds = new Set(instances.map((instance) => instance.id));
+    for (const instanceId of this.pluginActivities.keys()) {
+      if (!activeInstanceIds.has(instanceId)) this.pluginActivities.delete(instanceId);
+    }
     const enabledIds = new Set(instances.filter((instance) => instance.enabled).map((instance) => instance.id));
     for (const id of this.initializedPluginConfigs.keys()) {
       if (!enabledIds.has(id)) {
@@ -333,6 +353,7 @@ export class MqttRuntime {
           this.pluginSubscriptions.set(instance.id, []);
           const detail = error instanceof Error ? error.message : String(error);
           this.lastError = detail;
+          this.recordPluginActivity(instance.id, undefined, detail);
           this.logger.error("Plugin startup function failed.", {
             component: "plugin",
             instance: instance.name,
@@ -1327,20 +1348,36 @@ export class MqttRuntime {
       if (!instance.enabled) continue;
       const definition = this.plugins.get(instance.pluginId);
       if (!definition || !definition.subscriptions(instance).some((filter) => matchesTopic(filter, message.topic))) continue;
-      const previousState = this.runtimeState.getPluginState(instance.id);
-      const patch = definition.decodeMessage(instance, message, previousState);
-      if (!patch || Object.keys(patch).length === 0) continue;
-      const state = { ...previousState, ...patch };
-      await this.setPluginState(instance, state);
-      await this.refreshBoundPanels(instance, state);
-      if (definition.renderNativePanelState && definition.nativePanelPage) {
-        const refreshKey = definition.nativePanelSharedInstances
-          ? `shared:${definition.id}:${definition.nativePanelPage}`
-          : `instance:${instance.id}`;
-        nativePanelRefreshes.set(refreshKey, { instance, state });
+      try {
+        const previousState = this.runtimeState.getPluginState(instance.id);
+        const patch = definition.decodeMessage(instance, message, previousState);
+        if (!patch || Object.keys(patch).length === 0) {
+          this.recordPluginActivity(instance.id, message.receivedAt);
+          continue;
+        }
+        const state = { ...previousState, ...patch };
+        await this.setPluginState(instance, state);
+        this.recordPluginActivity(instance.id, message.receivedAt);
+        await this.refreshBoundPanels(instance, state);
+        if (definition.renderNativePanelState && definition.nativePanelPage) {
+          const refreshKey = definition.nativePanelSharedInstances
+            ? `shared:${definition.id}:${definition.nativePanelPage}`
+            : `instance:${instance.id}`;
+          nativePanelRefreshes.set(refreshKey, { instance, state });
+        }
+        await this.refreshAssignedPanelStates(instance, state, previousState, patch);
+        await this.refreshHomeTileStates(instance, state);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.recordPluginActivity(instance.id, undefined, detail);
+        this.logger.error("Plugin message handling failed.", {
+          component: "plugin",
+          instance: instance.name,
+          phase: "message",
+          topic: message.topic,
+          detail
+        });
       }
-      await this.refreshAssignedPanelStates(instance, state, previousState, patch);
-      await this.refreshHomeTileStates(instance, state);
     }
 
     // One MQTT packet can update several instances of a shared page. Render
@@ -1368,6 +1405,9 @@ export class MqttRuntime {
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         this.lastError = detail;
+        for (const instance of instances) {
+          this.recordPluginActivity(instance.id, undefined, detail);
+        }
         this.logger.error("Plugin broker-connected handler failed.", {
           component: "plugin",
           plugin: definition.name,
@@ -1398,6 +1438,7 @@ export class MqttRuntime {
     try {
       const previousState = this.runtimeState.getPluginState(instance.id);
       const patch = await definition.poll(instance, previousState);
+      this.recordPluginActivity(instance.id);
       if (this.closing || !patch || Object.keys(patch).length === 0) return;
       const nextState = { ...previousState, ...patch };
       await this.setPluginState(instance, nextState);
@@ -1408,6 +1449,7 @@ export class MqttRuntime {
     } catch (error) {
       if (this.closing) return;
       const detail = error instanceof Error ? error.message : String(error);
+      this.recordPluginActivity(instance.id, undefined, detail);
       this.lastError = detail;
       this.logger.error("Plugin service refresh failed.", {
         component: "plugin", instance: instance.name, phase: "poll", detail
@@ -1422,6 +1464,23 @@ export class MqttRuntime {
     const timer = this.pluginPollTimers.get(instanceId);
     if (timer) clearInterval(timer);
     this.pluginPollTimers.delete(instanceId);
+  }
+
+  /** Stores the latest successful data time or integration error for one instance. */
+  private recordPluginActivity(instanceId: string, occurredAt = Date.now(), error?: string): void {
+    const previous = this.pluginActivities.get(instanceId);
+    const next: PluginInstanceActivity = error
+      ? {
+        instanceId,
+        status: "error",
+        ...(previous?.lastActivityAt !== undefined ? { lastActivityAt: previous.lastActivityAt } : {}),
+        lastError: error.slice(0, 500),
+        lastErrorAt: Date.now()
+      }
+      : { instanceId, status: "active", lastActivityAt: occurredAt };
+    if (previous && JSON.stringify(previous) === JSON.stringify(next)) return;
+    this.pluginActivities.set(instanceId, next);
+    for (const listener of this.pluginActivityListeners) listener(next);
   }
 
   /** Runs the configured plugin integration for one firmware-native panel event. */
@@ -1758,8 +1817,10 @@ export class MqttRuntime {
             if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
           }
           if (result?.navigation) await this.navigateActivePluginPanels(instance, result.navigation);
+          this.recordPluginActivity(instance.id, message.receivedAt);
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
+          this.recordPluginActivity(instance.id, undefined, detail);
           this.lastError = detail;
           this.logger.error("Plugin MQTT callback failed.", {
             component: "plugin",
@@ -1945,8 +2006,10 @@ export class MqttRuntime {
       for (const command of result?.commands ?? []) {
         if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
       }
+      this.recordPluginActivity(instance.id);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      this.recordPluginActivity(instance.id, undefined, detail);
       this.lastError = detail;
       this.logger.error("Direct favorite action failed.", {
         component: "plugin", instance: instance.name, panel: panel.name, phase: "favorite press", detail

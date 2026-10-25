@@ -13,6 +13,95 @@ nspanel-screen-preview {
   gap: 18px;
 }
 
+.health-alerts-card {
+  grid-column: 1 / -1;
+  padding: 18px 20px;
+}
+
+.health-alerts-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.health-alerts-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.health-alerts-heading p,
+.health-clear {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.health-alert-count {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 99px;
+  background: var(--green-soft);
+  color: var(--green-text);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.health-alert-count.has-alerts {
+  background: var(--amber-soft);
+  color: var(--amber-text);
+}
+
+.health-alert-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.health-alert-row {
+  display: grid;
+  grid-template-columns: 8px minmax(90px, .3fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--amber-line);
+  border-radius: 8px;
+  background: var(--amber-soft);
+  color: var(--amber-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.health-alert-row.critical {
+  border-color: var(--red-line);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.health-alert-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.health-alert-row.critical .health-alert-indicator {
+  background: var(--red);
+}
+
+.health-alert-row b,
+.health-alert-row span,
+.health-alert-row small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.health-alert-row small {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 .card {
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
@@ -909,6 +998,15 @@ label input::placeholder {
 }
 
 @media (max-width: 540px) {
+  .health-alerts-card {
+    padding: 15px;
+  }
+  .health-alert-row {
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+  }
+  .health-alert-row>span:not(.health-alert-indicator) {
+    grid-column: 2 / -1;
+  }
   .editor-heading {
     align-items: flex-start;
     flex-direction: column;

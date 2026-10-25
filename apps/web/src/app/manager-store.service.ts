@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOption, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -30,6 +30,7 @@ export class ManagerStore {
   readonly mqtt = signal<MqttStatus>({ connected: false, error: "" });
   readonly panelConnections = signal<Record<string, PanelConnectionStatus>>({});
   readonly discoveredPanels = signal<DiscoveredPanel[]>([]);
+  readonly pluginActivities = signal<Record<string, PluginInstanceActivity>>({});
   readonly hmiUpdateJobs = signal<HmiUpdateJob[]>([]);
   readonly firmwareUpdateJobs = signal<FirmwareUpdateJob[]>([]);
   readonly firmwareRollout = signal<FirmwareRollout | null>(null);
@@ -279,6 +280,7 @@ export class ManagerStore {
     if (event.type === "snapshot") {
       this.setPanelConnections(event.panels);
       this.discoveredPanels.set(Array.isArray(event.discoveredPanels) ? event.discoveredPanels : []);
+      this.pluginActivities.set(Object.fromEntries((Array.isArray(event.pluginActivities) ? event.pluginActivities : []).map((activity) => [activity.instanceId, activity])));
       this.mergeHmiUpdateJobs(event.hmiJobs);
       this.mergeFirmwareUpdateJobs(event.firmwareJobs);
       this.firmwareRollout.set(event.firmwareRollout ?? null);
@@ -287,6 +289,8 @@ export class ManagerStore {
       this.setPanelConnections(event.panels);
     } else if (event.type === "discovered-panels") {
       this.discoveredPanels.set(Array.isArray(event.panels) ? event.panels : []);
+    } else if (event.type === "plugin-activity") {
+      this.pluginActivities.update((activities) => ({ ...activities, [event.activity.instanceId]: event.activity }));
     } else if (event.type === "hmi-job") {
       this.upsertHmiUpdateJob(event.job);
     } else if (event.type === "firmware-job") {
@@ -445,6 +449,11 @@ export class ManagerStore {
   /** Fetches registered plugin schemas for the feature-driven setup form. */
   loadPlugins(): Observable<{ plugins: PluginDefinition[] }> {
     return this.http.get<{ plugins: PluginDefinition[] }>("/api/plugins");
+  }
+
+  /** Lists selectable Home Assistant entities using the credentials saved in one plugin profile. */
+  loadHomeAssistantEntities(profileId: string): Observable<{ entities: HomeAssistantEntityOption[] }> {
+    return this.http.get<{ entities: HomeAssistantEntityOption[] }>(`/api/plugins/profiles/${encodeURIComponent(profileId)}/home-assistant-entities`);
   }
 
   /** Renders a page or simulates its button action with disposable MQTT and storage effects. */

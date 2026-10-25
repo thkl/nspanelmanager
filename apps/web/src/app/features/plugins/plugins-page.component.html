@@ -262,7 +262,7 @@
                       @if (field.type === 'textarea') {
                         <textarea [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false" rows="4"></textarea>
                       } @else {
-                        <input [type]="field.type" [attr.step]="field.type === 'number' ? 'any' : null" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false">
+                        <input [type]="field.type" [attr.step]="field.type === 'number' ? 'any' : null" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="(field.required ?? false) && !(field.secret && editingProfileConfiguredSecrets().includes(field.key))" [placeholder]="field.secret && editingProfileConfiguredSecrets().includes(field.key) ? 'Saved — leave blank to keep' : ''" autocomplete="off">
                       }
                       @if (field.help) { <small>{{ field.help }}</small> }
                     </label>
@@ -363,7 +363,18 @@
                 <div class="instance-row" role="listitem" [class.selected]="editingInstanceId() === instance.id">
                   <button type="button" class="instance-select" [attr.aria-pressed]="editingInstanceId() === instance.id" (click)="editInstance(instance)">
                     <span class="instance-icon" aria-hidden="true">⌁</span>
-                    <span class="instance-details"><b>{{ instance.name }}</b><code>{{ primaryTopic(instance) }}</code><small>Panels: {{ panelNames(instance).join(', ') || 'Not assigned' }}</small></span>
+                    <span class="instance-details"><b>{{ instance.name }}</b><code>{{ primaryTopic(instance) }}</code><small>Panels: {{ panelNames(instance).join(', ') || 'Not assigned' }}</small>
+                      @if (manager.pluginActivities()[instance.id]; as activity) {
+                        <small class="plugin-activity-status" [class.activity-error]="activity.status === 'error'" [title]="activity.lastError || ''">
+                          @if (!instance.enabled) { Disabled }
+                          @else if (activity.status === 'active' && activity.lastActivityAt) { Last activity {{ activity.lastActivityAt | date:'short' }} }
+                          @else if (activity.status === 'error') { Error · {{ activity.lastError || 'Plugin request failed' }} }
+                          @else { Waiting for data }
+                        </small>
+                      } @else if (!instance.enabled) {
+                        <small class="plugin-activity-status">Disabled</small>
+                      }
+                    </span>
                   </button>
                   <div class="row-actions"><button class="text-danger" (click)="removeInstance(instance)">Remove</button></div>
                 </div>
@@ -397,12 +408,28 @@
       <section class="instance-variables" aria-labelledby="instance-variables-heading">
         <div class="field-heading">
           <div><span id="instance-variables-heading" class="field-label">Instance variables</span><small>{{ instanceVariableHelp() }}</small></div>
-          <button type="button" class="text-action" (click)="addVariable()">＋ Add variable</button>
+          <div class="instance-variable-actions">
+            @if (hasHomeAssistantEntityField()) {
+              <button type="button" class="text-action" [disabled]="loadingHomeAssistantProfileId() === selectedPluginProfileId()" (click)="loadHomeAssistantEntitiesForProfile(selectedPluginProfileId())">{{ loadingHomeAssistantProfileId() === selectedPluginProfileId() ? 'Loading…' : 'Refresh device list' }}</button>
+            }
+            <button type="button" class="text-action" (click)="addVariable()">＋ Add variable</button>
+          </div>
         </div>
         @for (entry of variableEntries(); track $index; let variableIndex = $index) {
           <div class="variable-row">
             <label><span class="variable-label">{{ variableLabel(entry.name) }}@if (variableField(entry.name)?.required) { <em>Required</em> }</span><input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" [placeholder]="isFixedVariable(entry.name) ? entry.name : 'room'" [disabled]="isFixedVariable(entry.name)" autocomplete="off"></label>
-            <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" [placeholder]="isFixedVariable(entry.name) ? 'Required value' : 'livingroom'"></textarea>@if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }</label>
+            @if (variableField(entry.name)?.optionSource === 'home-assistant-entities') {
+              <label>Home Assistant entity
+                <select [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)">
+                  <option value="">Choose a device…</option>
+                  @for (entity of homeAssistantEntityOptions(); track entity.entityId) { <option [value]="entity.entityId">{{ entity.name }} · {{ entity.entityId }} ({{ entity.state }})</option> }
+                </select>
+                @if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }
+                @if (homeAssistantEntityError()) { <small class="variable-error" role="alert">{{ homeAssistantEntityError() }}</small> }
+              </label>
+            } @else {
+              <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" [placeholder]="isFixedVariable(entry.name) ? 'Required value' : 'livingroom'"></textarea>@if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }</label>
+            }
             <button type="button" class="text-danger" (click)="removeVariable(entry.name)" [disabled]="isFixedVariable(entry.name)">Remove</button>
           </div>
         } @empty {

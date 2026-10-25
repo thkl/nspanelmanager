@@ -1,7 +1,8 @@
 import { Component, OnInit, input, signal } from "@angular/core";
+import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { ManagerStore } from "../../manager-store.service";
-import type { PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
+import type { HomeAssistantEntityOption, PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
 import { ScriptEditorComponent } from "./script-editor.component";
 import { PanelScreenPreviewComponent } from "../panels/panel-screen-preview.component";
 
@@ -32,7 +33,7 @@ interface PluginInstanceGroup {
 @Component({
   selector: "nspanel-plugins-page",
   standalone: true,
-  imports: [FormsModule, ScriptEditorComponent, PanelScreenPreviewComponent],
+  imports: [DatePipe, FormsModule, ScriptEditorComponent, PanelScreenPreviewComponent],
   templateUrl: "./plugins-page.component.html",
   styleUrl: "./plugins-page.component.css"
 })
@@ -42,6 +43,7 @@ export class PluginsPageComponent implements OnInit {
   readonly selectedPluginId = signal("");
   readonly profileName = signal("");
   readonly editingProfileId = signal<string | null>(null);
+  readonly editingProfileConfiguredSecrets = signal<string[]>([]);
   readonly activePageIndex = signal(0);
   readonly activeFunctionIndex = signal(0);
   readonly expandedButtonPageIndexes = signal<Set<number>>(new Set());
@@ -49,6 +51,9 @@ export class PluginsPageComponent implements OnInit {
   readonly instanceName = signal("");
   readonly instanceConfig = signal<Record<string, PluginConfigValue>>({});
   readonly instanceVariables = signal<Record<string, string>>({});
+  readonly homeAssistantEntities = signal<Record<string, HomeAssistantEntityOption[]>>({});
+  readonly loadingHomeAssistantProfileId = signal("");
+  readonly homeAssistantEntityErrors = signal<Record<string, string>>({});
   readonly editingInstanceId = signal<string | null>(null);
   readonly instanceSearch = signal("");
   readonly expandedInstanceGroups = signal<Set<string>>(new Set());
@@ -531,6 +536,7 @@ export class PluginsPageComponent implements OnInit {
         if (!this.selectedPluginProfileId()) this.selectedPluginProfileId.set(profile.id);
         this.selectedPluginId.set(profile.pluginId);
         this.instanceConfig.set(structuredClone(profile.config));
+        this.editingProfileConfiguredSecrets.set(profile.configuredSecrets ?? []);
         this.scriptChecks.set({});
         this.syncPreviewDefaults(profile.config);
         this.clearPagePreview();
@@ -546,6 +552,7 @@ export class PluginsPageComponent implements OnInit {
   /** Loads a reusable plugin definition into its editor. */
   editPluginProfile(profile: PluginProfile): void {
     this.editingProfileId.set(profile.id);
+    this.editingProfileConfiguredSecrets.set(profile.configuredSecrets ?? []);
     this.profileName.set(profile.name);
     this.selectPlugin(profile.pluginId);
     this.editingProfileId.set(profile.id);
@@ -560,6 +567,7 @@ export class PluginsPageComponent implements OnInit {
   /** Returns the profile editor to a clean draft for a new plugin. */
   cancelProfileEdit(): void {
     this.editingProfileId.set(null);
+    this.editingProfileConfiguredSecrets.set([]);
     this.profileName.set("");
     this.selectPlugin(this.definitions()[0]?.id ?? "");
   }
@@ -631,6 +639,7 @@ export class PluginsPageComponent implements OnInit {
     this.instanceName.set(instance.name);
     this.selectedPluginProfileId.set(instance.pluginProfileId);
     this.instanceVariables.set(this.withProfileVariableDefaults(instance.pluginProfileId, instance.variables ?? {}));
+    this.loadHomeAssistantEntitiesForProfile(instance.pluginProfileId);
     this.clearPagePreview();
   }
 
@@ -640,6 +649,7 @@ export class PluginsPageComponent implements OnInit {
     this.instanceName.set("");
     this.selectedPluginProfileId.set("");
     this.instanceVariables.set({});
+    this.loadingHomeAssistantProfileId.set("");
     this.clearPagePreview();
   }
 
@@ -647,7 +657,41 @@ export class PluginsPageComponent implements OnInit {
   setInstanceProfile(pluginProfileId: string): void {
     this.selectedPluginProfileId.set(pluginProfileId);
     this.instanceVariables.set(this.withProfileVariableDefaults(pluginProfileId, this.instanceVariables()));
+    this.loadHomeAssistantEntitiesForProfile(pluginProfileId);
     this.clearPagePreview();
+  }
+
+  /** Loads selectable entities from the saved Home Assistant connection profile. */
+  loadHomeAssistantEntitiesForProfile(profileId: string): void {
+    const profile = this.manager.config().pluginProfiles.find((item) => item.id === profileId);
+    if (profile?.pluginId !== "home-assistant") return;
+    this.loadingHomeAssistantProfileId.set(profileId);
+    this.homeAssistantEntityErrors.update((errors) => ({ ...errors, [profileId]: "" }));
+    this.manager.loadHomeAssistantEntities(profileId).subscribe({
+      next: ({ entities }) => {
+        this.homeAssistantEntities.update((current) => ({ ...current, [profileId]: entities }));
+        if (this.loadingHomeAssistantProfileId() === profileId) this.loadingHomeAssistantProfileId.set("");
+      },
+      error: (error) => {
+        this.homeAssistantEntityErrors.update((errors) => ({ ...errors, [profileId]: error.error?.error || "Could not load Home Assistant entities." }));
+        if (this.loadingHomeAssistantProfileId() === profileId) this.loadingHomeAssistantProfileId.set("");
+      }
+    });
+  }
+
+  /** Returns entity choices for the currently selected Home Assistant profile. */
+  homeAssistantEntityOptions(): HomeAssistantEntityOption[] {
+    return this.homeAssistantEntities()[this.selectedPluginProfileId()] ?? [];
+  }
+
+  /** Reports whether the selected instance profile declares a Home Assistant entity picker. */
+  hasHomeAssistantEntityField(): boolean {
+    return this.instanceVariableFields().some((field) => field.optionSource === "home-assistant-entities");
+  }
+
+  /** Returns the current entity-list loading or connection error message. */
+  homeAssistantEntityError(): string {
+    return this.homeAssistantEntityErrors()[this.selectedPluginProfileId()] ?? "";
   }
 
   /** Removes an unused or retired plugin instance and its attached bindings. */

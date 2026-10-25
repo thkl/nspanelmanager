@@ -1,4 +1,22 @@
 <div class="content-grid">
+  <section class="health-alerts-card card" aria-labelledby="panel-health-heading" aria-live="polite">
+    <div class="health-alerts-heading">
+      <div><h2 id="panel-health-heading">Panel health</h2><p>Live warnings from connectivity, reboot reports, and memory telemetry.</p></div>
+      <span class="health-alert-count" [class.has-alerts]="healthAlerts().length > 0">{{ healthAlerts().length }} {{ healthAlerts().length === 1 ? 'alert' : 'alerts' }}</span>
+    </div>
+    @if (healthAlerts().length > 0) {
+      <div class="health-alert-list">
+        @for (alert of healthAlerts(); track alert.panelId + alert.message) {
+          <button type="button" class="health-alert-row" [class.critical]="alert.severity === 'critical'" (click)="openPanelFromAlert(alert.panelId)">
+            <span class="health-alert-indicator" aria-hidden="true"></span>
+            <b>{{ alert.panelName }}</b><span>{{ alert.message }}</span><small>View panel</small>
+          </button>
+        }
+      </div>
+    } @else {
+      <p class="health-clear">No current panel health alerts.</p>
+    }
+  </section>
   <section class="panel-list-card card">
     <div class="card-heading"><div><h2>Your panels</h2><p>Manage screens and settings for each room.</p></div><span class="count-badge">{{ manager.config().panels.length }}</span></div>
     @if (manager.config().panels.length === 0) {

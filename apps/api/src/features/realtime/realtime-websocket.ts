@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AuthService } from "../auth/auth-service.js";
-import type { DiscoveredPanel, FirmwareRollout, FirmwareUpdateJob, HmiUpdateJob, PanelConnectionStatus } from "../../types.js";
+import type { DiscoveredPanel, FirmwareRollout, FirmwareUpdateJob, HmiUpdateJob, PanelConnectionStatus, PluginInstanceActivity } from "../../types.js";
 import type { CoreDumpRecord } from "../firmware/core-dump-store.js";
 import type { Logger } from "../../services/logger.js";
 
@@ -15,6 +15,7 @@ const PANEL_STATUS_REFRESH_INTERVAL_MS = 15 * 1000;
 export interface RealtimeSnapshot {
   panels: PanelConnectionStatus[];
   discoveredPanels: DiscoveredPanel[];
+  pluginActivities: PluginInstanceActivity[];
   hmiJobs: HmiUpdateJob[];
   firmwareJobs: FirmwareUpdateJob[];
   firmwareRollout: FirmwareRollout | null;
@@ -22,9 +23,10 @@ export interface RealtimeSnapshot {
 }
 
 export type RealtimeEvent =
-  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: { connected: boolean; error: string } }
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; pluginActivities: PluginInstanceActivity[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: { connected: boolean; error: string } }
   | { type: "panels"; panels: PanelConnectionStatus[] }
   | { type: "discovered-panels"; panels: DiscoveredPanel[] }
+  | { type: "plugin-activity"; activity: PluginInstanceActivity }
   | { type: "hmi-job"; job: HmiUpdateJob }
   | { type: "firmware-job"; job: FirmwareUpdateJob }
   | { type: "firmware-rollout"; rollout: FirmwareRollout | null }

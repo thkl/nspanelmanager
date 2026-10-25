@@ -317,6 +317,13 @@ label small {
   line-height: 1.45;
 }
 
+.instance-variable-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
 .instance-variables code {
   padding: 1px 4px;
   border-radius: 4px;
@@ -1169,6 +1176,14 @@ label small {
 .instance-details small {
   color: var(--ink-faint);
   font-size: 0.75rem;
+}
+
+.instance-details .plugin-activity-status {
+  color: var(--green-text);
+}
+
+.instance-details .plugin-activity-status.activity-error {
+  color: var(--red);
 }
 
 .instance-details code {

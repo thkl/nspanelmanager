@@ -4,7 +4,6 @@ import { readFile } from "node:fs/promises";
 const algorithm = "aes-256-gcm";
 const authTagLength = 16;
 const initializationVectorLength = 12;
-const associatedData = Buffer.from("nspanel-manager:broker-password:v1", "utf8");
 
 /**
  * Describes the versioned JSON representation stored instead of a plaintext
@@ -52,12 +51,12 @@ export class CredentialEncryption {
   }
 
   /** Encrypts a non-empty secret for persistence; empty values remain empty. */
-  encrypt(value: string): "" | EncryptedCredential {
+  encrypt(value: string, purpose = "broker-password"): "" | EncryptedCredential {
     if (!value) return "";
 
     const iv = randomBytes(initializationVectorLength);
     const cipher = createCipheriv(algorithm, this.key, iv, { authTagLength });
-    cipher.setAAD(associatedData);
+    cipher.setAAD(associatedDataFor(purpose));
     const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
 
     return {
@@ -75,10 +74,10 @@ export class CredentialEncryption {
    * Unknown envelope formats and authentication failures stop startup rather
    * than silently discarding a credential or replacing the saved configuration.
    */
-  decryptStored(value: unknown): DecryptedCredential {
+  decryptStored(value: unknown, purpose = "broker-password"): DecryptedCredential {
     if (typeof value === "string") return { value, needsMigration: value.length > 0 };
     if (!isEncryptedCredential(value)) {
-      throw new Error("The stored MQTT broker password has an unsupported encrypted format.");
+      throw new Error("A stored manager credential has an unsupported encrypted format.");
     }
 
     const iv = decodeBase64Url(value.iv, "initialization vector", initializationVectorLength);
@@ -86,14 +85,19 @@ export class CredentialEncryption {
     const ciphertext = decodeBase64Url(value.ciphertext, "ciphertext");
     try {
       const decipher = createDecipheriv(algorithm, this.key, iv, { authTagLength });
-      decipher.setAAD(associatedData);
+      decipher.setAAD(associatedDataFor(purpose));
       decipher.setAuthTag(authTag);
       const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       return { value: plaintext.toString("utf8"), needsMigration: false };
     } catch {
-      throw new Error("Unable to decrypt the stored MQTT broker password. Restore the original MANAGER_ENCRYPTION_KEY_FILE and manager data together.");
+      throw new Error("Unable to decrypt a stored manager credential. Restore the original MANAGER_ENCRYPTION_KEY_FILE and manager data together.");
     }
   }
+}
+
+function associatedDataFor(purpose: string): Buffer {
+  if (!/^[a-z0-9:-]{1,100}$/.test(purpose)) throw new Error("Credential encryption purpose is invalid.");
+  return Buffer.from(`nspanel-manager:${purpose}:v1`, "utf8");
 }
 
 function isEncryptedCredential(value: unknown): value is EncryptedCredential {
@@ -105,7 +109,7 @@ function isEncryptedCredential(value: unknown): value is EncryptedCredential {
 function decodeBase64Url(value: string, label: string, expectedLength?: number): Buffer {
   const decoded = Buffer.from(value, "base64url");
   if (!value || decoded.toString("base64url") !== value || (expectedLength !== undefined && decoded.length !== expectedLength)) {
-    throw new Error(`The stored MQTT broker password has an invalid ${label}.`);
+    throw new Error(`A stored manager credential has an invalid ${label}.`);
   }
   return decoded;
 }

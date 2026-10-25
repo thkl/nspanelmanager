@@ -1,10 +1,17 @@
-import { Component, OnInit, input, output, signal } from "@angular/core";
+import { Component, OnInit, computed, input, output, signal } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { concatMap, from, of, switchMap, toArray, type Observable } from "rxjs";
 import { ManagerStore } from "../../manager-store.service";
 import type { CoreDumpRecord, DiscoveredPanel, Panel, PanelBinding, PanelGroupSettingsDelivery, PanelGroupSettingsStatus, PanelTelemetry, PluginDefinition } from "../../models";
 import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
+
+interface PanelHealthAlert {
+  panelId: string;
+  panelName: string;
+  severity: "critical" | "warning";
+  message: string;
+}
 
 /**
  * Edits the persisted per-panel display profile and favorite-to-plugin bindings.
@@ -42,6 +49,7 @@ export class PanelPageComponent implements OnInit {
   readonly coreDump = signal<CoreDumpRecord | null>(null);
   readonly coreDumpLoading = signal(false);
   readonly downloadingCoreDump = signal(false);
+  readonly healthAlerts = computed(() => this.computeHealthAlerts());
 
   /** Receives the shared API store used to load and persist panel profiles. */
   constructor(readonly manager: ManagerStore) {}
@@ -79,6 +87,36 @@ export class PanelPageComponent implements OnInit {
       case "publish_failed": return "could not publish";
       case "failed": return "panel rejected or applied different values";
     }
+  }
+
+  /** Builds actionable alerts from the latest panel connectivity and telemetry. */
+  private computeHealthAlerts(): PanelHealthAlert[] {
+    const connections = this.manager.panelConnections();
+    const alerts: PanelHealthAlert[] = [];
+    for (const panel of this.manager.config().panels) {
+      const connection = connections[panel.nodeName];
+      if (connection?.status !== "online") {
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: "Panel is offline." });
+      }
+      const rebootReason = connection?.lastResetReport?.reason.toLowerCase() ?? "";
+      if (/(panic|watchdog|brownout|assert|abort|crash)/.test(rebootReason)) {
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "critical", message: `Last reboot reported ${connection?.lastResetReport?.reason}.` });
+      }
+      const freeHeapBytes = connection?.telemetry?.freeHeapBytes;
+      const minimumHeapBytes = connection?.telemetry?.minFreeHeapBytes;
+      if (freeHeapBytes !== undefined && freeHeapBytes < 32 * 1024) {
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: `Free heap is low (${Math.round(freeHeapBytes / 1024)} KB).` });
+      } else if (minimumHeapBytes !== undefined && minimumHeapBytes < 20 * 1024) {
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: `Minimum heap since boot is low (${Math.round(minimumHeapBytes / 1024)} KB).` });
+      }
+    }
+    return alerts;
+  }
+
+  /** Opens the settings editor for a panel named in a health alert. */
+  openPanelFromAlert(panelId: string): void {
+    const panel = this.manager.config().panels.find((item) => item.id === panelId);
+    if (panel) this.selectPanel(panel);
   }
 
   /** Estimates the latest boot time from the manager receipt time and panel uptime. */
