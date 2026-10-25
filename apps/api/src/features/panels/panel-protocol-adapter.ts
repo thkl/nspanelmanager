@@ -29,7 +29,7 @@ export class PanelProtocolAdapter {
     this.publish(`${panelTopicRoot(panel)}/cmnd/nextion`, "page pageList");
     return this.publish(`${panelTopicRoot(panel)}/cmnd/info`, JSON.stringify({
       title: screen.title,
-      message: screen.message,
+      message: normalizeInfoMessageLineBreaks(screen.message),
       topic: binding.id,
       buttons
     }));
@@ -110,4 +110,10 @@ export class PanelProtocolAdapter {
     if (typeof envelope.message !== "string") return undefined;
     return { type: "info-button", index: Number(buttonMatch![1]) - 1, bindingId: envelope.topic, action: envelope.message };
   }
+}
+
+/** Converts plain line feeds to the CRLF format expected by the TFT info page. */
+function normalizeInfoMessageLineBreaks(message: string): string {
+  if (message.includes("\r\n")) return message;
+  return message.replace(/\n/g, "\r\n");
 }

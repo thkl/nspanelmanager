@@ -59,9 +59,7 @@ export class HomeAssistantVacuumControls {
         { label: "Start / Pause", action: "vacuum:start_pause" },
         { label: "Return to dock", action: "vacuum:return_to_base" },
         { label: "Locate", action: "vacuum:locate" },
-        ...(state["vacuumAreaLookup"] === "loaded"
-          ? [{ label: "Clean area", action: "vacuum:areas" }]
-          : [])
+        { label: "Clean area", action: "vacuum:areas" }
       ]
     };
   }
@@ -74,7 +72,11 @@ export class HomeAssistantVacuumControls {
     action: string
   ): Promise<PluginActionResult> {
     if (action === "vacuum:areas") {
-      return { screen: "areas:0", navigation: { type: "reload" } };
+      return {
+        screen: "areas:0",
+        statePatch: await this.loadAreas(instance, entityId),
+        navigation: { type: "reload" }
+      };
     }
     if (action === "vacuum:overview") {
       return { screen: "overview", navigation: { type: "reload" } };
