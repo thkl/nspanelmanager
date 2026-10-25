@@ -1,5 +1,27 @@
 import { pluginConfigSchema, type PluginDefinition } from "./plugin-contract.js";
 
+/** Public metadata consumed by the plugin and panel configuration screens. */
+type PublicPluginDefinition = Pick<
+  PluginDefinition,
+  | "id"
+  | "name"
+  | "version"
+  | "description"
+  | "capabilities"
+  | "configSchema"
+  | "nativePanelPage"
+  | "nativePanelSharedInstances"
+  | "nativePanelStateUpdatesWhenClosed"
+  | "supportsPanelStateReplay"
+  | "panelEventObserver"
+  | "instanceVariableFields"
+  | "homeTileType"
+  | "homeTileSupportsLevelPage"
+  | "homeTileTypeByEntityDomain"
+  | "favoriteFlow"
+  | "favoritePanelPage"
+> & { aliases: string[] };
+
 /**
  * Owns the set of plugin implementations available to configured instances.
  * Definitions are registered once during server startup and are read by the
@@ -29,7 +51,7 @@ export class PluginRegistry {
   canonicalId(pluginId: string): string { return this.aliases.get(pluginId) ?? pluginId; }
 
   /** Returns public plugin metadata and schemas without runtime implementation functions. */
-  list(): Array<Pick<PluginDefinition, "id" | "name" | "version" | "description" | "capabilities" | "configSchema" | "nativePanelPage" | "nativePanelSharedInstances" | "nativePanelStateUpdatesWhenClosed" | "supportsPanelStateReplay" | "panelEventObserver" | "instanceVariableFields" | "homeTileType" | "homeTileTypeByEntityDomain" | "favoriteFlow" | "favoritePanelPage"> & { aliases: string[] }> {
+  list(): PublicPluginDefinition[] {
     return [...this.definitions.values()].map((definition) => ({
       id: definition.id,
       name: definition.name,
@@ -47,6 +69,7 @@ export class PluginRegistry {
       ...(definition.panelEventObserver ? { panelEventObserver: definition.panelEventObserver } : {}),
       ...(definition.instanceVariableFields ? { instanceVariableFields: definition.instanceVariableFields } : {}),
       ...(definition.homeTileType ? { homeTileType: definition.homeTileType } : {}),
+      ...(definition.homeTileSupportsLevelPage ? { homeTileSupportsLevelPage: definition.homeTileSupportsLevelPage } : {}),
       ...(definition.homeTileTypeByEntityDomain ? { homeTileTypeByEntityDomain: definition.homeTileTypeByEntityDomain } : {})
     }));
   }

@@ -48,6 +48,7 @@ export class HomeAssistantPlugin implements PluginDefinition {
   readonly capabilities = ["home-assistant", "favorite-toggle", "favorite-page", "home-tile"];
   readonly favoriteFlow = true;
   readonly homeTileTypeByEntityDomain = { light: "light", cover: "cover" } as const;
+  readonly homeTileSupportsLevelPage = true;
   readonly instanceVariableFields = [
     {
       key: "entityId",
@@ -89,6 +90,13 @@ export class HomeAssistantPlugin implements PluginDefinition {
       type: "number",
       defaultValue: 10,
       help: "Brightness change for each Up or Down action on a light tile."
+    },
+    {
+      key: "lightOnBrightness",
+      label: "Turn-on light brightness (%)",
+      type: "number",
+      defaultValue: 50,
+      help: "Brightness sent when turning on a light from off or zero brightness."
     },
     {
       key: "coverPositionStep",
@@ -144,6 +152,10 @@ export class HomeAssistantPlugin implements PluginDefinition {
         return "Light and cover steps must be greater than 0 and no more than 100 percent.";
       }
     }
+    const lightOnBrightness = numberValue(config, "lightOnBrightness") ?? 50;
+    if (lightOnBrightness < 1 || lightOnBrightness > 100) {
+      return "Turn-on light brightness must be between 1 and 100 percent.";
+    }
     for (const [key, fallback] of [["lightPreset1Rgb", "#ffffff"], ["lightPreset2Rgb", "#ffb35c"]] as const) {
       const value = stringValue(config, key) || fallback;
       if (!/^#?[0-9a-f]{6}$/i.test(value)) {
@@ -171,6 +183,12 @@ export class HomeAssistantPlugin implements PluginDefinition {
     if (domain === "light") return "light";
     if (domain === "cover") return "cover";
     return undefined;
+  }
+
+  /** HA lights and covers can both use the firmware's native level page. */
+  supportsHomeTileLevelPage(instance: ResolvedPluginInstance): boolean {
+    const domain = entityDomain(instance.variables.entityId);
+    return domain === "light" || domain === "cover";
   }
 
   /** Sends a cover favorite to the panel's native level page on long press. */
@@ -206,6 +224,10 @@ export class HomeAssistantPlugin implements PluginDefinition {
       const position = numberValue(state, "position");
       return position === undefined ? undefined : position > 0;
     }
+    if (entityDomain(instance.variables.entityId) === "light") {
+      const brightness = numberValue(state, "brightness");
+      if (brightness !== undefined && brightness <= 0) return false;
+    }
     return typeof state["isOn"] === "boolean" ? state["isOn"] : undefined;
   }
 
@@ -221,6 +243,7 @@ export class HomeAssistantPlugin implements PluginDefinition {
     const domain = entityDomain(entityId);
     if (domain === "cover") return this.coverControls.toggle(instance, entityId, state);
     if (domain === "vacuum") return this.vacuumControls.handleFavoritePress(instance, binding, entityId);
+    if (domain === "light") return this.lightControls.toggle(instance, entityId, state);
     return this.switchControls.toggle(instance, entityId);
   }
 

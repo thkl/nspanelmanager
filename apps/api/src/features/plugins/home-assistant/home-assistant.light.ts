@@ -23,6 +23,28 @@ import {
  * services. It also formats the color page's two configurable presets.
  */
 export class HomeAssistantLightControls {
+  private readonly levelPresets = [
+    { label: "Off", value: 0 },
+    { label: "25%", value: 25 },
+    { label: "50%", value: 50 },
+    { label: "75%", value: 75 },
+    { label: "On", value: 100 }
+  ];
+
+  /** Toggles a light and applies the configured brightness when turning it on. */
+  async toggle(instance: ResolvedPluginInstance, entityId: string, state: PluginState): Promise<PluginHomeTileResult> {
+    const brightness = numberValue(state, "brightness");
+    const isOn = state["isOn"] === true && (brightness === undefined || brightness > 0);
+    if (isOn) {
+      await callHomeAssistantService(instance, "light", "turn_off", entityId);
+    } else {
+      await callHomeAssistantService(instance, "light", "turn_on", entityId, {
+        brightness_pct: clampPercent(configNumber(instance, "lightOnBrightness", 50))
+      });
+    }
+    return this.refreshState(instance, entityId);
+  }
+
   /** Opens the panel color page when the user holds a light favorite. */
   openFavoritePage(panel: Panel, binding: PanelBinding, entityId: string): PluginFavoriteLongPressResult {
     return {
@@ -56,14 +78,26 @@ export class HomeAssistantLightControls {
       };
     }
     if (itemEvent && message.payload === "toggle") {
-      await callHomeAssistantService(instance, "light", "toggle", entityId);
-      return this.refreshState(instance, entityId);
+      return this.toggle(instance, entityId, state);
     }
     if (itemEvent && (message.payload === "up" || message.payload === "dn")) {
       const current = numberValue(state, "brightness") ?? 0;
       const step = configNumber(instance, "lightBrightnessStep", 10);
       const delta = message.payload === "up" ? step : -step;
       return this.setBrightness(instance, entityId, current + delta);
+    }
+    if (new RegExp(`^level/${index}$`).test(suffix) && message.payload.trim().toLowerCase() === "query") {
+      return {
+        page: "level",
+        commands: [
+          this.levelConfiguration(panel, button.label),
+          ...this.renderHomeTileState(panel, index, "level", state)
+        ]
+      };
+    }
+    if (new RegExp(`^level/set/${index}$`).test(suffix)) {
+      const requested = requestedBrightness(message.payload);
+      return requested === undefined ? undefined : this.setBrightness(instance, entityId, requested);
     }
     if (suffix === "colorLamp" || suffix === "colorLamp/set") {
       return this.handleColorPageEvent(instance, message.payload, state, entityId);
@@ -92,9 +126,14 @@ export class HomeAssistantLightControls {
     page: "home" | "light" | "level",
     state: PluginState
   ) {
-    if (page !== "home") return [];
-    const isOn = state["isOn"] === true;
     const brightness = numberValue(state, "brightness");
+    if (page === "level") {
+      return brightness === undefined
+        ? []
+        : [{ topic: `${panel.nodeName}/cmnd/level/status`, payload: String(Math.round(brightness)) }];
+    }
+    if (page !== "home") return [];
+    const isOn = state["isOn"] === true && (brightness === undefined || brightness > 0);
     const label = !isOn
       ? "Off"
       : brightness !== undefined && brightness < 100
@@ -111,19 +150,29 @@ export class HomeAssistantLightControls {
     entityId: string
   ): Promise<PluginHomeTileResult | undefined> {
     const event = recordFromJson(payload);
-    if (!event) return undefined;
+    if (!event) {
+      const brightness = scalarNumber(payload);
+      return brightness === undefined ? undefined : this.setBrightness(instance, entityId, brightness);
+    }
     const requestedEntityId = typeof event["topic"] === "string" ? event["topic"].trim() : "";
     if (requestedEntityId && requestedEntityId !== entityId) return undefined;
 
-    if (Object.hasOwn(event, "brightness")) {
-      return this.handleBrightnessChange(instance, event["brightness"], state, entityId);
+    if (Object.hasOwn(event, "brightness") || Object.hasOwn(event, "level")) {
+      const requested = Object.hasOwn(event, "brightness") ? event["brightness"] : event["level"];
+      return this.handleBrightnessChange(instance, requested, state, entityId);
     }
     if (typeof event["color"] === "string") {
       const rgbColor = parseNextionWheelColor(event["color"]);
       if (!rgbColor) return undefined;
       const brightness = numberValue(state, "brightness");
-      const data: Record<string, unknown> = { rgb_color: rgbColor };
-      if (brightness !== undefined && brightness > 0) data["brightness_pct"] = Math.round(brightness);
+      const data: Record<string, unknown> = {
+        rgb_color: rgbColor,
+        brightness_pct: clampPercent(
+          brightness !== undefined && brightness > 0
+            ? brightness
+            : configNumber(instance, "lightOnBrightness", 50)
+        )
+      };
       await callHomeAssistantService(instance, "light", "turn_on", entityId, data);
       return this.refreshState(instance, entityId);
     }
@@ -180,4 +229,26 @@ export class HomeAssistantLightControls {
     const entity = await getHomeAssistantEntity(instance, entityId);
     return { statePatch: entityStatePatch(entity) };
   }
+
+  /** Configures the firmware's native brightness level page. */
+  private levelConfiguration(panel: Panel, title: string) {
+    return {
+      topic: `${panel.nodeName}/cmnd/level/config`,
+      payload: JSON.stringify({
+        name: title,
+        settings: this.levelPresets,
+        levelTopic: "",
+        topic: "",
+        version: "2"
+      })
+    };
+  }
+}
+
+/** Reads level values from the panel's JSON envelope or a plain numeric payload. */
+function requestedBrightness(payload: string): number | undefined {
+  const numericPayload = scalarNumber(payload);
+  if (numericPayload !== undefined) return numericPayload;
+  const event = recordFromJson(payload);
+  return event ? scalarNumber(event["level"] ?? event["brightness"] ?? event["value"]) : undefined;
 }

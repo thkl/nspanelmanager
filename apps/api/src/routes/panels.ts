@@ -133,8 +133,12 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       if (!resolvedInstance || !definition || !homeTileType) {
         return response.status(400).json({ error: `Choose a registered light or cover plugin instance for main button ${index + 1}.` });
       }
-      if (button.mode === 1 && homeTileType !== "cover") {
-        return response.status(400).json({ error: `Main button ${index + 1} uses the level page and must be assigned to a cover plugin.` });
+      const supportsLevelPage = homeTileType === "cover"
+        || Boolean(definition.supportsHomeTileLevelPage?.(resolvedInstance));
+      if (button.mode === 1 && !supportsLevelPage) {
+        return response.status(400).json({
+          error: `Main button ${index + 1} uses the level page and must be assigned to a plugin that supports level controls.`
+        });
       }
     }
     const panel: Panel = { ...current, name, nodeName, groupName, settings, nativePluginInstances, panelEventPluginInstances, hardwareButtonPluginInstances };

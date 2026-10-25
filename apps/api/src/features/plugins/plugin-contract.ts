@@ -218,10 +218,14 @@ export interface PluginDefinition {
   readonly instanceVariableFields?: readonly PluginInstanceVariableField[];
   /** Device capability exposed to the four configurable panel home tiles. */
   readonly homeTileType?: "light" | "cover";
+  /** Enables the firmware's native level-page selector for compatible tile instances. */
+  readonly homeTileSupportsLevelPage?: boolean;
   /** Entity domains that select a home-tile capability for this instance. */
   readonly homeTileTypeByEntityDomain?: Readonly<Record<string, "light" | "cover">>;
   /** Resolves a home-tile capability from the current instance configuration. */
   homeTileTypeForInstance?(instance: ResolvedPluginInstance): "light" | "cover" | undefined;
+  /** Reports whether this instance can receive the firmware's native level-page events. */
+  supportsHomeTileLevelPage?(instance: ResolvedPluginInstance): boolean;
   /** Resolves the selected favorite page for an entity-aware plugin instance. */
   favoritePanelPageForInstance?(instance: ResolvedPluginInstance): "level" | undefined;
   readonly configSchema: readonly PluginConfigField[];

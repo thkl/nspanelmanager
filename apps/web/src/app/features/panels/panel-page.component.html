@@ -182,7 +182,7 @@
               <option value="5">Lamp 2</option>
               <option value="6">Fan</option>
             </select></label>
-            <label>Mode<select [(ngModel)]="button.mode"><option [ngValue]="0">Up/down + toggle</option><option [ngValue]="1" [disabled]="homeTileType(button.pluginInstanceId) === 'light'">Open level page</option><option [ngValue]="2">Toggle only</option></select></label>
+            <label>Mode<select [(ngModel)]="button.mode"><option [ngValue]="0">Up/down + toggle</option><option [ngValue]="1" [disabled]="!supportsHomeTileLevelPage(button.pluginInstanceId)">Open level page</option><option [ngValue]="2">Toggle only</option></select></label>
             <span></span> <!-- Dummy do not remove -->
             <label>Plugin instance<select [ngModel]="button.pluginInstanceId || ''" (ngModelChange)="setHomeTileInstance(i, $event)"><option value="">No plugin instance</option>@for (instance of homeTileInstances(); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }</select></label>
           </div>

@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOption, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -452,8 +452,8 @@ export class ManagerStore {
   }
 
   /** Lists selectable Home Assistant entities using the credentials saved in one plugin profile. */
-  loadHomeAssistantEntities(profileId: string): Observable<{ entities: HomeAssistantEntityOption[]; areasAvailable: boolean }> {
-    return this.http.get<{ entities: HomeAssistantEntityOption[]; areasAvailable: boolean }>(`/api/plugins/profiles/${encodeURIComponent(profileId)}/home-assistant-entities`);
+  loadHomeAssistantEntities(profileId: string): Observable<HomeAssistantEntityOptions> {
+    return this.http.get<HomeAssistantEntityOptions>(`/api/plugins/profiles/${encodeURIComponent(profileId)}/home-assistant-entities`);
   }
 
   /** Renders a page or simulates its button action with disposable MQTT and storage effects. */

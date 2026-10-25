@@ -427,6 +427,14 @@ export class PanelPageComponent implements OnInit {
     return entityTileType ?? definition?.homeTileType;
   }
 
+  /** Reports whether the selected tile plugin can use the panel's level page. */
+  supportsHomeTileLevelPage(pluginInstanceId?: string): boolean {
+    const instance = this.homeTileInstances().find((candidate) => candidate.id === pluginInstanceId);
+    const profile = instance && this.manager.config().pluginProfiles.find((candidate) => candidate.id === instance.pluginProfileId);
+    const definition = this.pluginDefinitions().find((plugin) => plugin.id === profile?.pluginId);
+    return this.homeTileType(pluginInstanceId) === "cover" || definition?.homeTileSupportsLevelPage === true;
+  }
+
   /** Assigns an instance and chooses its built-in detail page as the initial action. */
   setHomeTileInstance(index: number, pluginInstanceId: string): void {
     const panel = this.draft();

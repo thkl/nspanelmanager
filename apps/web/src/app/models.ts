@@ -144,6 +144,7 @@ export interface PluginDefinition {
   panelEventObserver?: boolean;
   instanceVariableFields?: Array<{ key: string; label: string; required?: boolean; help?: string; optionSource?: "home-assistant-entities" }>;
   homeTileType?: "light" | "cover";
+  homeTileSupportsLevelPage?: boolean;
   homeTileTypeByEntityDomain?: Record<string, "light" | "cover">;
   configSchema: PluginConfigField[];
 }
@@ -179,6 +180,17 @@ export interface HomeAssistantEntityOption {
   domain: string;
   areaId?: string;
   areaName?: string;
+}
+
+export interface HomeAssistantAreaOption {
+  id: string;
+  name: string;
+}
+
+export interface HomeAssistantEntityOptions {
+  entities: HomeAssistantEntityOption[];
+  areas: HomeAssistantAreaOption[];
+  areasAvailable: boolean;
 }
 
 export interface PanelBinding {

@@ -36,16 +36,17 @@ entity state.
 ### Switch-like entities
 
 Tap the favorite to call `homeassistant.toggle`. This shared flow handles
-`switch`, `fan`, `input_boolean`, and `media_player` entities, plus a light's
-favorite tap.
+`switch`, `fan`, `input_boolean`, and `media_player` entities.
 
 ### Lights
 
-The light controller handles home-tile `item/{index}` events and color-page
-events. A long press opens the panel's color page. The page reports brightness
-and wheel coordinates; the controller calls `light.turn_on` or
-`light.turn_off`, then reads state back from Home Assistant. The two color
-presets and their brightness come from the plugin profile config.
+The light controller handles home-tile `item/{index}` events, native
+`level/set/{index}` events, and color-page events. A light can use the panel's
+native level page or open its color page on a long press. Both brightness
+controls call `light.turn_on` or `light.turn_off`, then read state back from
+Home Assistant. A tap turns the light on at the configured `lightOnBrightness`
+when the light is off or reports zero brightness. The two color presets and
+their brightness come from the plugin profile config.
 
 ### Covers and blinds
 

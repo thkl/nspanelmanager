@@ -2,7 +2,7 @@ import { Component, OnInit, input, signal } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { ManagerStore } from "../../manager-store.service";
-import type { HomeAssistantEntityOption, PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
+import type { HomeAssistantAreaOption, HomeAssistantEntityOption, PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
 import { ScriptEditorComponent } from "./script-editor.component";
 import { PanelScreenPreviewComponent } from "../panels/panel-screen-preview.component";
 
@@ -57,6 +57,7 @@ export class PluginsPageComponent implements OnInit {
   readonly instanceConfig = signal<Record<string, PluginConfigValue>>({});
   readonly instanceVariables = signal<Record<string, string>>({});
   readonly homeAssistantEntities = signal<Record<string, HomeAssistantEntityOption[]>>({});
+  readonly homeAssistantAreas = signal<Record<string, HomeAssistantAreaOption[]>>({});
   readonly homeAssistantAreasAvailable = signal<Record<string, boolean>>({});
   readonly loadingHomeAssistantProfileId = signal("");
   readonly homeAssistantEntityErrors = signal<Record<string, string>>({});
@@ -683,6 +684,7 @@ export class PluginsPageComponent implements OnInit {
       next: (result) => {
         const { entities } = result;
         this.homeAssistantEntities.update((current) => ({ ...current, [profileId]: entities }));
+        this.homeAssistantAreas.update((current) => ({ ...current, [profileId]: result.areas ?? [] }));
         this.homeAssistantAreasAvailable.update((current) => ({ ...current, [profileId]: result.areasAvailable }));
         if (this.loadingHomeAssistantProfileId() === profileId) this.loadingHomeAssistantProfileId.set("");
       },
@@ -709,6 +711,10 @@ export class PluginsPageComponent implements OnInit {
   /** Returns area choices reported by Home Assistant's registries. */
   homeAssistantAreaOptions(): Array<{ id: string; name: string }> {
     const areas = new Map<string, string>();
+    for (const area of this.homeAssistantAreas()[this.selectedPluginProfileId()] ?? []) {
+      areas.set(area.id, area.name);
+    }
+    // Preserve choices from cached entity metadata when talking to an older API build.
     for (const entity of this.homeAssistantEntityOptions()) {
       if (entity.areaId && entity.areaName) areas.set(entity.areaId, entity.areaName);
     }

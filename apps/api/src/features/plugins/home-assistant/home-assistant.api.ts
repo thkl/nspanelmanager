@@ -32,9 +32,16 @@ export interface HomeAssistantEntityOption {
   areaName?: string;
 }
 
+/** An area registered in Home Assistant and available as an entity filter. */
+export interface HomeAssistantAreaOption {
+  id: string;
+  name: string;
+}
+
 /** Result of loading selectable entities and their area metadata. */
 export interface HomeAssistantEntityOptions {
   entities: HomeAssistantEntityOption[];
+  areas: HomeAssistantAreaOption[];
   areasAvailable: boolean;
 }
 
@@ -93,10 +100,16 @@ export async function fetchHomeAssistantEntityOptions(baseUrl: string, accessTok
         ...(areaName ? { areaName } : {})
       };
     });
-    return { entities: sortHomeAssistantEntities(entities), areasAvailable: true };
+    return {
+      entities: sortHomeAssistantEntities(entities),
+      areas: areaEntries
+        .map(({ id, name }) => ({ id, name }))
+        .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" })),
+      areasAvailable: true
+    };
   } catch {
     // Keep type and text filtering available if a reverse proxy blocks the registry WebSocket.
-    return { entities: sortHomeAssistantEntities(states), areasAvailable: false };
+    return { entities: sortHomeAssistantEntities(states), areas: [], areasAvailable: false };
   }
 }
 
