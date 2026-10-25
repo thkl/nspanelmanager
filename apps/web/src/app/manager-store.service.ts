@@ -175,6 +175,13 @@ export class ManagerStore {
     }));
   }
 
+  /** Cancels a staged rollout and releases the firmware upload slot. */
+  cancelFirmwareRollout(): Observable<{ rollout: FirmwareRollout | null }> {
+    return this.http.post<{ rollout: FirmwareRollout | null }>("/api/firmware/rollout/cancel", {}).pipe(tap(({ rollout }) => {
+      this.firmwareRollout.set(rollout);
+    }));
+  }
+
   /** Saves the global canary stability window for future staged firmware rollouts. */
   saveFirmwareRolloutSettings(settings: FirmwareRolloutSettings): Observable<{ firmwareRollout: FirmwareRolloutSettings }> {
     return this.http.put<{ firmwareRollout: FirmwareRolloutSettings }>("/api/firmware/rollout-settings", settings).pipe(tap(({ firmwareRollout }) => {

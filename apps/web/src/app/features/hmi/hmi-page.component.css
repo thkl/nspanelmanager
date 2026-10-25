@@ -227,6 +227,38 @@
   font-size: 0.75rem;
 }
 
+.rollout-cancel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.rollout-cancel-row small {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
+.cancel-rollout-button {
+  min-height: 36px;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--red);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--red);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cancel-rollout-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .hmi-card {
   display: flex;
   align-items: flex-start;

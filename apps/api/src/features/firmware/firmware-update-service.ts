@@ -113,7 +113,7 @@ export class FirmwareUpdateService {
         pendingPanelIds: [...new Set(targetPanelIds.filter((panelId) => panelId !== canaryJob.panelId))],
         message: `Waiting for ${canaryJob.panelName} to report firmware ${canaryJob.firmwareVersion}.`
       };
-      if (rollout.pendingPanelIds.length) await this.saveRollout(rollout);
+      if (rollout.pendingPanelIds.length) await this.saveRollout(rollout, true);
     } finally {
       this.startingRollout = false;
     }
@@ -149,18 +149,26 @@ export class FirmwareUpdateService {
         ...(telemetry.uptimeSeconds === undefined ? {} : { lastUptimeSeconds: telemetry.uptimeSeconds }),
         message: `Canary ${canaryPanel.name} already reports firmware ${artifact.version}. Monitoring it for ${stableHours} stable hours before updating opted-in panels.`
       };
-      await this.saveRollout(rollout);
+      await this.saveRollout(rollout, true);
       return rollout;
     } finally {
       this.startingRollout = false;
     }
   }
 
-  /** Stops a rollout from scheduling more panels; an update already in progress is allowed to finish. */
-  async cancelRollout(message = "Automatic firmware rollout disabled."): Promise<void> {
+  /** Stops scheduling panels and returns the persisted rollout status. */
+  async cancelRollout(message = "Automatic firmware rollout disabled."): Promise<FirmwareRollout | null> {
     const rollout = this.runtimeState.getFirmwareRollout();
-    if (!rollout || (rollout.status !== "monitoring" && rollout.status !== "updating")) return;
-    await this.saveRollout({ ...rollout, status: "cancelled", message, updatedAt: Date.now() });
+    if (!rollout || !isActiveRolloutStatus(rollout.status)) return rollout;
+
+    const cancelled = {
+      ...rollout,
+      status: "cancelled" as const,
+      message: `${message} Any panel update already sent will finish; queued panels will not be updated.`,
+      updatedAt: Date.now()
+    };
+    await this.saveRollout(cancelled);
+    return this.runtimeState.getFirmwareRollout();
   }
 
   /** Creates the durable record before the MQTT update command is published. */
@@ -358,7 +366,8 @@ export class FirmwareUpdateService {
 
   private async progressRolloutState(): Promise<void> {
     let rollout = this.runtimeState.getFirmwareRollout();
-    if (!rollout || (rollout.status !== "monitoring" && rollout.status !== "updating")) return;
+    if (!rollout || !isActiveRolloutStatus(rollout.status)) return;
+    const rolloutId = rollout.id;
     const now = Date.now();
     if (rollout.status === "updating" && rollout.canaryConfirmed && rollout.lastHeartbeatAt !== undefined
       && now - rollout.lastHeartbeatAt > MAX_CANARY_HEARTBEAT_GAP_MS) {
@@ -390,8 +399,10 @@ export class FirmwareUpdateService {
         message: `Canary passed ${rollout.stableHours} hours of stable uptime. Starting the opted-in panels one at a time.`
       };
       await this.saveRollout(rollout);
+      if (!this.isCurrentActiveRollout(rolloutId)) return;
+      rollout = this.runtimeState.getFirmwareRollout()!;
     }
-    if (rollout.status !== "updating") return;
+    if (!isActiveRolloutStatus(rollout.status) || rollout.status !== "updating") return;
     if (rollout.currentPanelId) {
       const currentPanelId = rollout.currentPanelId;
       const { artifactId, firmwareVersion } = rollout;
@@ -408,6 +419,8 @@ export class FirmwareUpdateService {
           message: `${currentJob.panelName} confirmed firmware ${rollout.firmwareVersion}. Continuing with the next opted-in panel.`
         };
         await this.saveRollout(rollout);
+        if (!this.isCurrentActiveRollout(rolloutId)) return;
+        rollout = this.runtimeState.getFirmwareRollout()!;
       } else if (currentJob) {
         await this.failRollout(rollout, `Update failed on ${currentJob.panelName}; the remaining rollout was stopped.`);
         return;
@@ -420,6 +433,8 @@ export class FirmwareUpdateService {
           message: "Resuming the rollout after the manager restarted before the panel update was created."
         };
         await this.saveRollout(rollout);
+        if (!this.isCurrentActiveRollout(rolloutId)) return;
+        rollout = this.runtimeState.getFirmwareRollout()!;
       }
     }
     if (!this.mqttRuntime.status().connected) {
@@ -435,6 +450,8 @@ export class FirmwareUpdateService {
       if (!panel || panel.autoUpdateFirmware !== true || panel.unifiedFirmware !== true) {
         rollout = { ...rollout, pendingPanelIds: removeIndex(rollout.pendingPanelIds, pendingIndex), updatedAt: Date.now() };
         await this.saveRollout(rollout);
+        if (!this.isCurrentActiveRollout(rolloutId)) return;
+        rollout = this.runtimeState.getFirmwareRollout()!;
         continue;
       }
       const connection = this.mqttRuntime.panelConnectionStatuses().find((candidate) => candidate.panelId === panel.id);
@@ -445,6 +462,8 @@ export class FirmwareUpdateService {
       if (connection.telemetry?.firmwareVersion === rollout.firmwareVersion) {
         rollout = { ...rollout, pendingPanelIds: removeIndex(rollout.pendingPanelIds, pendingIndex), updatedAt: Date.now(), message: `${panel.name} already reports ${rollout.firmwareVersion}; skipping it.` };
         await this.saveRollout(rollout);
+        if (!this.isCurrentActiveRollout(rolloutId)) return;
+        rollout = this.runtimeState.getFirmwareRollout()!;
         continue;
       }
       const artifact = this.firmwareArtifacts.currentArtifact();
@@ -460,10 +479,16 @@ export class FirmwareUpdateService {
         message: `Sending ${rollout.firmwareVersion} to ${panel.name}. Waiting for the panel to confirm it.`
       };
       await this.saveRollout(nextRollout);
+      if (!this.isCurrentActiveRollout(rolloutId)) return;
       try {
         const download = await this.firmwareArtifacts.createDownloadUrl();
+        if (!this.isCurrentActiveRollout(rolloutId)) return;
         if (download.artifact.id !== rollout.artifactId) throw new Error("The rollout firmware package changed before this panel was updated.");
         const job = await this.begin(panel, download.artifact, true, download.expiresAt, "Automatic staged rollout");
+        if (!this.isCurrentActiveRollout(rolloutId)) {
+          await this.cancelUnpublishedJob(job.id);
+          return;
+        }
         if (!this.mqttRuntime.publishFirmwareUpdate(panel, download.url, download.artifact.md5, download.artifact.version, job.id, true)) {
           await this.markPublishFailed(job.id, "The MQTT broker disconnected before the automatic firmware request could be sent.");
           return;
@@ -493,9 +518,35 @@ export class FirmwareUpdateService {
     this.logger.warn("Automatic firmware rollout stopped.", { component: "firmware", rolloutId: rollout.id, version: rollout.firmwareVersion, message });
   }
 
-  private async saveRollout(rollout: FirmwareRollout): Promise<void> {
+  /** Cancels a just-created job only when rollout cancellation beat MQTT publication. */
+  private async cancelUnpublishedJob(jobId: string): Promise<void> {
+    const job = this.findJob(jobId);
+    if (!job || job.status !== "sending") return;
+    await this.update(job, {
+      status: "cancelled",
+      message: "The staged rollout was cancelled before the firmware request was sent."
+    });
+  }
+
+  /** Checks the current persisted status so stale worker state cannot resume a cancelled rollout. */
+  private isCurrentActiveRollout(rolloutId: string): boolean {
+    const current = this.runtimeState.getFirmwareRollout();
+    return current?.id === rolloutId && isActiveRolloutStatus(current.status);
+  }
+
+  private async saveRollout(rollout: FirmwareRollout, replaceTerminal = false): Promise<void> {
+    const current = this.runtimeState.getFirmwareRollout();
+    if (current && current.id !== rollout.id) {
+      if (!replaceTerminal || isActiveRolloutStatus(current.status)) return;
+    }
+    if (current?.id === rollout.id && isActiveRolloutStatus(rollout.status)
+      && !isActiveRolloutStatus(current.status)) {
+      return;
+    }
     await this.runtimeState.setFirmwareRollout(rollout);
     await this.runtimeState.flush();
+    const persisted = this.runtimeState.getFirmwareRollout();
+    if (!persisted || persisted.id !== rollout.id || persisted.updatedAt !== rollout.updatedAt || persisted.status !== rollout.status) return;
     this.publishRollout(rollout);
     this.logger.info("Firmware rollout status changed.", {
       component: "firmware",
@@ -546,6 +597,10 @@ function parsePanelReport(payload: string): { jobId: string; status: PanelReport
 
 function isActive(status: FirmwareUpdateJob["status"]): boolean {
   return status === "sending" || status === "sent" || status === "awaiting_confirmation" || status === "uploading" || status === "rebooting";
+}
+
+function isActiveRolloutStatus(status: FirmwareRollout["status"]): boolean {
+  return status === "monitoring" || status === "updating";
 }
 
 function isTerminal(status: FirmwareUpdateJob["status"]): boolean { return !isActive(status); }

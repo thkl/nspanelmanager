@@ -27,6 +27,7 @@ export class HmiPageComponent implements OnInit {
   readonly rolloutEnabled = signal(false);
   readonly rolloutStableHours = signal(3);
   readonly savingRolloutSettings = signal(false);
+  readonly cancellingRollout = signal(false);
   readonly savingAutoUpdatePanelId = signal("");
   readonly stagingFirmwarePanelId = signal("");
   readonly forceUpdate = signal(false);
@@ -143,6 +144,23 @@ export class HmiPageComponent implements OnInit {
   rolloutCurrentPanelName(): string {
     const panelId = this.manager.firmwareRollout()?.currentPanelId;
     return this.manager.config().panels.find((panel) => panel.id === panelId)?.name ?? "panel";
+  }
+
+  /** Cancels the active rollout while allowing a panel update already sent to finish. */
+  cancelFirmwareRollout(): void {
+    const rollout = this.manager.firmwareRollout();
+    if (!rollout || (rollout.status !== "monitoring" && rollout.status !== "updating") || this.cancellingRollout()) return;
+    this.cancellingRollout.set(true);
+    this.manager.cancelFirmwareRollout().subscribe({
+      next: () => {
+        this.cancellingRollout.set(false);
+        this.manager.inform("Staged rollout cancelled. You can upload a newer firmware package now.");
+      },
+      error: (error: unknown) => {
+        this.cancellingRollout.set(false);
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
   }
 
   /** Saves one panel's opt-in for future automatic rollout stages. */

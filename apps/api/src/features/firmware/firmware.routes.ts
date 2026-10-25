@@ -35,6 +35,11 @@ export function createFirmwareRouter(
     response.json({ firmwareRollout });
   });
 
+  router.post("/rollout/cancel", async (_request, response) => {
+    const rollout = await firmwareUpdateService.cancelRollout("Staged firmware rollout cancelled by the administrator.");
+    response.json({ rollout });
+  });
+
   router.post("/panels/:panelId/stage-rollout", async (request, response, next) => {
     const config = store.get();
     const panel = config.panels.find((item) => item.id === request.params.panelId);

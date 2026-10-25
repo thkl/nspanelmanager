@@ -54,6 +54,12 @@
       <p>{{ rollout.message }}</p>
       @if (rollout.status === 'monitoring' || rollout.status === 'updating') {
         <small>Canary: {{ rollout.canaryPanelName }}@if (rollout.currentPanelId) { · Updating {{ rolloutCurrentPanelName() }} }@if (rollout.pendingPanelIds.length) { · {{ rollout.pendingPanelIds.length }} queued }</small>
+        <div class="rollout-cancel-row">
+          <small>Cancel stops queued panels. An update already sent to a panel will finish.</small>
+          <button class="cancel-rollout-button" type="button" [disabled]="cancellingRollout()" (click)="cancelFirmwareRollout()">
+            {{ cancellingRollout() ? 'Cancelling…' : 'Cancel rollout' }}
+          </button>
+        </div>
       }
     </section>
   }
