@@ -88,7 +88,7 @@ export class ScriptedMqttPlugin implements PluginDefinition {
       label: "Named JavaScript functions",
       type: "table",
       defaultValue: "[]",
-      help: "Named functions can be called from any plugin script as fnct.functionId(arg1, arg2). With no Parameters configured, the first argument is available in the function body as message; for example, call fnct.formatStatus(message) and read message.payload. You can optionally enter comma-separated parameter names, such as message, label, in the Parameters column. The function body can return a value or use the caller's available helpers. Button actions pass the current message as the first argument. Scripts receive message, payload, state, context, debug, mqtt, global, plugin, panel, and variables. Use {{room}} inside strings or variables.room in JavaScript to read this instance's configured variables. JSON MQTT payloads are parsed in message.payload and payload; non-JSON payloads stay text. Use isEqual(value1, value2) to recursively compare nested JSON objects and arrays independent of object key order. Use gotopage(\"pageId\") to open a page and add Back history, reloadpage() to redraw the current page, or reloadpage(\"pageId\") to show and redraw a named page without adding Back history. Use mqtt.send(topic, payload), where payload may be a string or JSON value; use global.get(key, defaultValue), global.set(key, value), plugin.get(key, defaultValue), plugin.set(key, value), panel.get(panelName, key, defaultValue), and panel.set(panelName, key, value) for durable values. debug.log(...) adds diagnostics to preview or manager logs. context.publish and context.storage remain available.",
+      help: "Named functions can be called from any plugin script as fnct.functionId(arg1, arg2). With no Parameters configured, the first argument is available in the function body as message; for example, call fnct.formatStatus(message) and read message.payload. You can optionally enter comma-separated parameter names, such as message, buttonNumber, buttonLabel, in the Parameters column. Info-screen button actions pass the latest message first, then the one-based button number (1-8), then its displayed label. Scripts receive message, payload, state, context, debug, mqtt, global, plugin, panel, and variables. Use {{room}} inside strings or variables.room in JavaScript to read this instance's configured variables. JSON MQTT payloads are parsed in message.payload and payload; non-JSON payloads stay text. Use isEqual(value1, value2) to recursively compare nested JSON objects and arrays independent of object key order. Use gotopage(\"pageId\") to open a page and add Back history, reloadpage() to redraw the current page, or reloadpage(\"pageId\") to show and redraw a named page without adding Back history. Use mqtt.send(topic, payload), where payload may be a string or JSON value; use global.get(key, defaultValue), global.set(key, value), plugin.get(key, defaultValue), plugin.set(key, value), panel.get(panelName, key, defaultValue), and panel.set(panelName, key, value) for durable values. debug.log(...) adds diagnostics to preview or manager logs. context.publish and context.storage remain available.",
       columns: [
         { key: "id", label: "Function ID" },
         { key: "parameters", label: "Parameters" },
@@ -284,12 +284,21 @@ export class ScriptedMqttPlugin implements PluginDefinition {
     if (configured.type === "function") {
       const fn = getFunctions(instance).find((candidate) => candidate.id === configured.target);
       if (!fn) throw new Error(`Configured function '${configured.target}' no longer exists.`);
-      const execution = await runScriptFunction(`return fnct[${JSON.stringify(fn.id)}](message);`, readMessage(state.lastMessage), state, context, {
-        publish: true,
-        writeStorage: true,
-        navigate: true,
-        namedFunctions: getFunctions(instance)
-      });
+      const buttonNumber = Number(slot);
+      const renderedScreen = await this.renderScreen(instance, state, pageId, context);
+      const buttonLabel = renderedScreen?.buttons[buttonNumber - 1]?.label ?? "";
+      const execution = await runScriptFunction(
+        `return fnct[${JSON.stringify(fn.id)}](message, ${buttonNumber}, ${JSON.stringify(buttonLabel)});`,
+        readMessage(state.lastMessage),
+        state,
+        context,
+        {
+          publish: true,
+          writeStorage: true,
+          navigate: true,
+          namedFunctions: getFunctions(instance)
+        }
+      );
       const navigation = validatePageNavigation(instance, execution.effects.navigation);
       applyScriptDebugLogs(execution.effects, context);
       await applyScriptStorageEffects(execution.effects, context);
