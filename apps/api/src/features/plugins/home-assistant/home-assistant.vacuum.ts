@@ -38,6 +38,8 @@ export class HomeAssistantVacuumControls {
     if (screen.startsWith("areas")) return this.renderAreasScreen(instance, state, screen);
     if (screen !== "overview") return undefined;
 
+    console.log(JSON.stringify(state));
+
     const details = [`Status: ${displayValue(state["entityState"], "Unknown")}`];
     const batteryLevel = numberValue(state, "batteryLevel");
     const fanSpeed = displayValue(state["fanSpeed"], "");
