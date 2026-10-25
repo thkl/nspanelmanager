@@ -21,6 +21,7 @@ export class MqttRuntime {
   private static readonly PANEL_HEARTBEAT_TIMEOUT_MS = 150_000;
   private static readonly DISCOVERED_PANEL_TIMEOUT_MS = 5 * 60 * 1000;
   private static readonly DISCOVERED_PANEL_LIMIT = 64;
+  private static readonly PANEL_GROUP_COMMAND_INTERVAL_MS = 100;
   private client?: MqttClient;
   private connected = false;
   private lastError = "";
@@ -34,6 +35,7 @@ export class MqttRuntime {
   private readonly panelHomeTilePages = new Map<string, { page: "home" | "light" | "level"; index?: number }>();
   private readonly activeFavoriteLightPages = new Map<string, { bindingId: string; pluginInstanceId: string }>();
   private readonly publishedPanelSettings = new Map<string, string>();
+  private panelGroupPublishQueue: Promise<void> = Promise.resolve();
   private readonly unifiedInitSettingsSentAt = new Map<string, number>();
   private readonly unifiedInitRetryUsed = new Set<string>();
   private readonly pendingUnifiedIdentityAssignments = new Set<string>();
@@ -415,7 +417,7 @@ export class MqttRuntime {
       }
     });
     if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) {
-      this.publishPanelGroupSettings(panel);
+      this.schedulePanelGroupSettings(panel);
       return true;
     }
     const published = this.publish(`${topicRoot}/cmnd/settings`, JSON.stringify(settings));
@@ -426,24 +428,47 @@ export class MqttRuntime {
         this.unifiedInitRetryUsed.delete(panel.id);
         this.pendingUnifiedIdentityAssignments.delete(panel.id);
       }
-      this.publishPanelGroupSettings(panel);
+      this.schedulePanelGroupSettings(panel);
     }
     return published;
   }
 
-  /** Publishes one panel group's latest temporary settings to every assigned panel. */
-  private publishPanelGroupSettings(panel: Panel, settings = panel.groupName ? this.runtimeState.getPanelGroupSettings(panel.groupName) : undefined): boolean {
-    if (!panel.groupName || !settings) return true;
-    const root = panelTopicRoot(panel);
-    let published = true;
-    if (settings.night !== undefined) {
-      published = this.publish(`${root}/cmnd/night`, JSON.stringify({ night: settings.night })) && published;
-    }
-    if (settings.brightness !== undefined) {
-      published = this.publish(`${root}/cmnd/settings/brightness`, JSON.stringify({ brightness: settings.brightness })) && published;
-      published = this.publish(`${root}/cmnd/nextion`, `dims=${settings.brightness}`) && published;
-    }
-    return published;
+  /** Queues one panel's saved group state for paced replay after its profile. */
+  private schedulePanelGroupSettings(panel: Panel): void {
+    if (!panel.groupName) return;
+    const settings = this.runtimeState.getPanelGroupSettings(panel.groupName);
+    if (!settings) return;
+    void this.queuePanelGroupSettings([panel], settings).catch((error: unknown) => {
+      this.logger.error("Could not replay panel group settings.", {
+        component: "mqtt",
+        panel: panel.name,
+        detail: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
+
+  /** Publishes a batch of group commands in order with a short gap between packets. */
+  private queuePanelGroupSettings(panels: Panel[], settings: PanelGroupRuntimeSettings): Promise<number> {
+    const publishBatch = this.panelGroupPublishQueue.then(async () => {
+      const panelResults = new Map(panels.map((panel) => [panel.id, true]));
+      const commands = panels.flatMap((panel) => {
+        const root = panelTopicRoot(panel);
+        return [
+          ...(settings.night === undefined ? [] : [{ panelId: panel.id, topic: `${root}/cmnd/night`, payload: JSON.stringify({ night: settings.night }) }]),
+          ...(settings.brightness === undefined ? [] : [
+            { panelId: panel.id, topic: `${root}/cmnd/settings/brightness`, payload: JSON.stringify({ brightness: settings.brightness }) },
+            { panelId: panel.id, topic: `${root}/cmnd/nextion`, payload: `dims=${settings.brightness}` }
+          ])
+        ];
+      });
+      for (const [index, command] of commands.entries()) {
+        if (index > 0) await wait(MqttRuntime.PANEL_GROUP_COMMAND_INTERVAL_MS);
+        if (!this.publish(command.topic, command.payload)) panelResults.set(command.panelId, false);
+      }
+      return [...panelResults.values()].filter(Boolean).length;
+    });
+    this.panelGroupPublishQueue = publishBatch.then(() => undefined, () => undefined);
+    return publishBatch;
   }
 
   /** Requests an immediate reboot through the panel firmware's supported command topic. */
@@ -904,10 +929,7 @@ export class MqttRuntime {
         detail: error instanceof Error ? error.message : String(error)
       });
     }
-    let publishedPanels = 0;
-    for (const panel of panels) {
-      if (this.publishPanelGroupSettings(panel, settings)) publishedPanels++;
-    }
+    const publishedPanels = await this.queuePanelGroupSettings(panels, settings);
     this.logger.info("Applied and saved panel group runtime settings.", {
       component: "mqtt",
       group: groupName,
@@ -2102,6 +2124,11 @@ export class MqttRuntime {
 }
 
 function isPublishableTopic(topic: string): boolean { return Boolean(topic.trim()) && !/[+#\u0000]/.test(topic); }
+
+/** Waits between panel group MQTT publications to pace panel command handling. */
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 function normalizeMacAddress(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
