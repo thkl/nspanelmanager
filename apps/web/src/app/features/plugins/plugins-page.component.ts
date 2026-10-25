@@ -120,6 +120,8 @@ export class PluginsPageComponent implements OnInit {
         ? value
         : typeof value === "string" && value.trim() !== "" ? Number(value) : 0;
       normalized = Number.isFinite(parsedValue) ? parsedValue : 0;
+    } else if (field.type === "checkbox") {
+      normalized = typeof value === "boolean" ? value : false;
     } else {
       normalized = typeof value === "string" ? value : "";
     }

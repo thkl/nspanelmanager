@@ -48,6 +48,7 @@ export class OpenMeteoWeatherPlugin implements PluginDefinition {
   readonly description = "Fetch current conditions and a five-day forecast for an NSPanel's built-in weather screen.";
   readonly capabilities = ["weather", "native-panel-page", "http-polling"];
   readonly nativePanelPage = "weather";
+  readonly supportsPanelStateReplay = true;
   readonly instanceVariableFields = [
     { key: "latitude", label: "Latitude", required: true, help: "Latitude of this location, between -90 and 90." },
     { key: "longitude", label: "Longitude", required: true, help: "Longitude of this location, between -180 and 180." },
@@ -145,6 +146,11 @@ export class OpenMeteoWeatherPlugin implements PluginDefinition {
   renderNativePanelState(_instance: ResolvedPluginInstance, panel: Panel, state: PluginState): readonly { topic: string; payload: string }[] {
     if (!isPanelWeather(state.weather)) return [];
     return [{ topic: `${panel.nodeName}/cmnd/weather`, payload: JSON.stringify(state.weather) }];
+  }
+
+  /** Restores the cached forecast to the panel after its MQTT display starts. */
+  renderPanelRestartState(instance: ResolvedPluginInstance, panel: Panel, state: PluginState): readonly { topic: string; payload: string }[] {
+    return this.renderNativePanelState(instance, panel, state);
   }
 }
 

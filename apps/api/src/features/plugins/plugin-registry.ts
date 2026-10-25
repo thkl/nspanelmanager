@@ -1,4 +1,4 @@
-import type { PluginDefinition } from "./plugin-contract.js";
+import { pluginConfigSchema, type PluginDefinition } from "./plugin-contract.js";
 
 /**
  * Owns the set of plugin implementations available to configured instances.
@@ -29,17 +29,24 @@ export class PluginRegistry {
   canonicalId(pluginId: string): string { return this.aliases.get(pluginId) ?? pluginId; }
 
   /** Returns public plugin metadata and schemas without runtime implementation functions. */
-  list(): Array<Pick<PluginDefinition, "id" | "name" | "version" | "description" | "capabilities" | "configSchema" | "nativePanelPage" | "nativePanelSharedInstances" | "panelEventObserver" | "instanceVariableFields" | "homeTileType" | "favoriteFlow" | "favoritePanelPage"> & { aliases: string[] }> {
-    return [...this.definitions.values()].map(({ id, name, version, description, capabilities, configSchema, nativePanelPage, nativePanelSharedInstances, panelEventObserver, instanceVariableFields, homeTileType, favoriteFlow, favoritePanelPage }) => ({
-      id, name, version, description, capabilities, configSchema,
-      aliases: [...this.aliases.keys()].filter((alias) => this.canonicalId(alias) === id),
-      ...(favoriteFlow ? { favoriteFlow } : {}),
-      ...(favoritePanelPage ? { favoritePanelPage } : {}),
-      ...(nativePanelPage ? { nativePanelPage } : {}),
-      ...(nativePanelSharedInstances ? { nativePanelSharedInstances } : {}),
-      ...(panelEventObserver ? { panelEventObserver } : {}),
-      ...(instanceVariableFields ? { instanceVariableFields } : {}),
-      ...(homeTileType ? { homeTileType } : {})
+  list(): Array<Pick<PluginDefinition, "id" | "name" | "version" | "description" | "capabilities" | "configSchema" | "nativePanelPage" | "nativePanelSharedInstances" | "nativePanelStateUpdatesWhenClosed" | "supportsPanelStateReplay" | "panelEventObserver" | "instanceVariableFields" | "homeTileType" | "favoriteFlow" | "favoritePanelPage"> & { aliases: string[] }> {
+    return [...this.definitions.values()].map((definition) => ({
+      id: definition.id,
+      name: definition.name,
+      version: definition.version,
+      description: definition.description,
+      capabilities: definition.capabilities,
+      configSchema: pluginConfigSchema(definition),
+      aliases: [...this.aliases.keys()].filter((alias) => this.canonicalId(alias) === definition.id),
+      ...(definition.favoriteFlow ? { favoriteFlow: definition.favoriteFlow } : {}),
+      ...(definition.favoritePanelPage ? { favoritePanelPage: definition.favoritePanelPage } : {}),
+      ...(definition.nativePanelPage ? { nativePanelPage: definition.nativePanelPage } : {}),
+      ...(definition.nativePanelSharedInstances ? { nativePanelSharedInstances: definition.nativePanelSharedInstances } : {}),
+      ...(definition.nativePanelStateUpdatesWhenClosed ? { nativePanelStateUpdatesWhenClosed: definition.nativePanelStateUpdatesWhenClosed } : {}),
+      ...(definition.supportsPanelStateReplay ? { supportsPanelStateReplay: definition.supportsPanelStateReplay } : {}),
+      ...(definition.panelEventObserver ? { panelEventObserver: definition.panelEventObserver } : {}),
+      ...(definition.instanceVariableFields ? { instanceVariableFields: definition.instanceVariableFields } : {}),
+      ...(definition.homeTileType ? { homeTileType: definition.homeTileType } : {})
     }));
   }
 }

@@ -4,7 +4,7 @@ import type { Panel, PanelBinding, PluginConfigValue, PluginVariables, ResolvedP
 export interface PluginConfigField {
   key: string;
   label: string;
-  type: "text" | "number" | "textarea" | "table";
+  type: "text" | "number" | "textarea" | "table" | "checkbox";
   required?: boolean;
   defaultValue: PluginConfigValue;
   help?: string;
@@ -206,6 +206,8 @@ export interface PluginDefinition {
   readonly nativePanelSharedInstances?: boolean;
   /** Allows a native page integration to publish state while its page is closed. */
   readonly nativePanelStateUpdatesWhenClosed?: boolean;
+  /** Exposes a profile setting for replaying cached page data after panel startup. */
+  readonly supportsPanelStateReplay?: boolean;
   /** Whether this plugin can be assigned to observe all page-change events for a panel. */
   readonly panelEventObserver?: boolean;
   /** Per-instance fields shown in the reusable instance editor. */
@@ -262,6 +264,8 @@ export interface PluginDefinition {
   handlePanelEvent?(instance: ResolvedPluginInstance, panel: Panel, message: MqttMessageEnvelope): readonly PluginCommand[] | void | Promise<readonly PluginCommand[] | void>;
   /** Converts normalized device state to firmware commands while its native page is open. */
   renderNativePanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, relatedInstances?: readonly PluginNativePanelInstanceState[]): readonly PluginCommand[];
+  /** Replays this plugin's cached page data and optional source refresh after panel startup. */
+  renderPanelRestartState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, relatedInstances?: readonly PluginNativePanelInstanceState[]): readonly PluginCommand[];
   /** Converts changed plugin state to panel commands that remain useful off-page, such as a home-screen temperature. */
   renderPanelState?(instance: ResolvedPluginInstance, panel: Panel, state: PluginState, previousState: PluginState, change: PluginState): readonly PluginCommand[];
   /** Handles a bound home tile, the built-in light page, or the level page's MQTT events. */
@@ -272,6 +276,23 @@ export interface PluginDefinition {
   pollIntervalMs?(instance: ResolvedPluginInstance): number;
   /** Fetches external service state; the runtime caches the patch and routes it to assigned panels. */
   poll?(instance: ResolvedPluginInstance, state: PluginState): Promise<PluginState | void>;
+}
+
+/** Returns editable settings for a plugin, including the shared panel replay option when supported. */
+export function pluginConfigSchema(definition: PluginDefinition): readonly PluginConfigField[] {
+  if (!definition.supportsPanelStateReplay || definition.configSchema.some((field) => field.key === "replayPanelStateAfterRestart")) {
+    return definition.configSchema;
+  }
+  return [
+    ...definition.configSchema,
+    {
+      key: "replayPanelStateAfterRestart",
+      label: "Send plugin data after panel restart",
+      type: "checkbox",
+      defaultValue: true,
+      help: "Replays cached values after startup and keeps data fresh while the plugin page is closed."
+    }
+  ];
 }
 
 /** Reads a typed value from plugin configuration, returning a safe fallback. */

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Panel, PanelBinding, PluginConfigValue, PluginInstance, PluginProfile, ResolvedPluginInstance } from "../../types.js";
 import type { ConfigStore } from "../../services/config-store.js";
 import type { MqttRuntime } from "../../services/mqtt-runtime.js";
-import type { MqttMessageEnvelope, PluginDefinition, PluginRuntimeContext } from "./plugin-contract.js";
+import { pluginConfigSchema, type MqttMessageEnvelope, type PluginDefinition, type PluginRuntimeContext } from "./plugin-contract.js";
 import type { PluginRegistry } from "./plugin-registry.js";
 import { checkScriptSyntax } from "./script-runtime.js";
 
@@ -283,7 +283,7 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
 /** Applies schema defaults and migrates older MQTT light brightness factors to ranges. */
 function normalizePluginConfig(definition: PluginDefinition, input: unknown): Record<string, PluginConfigValue> {
   const source = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
-  const normalized = Object.fromEntries(definition.configSchema.map((field) => {
+  const normalized = Object.fromEntries(pluginConfigSchema(definition).map((field) => {
     const value = source[field.key];
     return [field.key, isConfigValue(value) ? value : field.defaultValue];
   }));

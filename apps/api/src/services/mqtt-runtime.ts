@@ -23,6 +23,7 @@ export class MqttRuntime {
   private static readonly DISCOVERED_PANEL_LIMIT = 64;
   private static readonly PANEL_GROUP_COMMAND_INTERVAL_MS = 100;
   private static readonly PANEL_GROUP_ACK_TIMEOUT_MS = 10_000;
+  private static readonly PANEL_STATE_REPLAY_INTERVAL_MS = 100;
   private client?: MqttClient;
   private connected = false;
   private lastError = "";
@@ -37,6 +38,7 @@ export class MqttRuntime {
   private readonly activeFavoriteLightPages = new Map<string, { bindingId: string; pluginInstanceId: string }>();
   private readonly publishedPanelSettings = new Map<string, string>();
   private panelGroupPublishQueue: Promise<void> = Promise.resolve();
+  private panelStateReplayQueue: Promise<void> = Promise.resolve();
   private readonly panelGroupAckCapabilities = new Map<string, boolean>();
   private readonly panelGroupStatuses = new Map<string, PanelGroupSettingsStatus>();
   private readonly panelGroupAckTimeouts = new Map<string, NodeJS.Timeout>();
@@ -752,6 +754,81 @@ export class MqttRuntime {
     if (this.panelHomeTilePages.get(panel.id)?.page === "home") await this.refreshAllHomeTiles(panel);
   }
 
+  /** Replays opted-in plugin state after the panel reports that its display has started. */
+  private replayPanelPluginState(panel: Panel): Promise<void> {
+    const replay = this.panelStateReplayQueue.then(async () => {
+      const instances = this.resolvePluginInstances();
+      const replayedInstanceIds = new Set<string>();
+
+      for (const instanceId of Object.values(panel.nativePluginInstances ?? {})) {
+        if (replayedInstanceIds.has(instanceId)) continue;
+        replayedInstanceIds.add(instanceId);
+
+        const instance = instances.find((candidate) => candidate.id === instanceId && candidate.enabled);
+        const definition = instance && this.plugins.get(instance.pluginId);
+        if (!instance || !definition?.supportsPanelStateReplay || !definition.renderPanelRestartState) continue;
+        if (!this.shouldPublishPanelStateWhileClosed(definition, instance)) continue;
+
+        try {
+          const state = this.runtimeState.getPluginState(instance.id);
+          const relatedInstances = definition.nativePanelSharedInstances
+            ? instances.filter((candidate) => candidate.enabled && candidate.pluginId === instance.pluginId).map((candidate) => ({
+                instance: candidate,
+                state: candidate.id === instance.id ? state : this.runtimeState.getPluginState(candidate.id)
+              }))
+            : undefined;
+          const commands = definition.renderPanelRestartState(instance, this.panelForPlugins(panel), state, relatedInstances);
+          let publishedCommands = 0;
+
+          for (const command of commands) {
+            if (!isPublishableTopic(command.topic)) continue;
+            await wait(MqttRuntime.PANEL_STATE_REPLAY_INTERVAL_MS);
+            if (!this.publish(command.topic, command.payload)) {
+              this.logger.warn("Could not replay plugin state after panel startup.", {
+                component: "plugin",
+                panel: panel.name,
+                instance: instance.name,
+                topic: command.topic
+              });
+              continue;
+            }
+            publishedCommands++;
+          }
+
+          if (publishedCommands > 0) {
+            this.logger.info("Replayed plugin state after panel startup.", {
+              component: "plugin",
+              panel: panel.name,
+              instance: instance.name,
+              commands: String(publishedCommands)
+            });
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          this.logger.error("Plugin state replay failed after panel startup.", {
+            component: "plugin",
+            panel: panel.name,
+            instance: instance.name,
+            phase: "panel restart replay",
+            detail
+          });
+        }
+      }
+    });
+
+    this.panelStateReplayQueue = replay.then(() => undefined, () => undefined);
+    return replay;
+  }
+
+  /** Checks the plugin profile's background-state setting, honoring built-in opt-ins. */
+  private shouldPublishPanelStateWhileClosed(definition: PluginDefinition, instance: ResolvedPluginInstance): boolean {
+    if (definition.supportsPanelStateReplay && definition.renderPanelRestartState) {
+      const configured = instance.config["replayPanelStateAfterRestart"];
+      return configured === undefined || configured === true;
+    }
+    return definition.nativePanelStateUpdatesWhenClosed ?? false;
+  }
+
   /** Closes a currently visible flow screen before its favorite binding is removed. */
   async closePanelBinding(panel: Panel, bindingId: string): Promise<void> {
     if (this.activeFavoriteLightPages.get(panel.id)?.bindingId === bindingId) this.activeFavoriteLightPages.delete(panel.id);
@@ -891,6 +968,7 @@ export class MqttRuntime {
         });
         this.requestPanelResetReport(eventPanelRecord);
         await this.refreshNativePanel(eventPanelRecord);
+        await this.replayPanelPluginState(eventPanelRecord);
         this.panelHomeTilePages.set(eventPanelRecord.id, { page: "home" });
         await this.refreshAllHomeTiles(eventPanelRecord);
       } else {
@@ -1006,6 +1084,7 @@ export class MqttRuntime {
       this.requestPanelResetReport(eventPanel);
       this.publishPanelSettings(eventPanelRecord ?? eventPanel, true, eventPanel.nodeName);
       await this.refreshNativePanel(eventPanel);
+      await this.replayPanelPluginState(eventPanelRecord ?? eventPanel);
       this.panelHomeTilePages.set(eventPanel.id, { page: "home" });
       await this.refreshAllHomeTiles(eventPanel);
       const currentSession = this.runtimeState.getPanelSession(eventPanel.id);
@@ -1547,7 +1626,7 @@ export class MqttRuntime {
       if (!assigned || !definition?.renderNativePanelState || definition.nativePanelPage !== pageId) continue;
       const contributesToSharedPage = definition.nativePanelSharedInstances && assigned.pluginId === instance.pluginId;
       const pageIsOpen = this.nativePanelPages.get(panel.id) === pageId;
-      if ((!contributesToSharedPage && assigned.id !== instance.id) || (!pageIsOpen && !definition.nativePanelStateUpdatesWhenClosed)) continue;
+      if ((!contributesToSharedPage && assigned.id !== instance.id) || (!pageIsOpen && !this.shouldPublishPanelStateWhileClosed(definition, assigned))) continue;
       const assignedState = assigned.id === instance.id ? state : this.runtimeState.getPluginState(assigned.id);
       await this.publishNativePanelState(definition, assigned, panel, assignedState);
     }

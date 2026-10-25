@@ -242,15 +242,31 @@
                     @if (field.help) { <small>{{ field.help }}</small> }
                   </div>
                 } @else {
-                  <label [class.wide]="field.type === 'textarea' || field.key.includes('Topic') || field.key.includes('Template')">
-                    {{ field.label }}
-                    @if (field.type === 'textarea') {
-                      <textarea [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false" rows="4"></textarea>
-                    } @else {
-                      <input [type]="field.type" [attr.step]="field.type === 'number' ? 'any' : null" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false">
-                    }
-                    @if (field.help) { <small>{{ field.help }}</small> }
-                  </label>
+                  @if (field.type === 'checkbox') {
+                    <label class="config-checkbox-field">
+                      <input
+                        type="checkbox"
+                        [ngModel]="instanceConfig()[field.key] === true"
+                        (ngModelChange)="setConfigValue(field, $event)"
+                      >
+                      <span class="config-checkbox-copy">
+                        <b>{{ field.label }}</b>
+                        @if (field.help) {
+                          <small>{{ field.help }}</small>
+                        }
+                      </span>
+                    </label>
+                  } @else {
+                    <label [class.wide]="field.type === 'textarea' || field.key.includes('Topic') || field.key.includes('Template')">
+                      {{ field.label }}
+                      @if (field.type === 'textarea') {
+                        <textarea [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false" rows="4"></textarea>
+                      } @else {
+                        <input [type]="field.type" [attr.step]="field.type === 'number' ? 'any' : null" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false">
+                      }
+                      @if (field.help) { <small>{{ field.help }}</small> }
+                    </label>
+                  }
                 }
               }
             }

@@ -106,7 +106,7 @@ export type PluginVariables = Record<string, string>;
 export interface PluginConfigField {
   key: string;
   label: string;
-  type: "text" | "number" | "textarea" | "table";
+  type: "text" | "number" | "textarea" | "table" | "checkbox";
   required?: boolean;
   defaultValue: PluginConfigValue;
   help?: string;
@@ -137,6 +137,8 @@ export interface PluginDefinition {
   aliases?: string[];
   nativePanelPage?: string;
   nativePanelSharedInstances?: boolean;
+  nativePanelStateUpdatesWhenClosed?: boolean;
+  supportsPanelStateReplay?: boolean;
   panelEventObserver?: boolean;
   instanceVariableFields?: Array<{ key: string; label: string; required?: boolean; help?: string }>;
   homeTileType?: "light" | "cover";

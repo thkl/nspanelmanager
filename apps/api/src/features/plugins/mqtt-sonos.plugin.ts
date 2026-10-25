@@ -30,6 +30,7 @@ export class MqttSonosPlugin implements PluginDefinition {
   readonly nativePanelPage = "music";
   readonly nativePanelSharedInstances = true;
   readonly nativePanelStateUpdatesWhenClosed = true;
+  readonly supportsPanelStateReplay = true;
   readonly configSchema: readonly [] = [];
   readonly instanceVariableFields = [
     { key: "playerName", label: "MQTT player name", required: true, help: "Topic segment in sonos/<playerName>/state and sonos/<playerName>/cmnd/...." },
@@ -190,6 +191,16 @@ export class MqttSonosPlugin implements PluginDefinition {
       topic: `${panel.nodeName}/cmnd/music`,
       payload: JSON.stringify({ status })
     }];
+  }
+
+  /** Restores the complete shared player snapshot after the panel display starts. */
+  renderPanelRestartState(
+    instance: ResolvedPluginInstance,
+    panel: Panel,
+    state: PluginState,
+    relatedInstances: readonly PluginNativePanelInstanceState[] = []
+  ): readonly { topic: string; payload: string }[] {
+    return this.renderNativePanelState(instance, panel, state, relatedInstances);
   }
 }
 

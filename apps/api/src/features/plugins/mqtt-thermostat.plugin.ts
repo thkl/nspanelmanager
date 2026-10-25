@@ -17,6 +17,7 @@ export class MqttThermostatPlugin implements PluginDefinition {
   readonly description = "Connect an MQTT thermostat to the NSPanel's built-in thermostat screen. Reuse a profile across devices and set each instance's channel variable when using the default Homematic topics.";
   readonly capabilities = ["mqtt", "native-panel-page", "thermostat"];
   readonly nativePanelPage = "thermostat";
+  readonly supportsPanelStateReplay = true;
   readonly configSchema: readonly PluginConfigField[] = [
     { key: "statusTopicFilter", label: "Status topic filter", type: "text", required: true, defaultValue: "ccu/status/{{channel}}/+", help: "Subscribe filter for the device. For the default Homematic topics, add a channel variable to each instance, such as channel = LEQ0999385:2. Put + or # at the end; the Current and Target suffixes replace that final wildcard." },
     { key: "currentTopicSuffix", label: "Current temperature topic suffix", type: "text", required: true, defaultValue: "ACTUAL_TEMPERATURE", help: "Combined with the status topic base. Example: ACTUAL_TEMPERATURE." },
@@ -157,6 +158,19 @@ export class MqttThermostatPlugin implements PluginDefinition {
     const current = finiteStateNumber(state.currentTemperature);
     if (current === undefined || Object.is(current, finiteStateNumber(previousState.currentTemperature))) return [];
     return [{ topic: `${panel.nodeName}/cmnd/temperature/current`, payload: String(current) }];
+  }
+
+  /** Restores cached readings to the panel and requests current source values after startup. */
+  renderPanelRestartState(instance: ResolvedPluginInstance, panel: Panel, state: PluginState): readonly { topic: string; payload: string }[] {
+    const commands: Array<{ topic: string; payload: string }> = [
+      ...this.renderNativePanelState(instance, panel, state),
+      ...this.renderPanelState(instance, panel, state, {}, { currentTemperature: state.currentTemperature })
+    ];
+    const topics = temperatureTopics(instance);
+    const payload = template(configString(instance, "requestPayloadTemplate", "{}"), instance, {});
+    commands.push({ topic: topics.request, payload });
+    if (topics.targetRequest) commands.push({ topic: topics.targetRequest, payload });
+    return commands;
   }
 }
 

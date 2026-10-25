@@ -2,7 +2,9 @@
   display: block;
 }
 
-nspanel-screen-preview { margin-bottom: 22px; }
+nspanel-screen-preview {
+  margin-bottom: 22px;
+}
 
 .content-grid {
   display: grid;
@@ -33,7 +35,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
 
 .card-heading h2,
 .editor-heading h2 {
-  font-size: 16px;
+  font-size: 1.125rem;
   line-height: 1.3;
   font-weight: 700;
   letter-spacing: -.025em;
@@ -43,7 +45,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
 .section-title p {
   margin-top: 5px;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 0.875rem;
   line-height: 1.5;
   text-wrap: pretty;
 }
@@ -57,7 +59,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
   border-radius: 8px;
   background: var(--surface-subtle);
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -97,7 +99,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
   border-radius: 9px;
   background: var(--surface-subtle);
   color: var(--green-text);
-  font-size: 17px;
+  font-size: 1.1875rem;
 }
 
 .panel-row-copy {
@@ -110,7 +112,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
   display: block;
   overflow: hidden;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -121,7 +123,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
   margin-top: 4px;
   color: var(--ink-soft);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .panel-row-copy .panel-reset-reason {
@@ -151,7 +153,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
 .row-arrow {
   margin-left: auto;
   color: var(--ink-faint);
-  font-size: 20px;
+  font-size: 1.375rem;
 }
 
 .connection-status {
@@ -160,12 +162,17 @@ nspanel-screen-preview { margin-bottom: 22px; }
   align-items: center;
   gap: 5px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 650;
 }
 
-.connection-status.online { color: var(--green-text); }
-.connection-status.offline { color: var(--ink-faint); }
+.connection-status.online {
+  color: var(--green-text);
+}
+
+.connection-status.offline {
+  color: var(--ink-faint);
+}
 
 .connection-dot {
   width: 7px;
@@ -174,7 +181,9 @@ nspanel-screen-preview { margin-bottom: 22px; }
   background: var(--ink-faint);
 }
 
-.connection-status.online .connection-dot { background: var(--green); }
+.connection-status.online .connection-dot {
+  background: var(--green);
+}
 
 .add-panel-button {
   width: 100%;
@@ -184,7 +193,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
   border-radius: 8px;
   background: var(--paper);
   color: var(--green-dark);
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 700;
   cursor: pointer;
   transition: background-color 140ms ease-out, border-color 140ms ease-out;
@@ -197,7 +206,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
 
 .add-panel-button span {
   margin-right: 5px;
-  font-size: 16px;
+  font-size: 1.125rem;
   vertical-align: -1px;
 }
 
@@ -227,7 +236,6 @@ nspanel-screen-preview { margin-bottom: 22px; }
   gap: 8px;
 }
 
-
 .panel-group-help {
   min-width: 0;
   padding-bottom: 2px;
@@ -237,7 +245,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
   display: block;
   margin-top: 4px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -245,7 +253,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
   display: block;
   margin-top: 4px;
   color: var(--green-text);
-  font-size: 10px;
+  font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
 
@@ -253,7 +261,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
 .panel-identity b {
   display: block;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .discovery-heading small,
@@ -262,7 +270,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
   display: block;
   margin-top: 4px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
 
@@ -285,7 +293,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
 .discovery-device > b {
   display: block;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .discovery-assign {
@@ -300,7 +308,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
 .discovery-assigned {
   margin-top: 8px;
   color: var(--green-text);
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .discovery-new {
@@ -311,7 +319,7 @@ nspanel-screen-preview { margin-bottom: 22px; }
 .discovery-empty {
   margin-top: 10px;
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .panel-identity {
@@ -334,17 +342,24 @@ nspanel-screen-preview { margin-bottom: 22px; }
   background: var(--canvas-soft);
 }
 
-.panel-crash-dump > div { min-width: 0; }
+.panel-crash-dump > div {
+  min-width: 0;
+}
 
 .panel-crash-dump b,
-.panel-crash-dump small { display: block; }
+.panel-crash-dump small {
+  display: block;
+}
 
-.panel-crash-dump b { color: var(--ink); font-size: 11px; }
+.panel-crash-dump b {
+  color: var(--ink);
+  font-size: 0.8125rem;
+}
 
 .panel-crash-dump small {
   margin-top: 4px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 0.75rem;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -368,11 +383,11 @@ nspanel-screen-preview { margin-bottom: 22px; }
 
 .info-tip>span {
   color: var(--green-text);
-  font-size: 14px;
+  font-size: 1rem;
 }
 
 .info-tip p {
-  font-size: 10px;
+  font-size: 0.75rem;
   line-height: 1.5;
   text-wrap: pretty;
 }
@@ -402,22 +417,31 @@ nspanel-screen-preview { margin-bottom: 22px; }
   background: var(--canvas-soft);
 }
 
-.copy-settings-panel > div:first-child { min-width: 0; }
+.copy-settings-panel > div:first-child {
+  min-width: 0;
+}
 
 .copy-settings-panel b,
-.copy-settings-panel small { display: block; }
+.copy-settings-panel small {
+  display: block;
+}
 
-.copy-settings-panel b { color: var(--ink); font-size: 11px; }
+.copy-settings-panel b {
+  color: var(--ink);
+  font-size: 0.8125rem;
+}
 
 .copy-settings-panel small {
   max-width: 620px;
   margin-top: 4px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
-.copy-settings-panel label { width: 100%; }
+.copy-settings-panel label {
+  width: 100%;
+}
 
 .copy-settings-panel .inline-actions {
   margin-top: 0;
@@ -432,19 +456,19 @@ nspanel-screen-preview { margin-bottom: 22px; }
 }
 
 .device-title h2 {
-  font-size: 15px;
+  font-size: 1.0625rem;
 }
 
 .device-title p {
   margin-top: 4px;
   color: var(--ink-faint);
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 code {
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .94em;
+  font-size: calc(.94em + 0.125rem);
 }
 
 .dot-sep {
@@ -467,7 +491,7 @@ code {
   padding: 0 13px;
   border: 1px solid transparent;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 0.875rem;
   line-height: 1;
   font-weight: 700;
   cursor: pointer;
@@ -503,7 +527,7 @@ code {
 .button.small {
   min-height: 31px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .button:active {
@@ -532,7 +556,7 @@ code {
   border-radius: 7px;
   background: var(--surface-subtle);
   color: var(--green-text);
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -540,14 +564,14 @@ code {
 .section-title h3 {
   margin-top: 1px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 0.9375rem;
   line-height: 1.4;
   letter-spacing: -.01em;
 }
 
 .section-title p {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .section-spaced {
@@ -561,7 +585,6 @@ code {
   gap: 13px 14px;
   margin: 16px 0 0 35px;
 }
-
 
 .panel-group-settings {
   align-items: end;
@@ -582,7 +605,7 @@ label {
   display: block;
   min-width: 0;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 0.8125rem;
   line-height: 1.4;
   font-weight: 700;
 }
@@ -597,7 +620,7 @@ label select {
   border-radius: 7px;
   background: var(--paper);
   color: var(--ink);
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 500;
   outline: none;
   transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
@@ -621,7 +644,7 @@ label input::placeholder {
 .unit {
   float: right;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -639,14 +662,14 @@ label input::placeholder {
 .toggle-row b {
   display: block;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .toggle-row small {
   display: block;
   margin-top: 3px;
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -697,7 +720,7 @@ label input::placeholder {
   align-self: center;
   color: var(--ink-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -727,7 +750,7 @@ label input::placeholder {
   padding-top: 2px;
   color: var(--ink-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -746,7 +769,7 @@ label input::placeholder {
 .favorite-validation {
   margin: 8px 0 0 35px;
   color: var(--red);
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .hardware-grid {
@@ -757,7 +780,7 @@ label input::placeholder {
   align-self: center;
   margin: 0;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -777,7 +800,7 @@ label input::placeholder {
 
 .save-bottom>span {
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .save-bottom .button {
@@ -803,18 +826,18 @@ label input::placeholder {
   border-radius: 14px;
   background: var(--surface-subtle);
   color: var(--green-text);
-  font-size: 24px;
+  font-size: 1.625rem;
 }
 
 .blank-editor h2 {
-  font-size: 15px;
+  font-size: 1.0625rem;
 }
 
 .blank-editor p {
   max-width: 250px;
   margin-top: 7px;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 0.875rem;
   line-height: 1.55;
 }
 
@@ -835,19 +858,19 @@ label input::placeholder {
   border-radius: 10px;
   background: var(--surface-subtle);
   color: var(--green-text);
-  font-size: 18px;
+  font-size: 1.25rem;
 }
 
 .empty-state b {
   color: var(--ink);
-  font-size: 12px;
+  font-size: 0.875rem;
 }
 
 .empty-state p {
   max-width: 170px;
   margin-top: 4px;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -856,11 +879,9 @@ label input::placeholder {
     grid-template-columns: minmax(210px, .75fr) minmax(440px, 1.65fr);
     gap: 13px;
   }
-
   .three-col {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
   .settings-scroll {
     max-height: none;
   }
@@ -870,17 +891,14 @@ label input::placeholder {
   .content-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-
   .panel-list-card {
     position: static;
     overflow-x: auto;
   }
-
   .editor-card,
   .blank-editor {
     grid-row: 2;
   }
-
   .panel-row {
     display: inline-flex;
     width: auto;
@@ -896,63 +914,52 @@ label input::placeholder {
     flex-direction: column;
     padding: 14px;
   }
-
   .editor-actions {
     width: 100%;
     flex-wrap: wrap;
     justify-content: flex-end;
   }
-
   .copy-settings-panel {
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
     gap: 12px;
     padding: 14px;
   }
-
-  .copy-settings-panel .inline-actions { justify-content: flex-end; }
-
+  .copy-settings-panel .inline-actions {
+    justify-content: flex-end;
+  }
   .settings-scroll {
     padding: 16px 14px 0;
   }
-
   .form-grid {
     margin-left: 0;
   }
-
   .three-col,
   .two-col {
     grid-template-columns: minmax(0, 1fr);
   }
-
   .button-config {
     grid-template-columns: 24px minmax(0, 1fr);
   }
-
   .button-config label {
     grid-column: 2;
   }
-
   .button-index {
     grid-row: 1 / span 6;
   }
-
   .favorite-grid {
     grid-template-columns: minmax(0, 1fr);
     margin-left: 0;
   }
-
   .favorite-validation {
     margin-left: 0;
   }
-
   .save-bottom {
     margin-right: -14px;
     margin-left: -14px;
     padding-right: 14px;
     padding-left: 14px;
   }
-
   .save-bottom>span {
     max-width: 130px;
     line-height: 1.4;
