@@ -1,7 +1,7 @@
 import mqtt, { type ISubscriptionMap, type MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store.js";
-import type { DiscoveredPanel, ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelTelemetry, ResolvedPluginInstance } from "../types.js";
+import type { DiscoveredPanel, ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelGroupSettingsStatus, PanelTelemetry, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
 import type { PanelFlowSession, PanelGroupRuntimeSettings, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
@@ -22,6 +22,7 @@ export class MqttRuntime {
   private static readonly DISCOVERED_PANEL_TIMEOUT_MS = 5 * 60 * 1000;
   private static readonly DISCOVERED_PANEL_LIMIT = 64;
   private static readonly PANEL_GROUP_COMMAND_INTERVAL_MS = 100;
+  private static readonly PANEL_GROUP_ACK_TIMEOUT_MS = 10_000;
   private client?: MqttClient;
   private connected = false;
   private lastError = "";
@@ -36,6 +37,9 @@ export class MqttRuntime {
   private readonly activeFavoriteLightPages = new Map<string, { bindingId: string; pluginInstanceId: string }>();
   private readonly publishedPanelSettings = new Map<string, string>();
   private panelGroupPublishQueue: Promise<void> = Promise.resolve();
+  private readonly panelGroupAckCapabilities = new Map<string, boolean>();
+  private readonly panelGroupStatuses = new Map<string, PanelGroupSettingsStatus>();
+  private readonly panelGroupAckTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly unifiedInitSettingsSentAt = new Map<string, number>();
   private readonly unifiedInitRetryUsed = new Set<string>();
   private readonly pendingUnifiedIdentityAssignments = new Set<string>();
@@ -151,13 +155,27 @@ export class MqttRuntime {
       const resetReport = this.runtimeState.getPanelResetReport(panel.id);
       const heartbeatFresh = connection?.lastSeenAt !== null && connection?.lastSeenAt !== undefined
         && now - connection.lastSeenAt <= MqttRuntime.PANEL_HEARTBEAT_TIMEOUT_MS;
+      const delivery = panel.groupName && this.panelGroupStatuses.get(panel.id)?.groupName === panel.groupName
+        ? this.panelGroupStatuses.get(panel.id)
+        : undefined;
+      const desiredGroupSettings = panel.groupName ? this.runtimeState.getPanelGroupSettings(panel.groupName) : undefined;
       return {
         panelId: panel.id,
         nodeName: panel.nodeName,
         status: connection?.status === "online" && heartbeatFresh ? "online" : "offline",
         lastSeenAt: connection?.lastSeenAt ?? null,
         lastResetReport: resetReport ?? null,
-        telemetry: connection?.telemetry ?? null
+        telemetry: connection?.telemetry ?? null,
+        ...(panel.groupName ? {
+          groupSettings: {
+            groupName: panel.groupName,
+            ...(desiredGroupSettings ?? {}),
+            delivery: delivery?.delivery ?? "not_sent",
+            ...(delivery?.requestId ? { requestId: delivery.requestId } : {}),
+            ...(delivery?.requestedAt !== undefined ? { requestedAt: delivery.requestedAt } : {}),
+            ...(delivery?.acknowledgedAt !== undefined ? { acknowledgedAt: delivery.acknowledgedAt } : {})
+          }
+        } : {})
       };
     });
   }
@@ -227,6 +245,8 @@ export class MqttRuntime {
     this.activeTopics.clear();
     clearInterval(this.discoveryCleanupTimer);
     for (const id of this.pluginPollTimers.keys()) this.clearPluginPoll(id);
+    for (const timeout of this.panelGroupAckTimeouts.values()) clearTimeout(timeout);
+    this.panelGroupAckTimeouts.clear();
     if (client) await new Promise<void>((resolve) => client.end(true, {}, () => resolve()));
     await Promise.all(this.pendingMessages);
   }
@@ -450,25 +470,124 @@ export class MqttRuntime {
   /** Publishes a batch of group commands in order with a short gap between packets. */
   private queuePanelGroupSettings(panels: Panel[], settings: PanelGroupRuntimeSettings): Promise<number> {
     const publishBatch = this.panelGroupPublishQueue.then(async () => {
-      const panelResults = new Map(panels.map((panel) => [panel.id, true]));
-      const commands = panels.flatMap((panel) => {
+      let publishedPanels = 0;
+      let commandCount = 0;
+      for (const panel of panels) {
+        if (!panel.groupName) continue;
         const root = panelTopicRoot(panel);
-        return [
-          ...(settings.night === undefined ? [] : [{ panelId: panel.id, topic: `${root}/cmnd/night`, payload: JSON.stringify({ night: settings.night }) }]),
-          ...(settings.brightness === undefined ? [] : [
-            { panelId: panel.id, topic: `${root}/cmnd/settings/brightness`, payload: JSON.stringify({ brightness: settings.brightness }) },
-            { panelId: panel.id, topic: `${root}/cmnd/nextion`, payload: `dims=${settings.brightness}` }
-          ])
-        ];
-      });
-      for (const [index, command] of commands.entries()) {
-        if (index > 0) await wait(MqttRuntime.PANEL_GROUP_COMMAND_INTERVAL_MS);
-        if (!this.publish(command.topic, command.payload)) panelResults.set(command.panelId, false);
+        const supportsAcknowledgement = this.supportsPanelGroupAcknowledgement(panel);
+        const requestId = supportsAcknowledgement ? randomUUID() : undefined;
+        const requestedAt = Date.now();
+        this.clearPanelGroupAckTimeout(panel.id);
+        const delivery: PanelGroupSettingsStatus = {
+          groupName: panel.groupName,
+          ...settings,
+          delivery: "pending",
+          ...(requestId ? { requestId } : {}),
+          requestedAt
+        };
+        this.panelGroupStatuses.set(panel.id, delivery);
+        this.notifyPanelConnectionsChanged();
+
+        const commands = supportsAcknowledgement
+          ? [{ topic: `${root}/cmnd/group/settings`, payload: JSON.stringify({ request_id: requestId, ...settings }) }]
+          : [
+              ...(settings.night === undefined ? [] : [{ topic: `${root}/cmnd/night`, payload: JSON.stringify({ night: settings.night }) }]),
+              ...(settings.brightness === undefined ? [] : [
+                { topic: `${root}/cmnd/settings/brightness`, payload: JSON.stringify({ brightness: settings.brightness }) },
+                { topic: `${root}/cmnd/nextion`, payload: `dims=${settings.brightness}` }
+              ])
+            ];
+
+        let published = commands.length > 0;
+        for (const command of commands) {
+          if (commandCount > 0) await wait(MqttRuntime.PANEL_GROUP_COMMAND_INTERVAL_MS);
+          commandCount++;
+          if (!this.publish(command.topic, command.payload)) published = false;
+        }
+        if (!published) {
+          this.panelGroupStatuses.set(panel.id, { ...delivery, delivery: "publish_failed" });
+        } else {
+          publishedPanels++;
+          if (supportsAcknowledgement && requestId) {
+            this.schedulePanelGroupAckTimeout(panel.id, requestId);
+          } else {
+            this.panelGroupStatuses.set(panel.id, { ...delivery, delivery: "unconfirmed" });
+          }
+        }
+        this.notifyPanelConnectionsChanged();
       }
-      return [...panelResults.values()].filter(Boolean).length;
+      return publishedPanels;
     });
     this.panelGroupPublishQueue = publishBatch.then(() => undefined, () => undefined);
     return publishBatch;
+  }
+
+  /** Returns whether the latest panel firmware advertised group command acknowledgements. */
+  private supportsPanelGroupAcknowledgement(panel: Panel): boolean {
+    return this.panelGroupAckCapabilities.get(panel.id)
+      ?? this.panelConnections.get(panel.nodeName)?.telemetry?.supportsGroupSettingsAck
+      ?? false;
+  }
+
+  /** Marks a pending group command as timed out when the panel does not answer. */
+  private schedulePanelGroupAckTimeout(panelId: string, requestId: string): void {
+    const timeout = setTimeout(() => {
+      this.panelGroupAckTimeouts.delete(panelId);
+      const current = this.panelGroupStatuses.get(panelId);
+      if (!current || current.requestId !== requestId || current.delivery !== "pending") return;
+      this.panelGroupStatuses.set(panelId, { ...current, delivery: "timed_out" });
+      this.logger.warn("Panel did not acknowledge the latest group settings command.", {
+        component: "mqtt",
+        group: current.groupName,
+        panelId,
+        requestId
+      });
+      this.notifyPanelConnectionsChanged();
+    }, MqttRuntime.PANEL_GROUP_ACK_TIMEOUT_MS);
+    timeout.unref();
+    this.panelGroupAckTimeouts.set(panelId, timeout);
+  }
+
+  /** Clears a panel's previous acknowledgement timeout before a newer request. */
+  private clearPanelGroupAckTimeout(panelId: string): void {
+    const timeout = this.panelGroupAckTimeouts.get(panelId);
+    if (timeout) clearTimeout(timeout);
+    this.panelGroupAckTimeouts.delete(panelId);
+  }
+
+  /** Validates a panel reply against the latest request and updates live delivery status. */
+  private handlePanelGroupSettingsAck(panel: Panel, payload: string, receivedAt: number): void {
+    const record = readPayloadRecord(payload);
+    const requestId = typeof record?.["request_id"] === "string" ? record["request_id"] : undefined;
+    const current = this.panelGroupStatuses.get(panel.id);
+    if (!record || !requestId || !current || current.groupName !== panel.groupName || current.requestId !== requestId || current.delivery !== "pending") {
+      this.logger.warn("Ignored a stale or invalid panel group settings acknowledgement.", {
+        component: "mqtt",
+        panel: panel.name,
+        topic: `${panel.nodeName}/event/group/settings`
+      });
+      return;
+    }
+
+    const valuesMatch = (current.night === undefined || record["night"] === current.night)
+      && (current.brightness === undefined || record["brightness"] === current.brightness);
+    const applied = record["status"] === "applied" && valuesMatch;
+    this.clearPanelGroupAckTimeout(panel.id);
+    this.panelGroupStatuses.set(panel.id, {
+      ...current,
+      delivery: applied ? "applied" : "failed",
+      acknowledgedAt: receivedAt
+    });
+    if (!applied) {
+      this.logger.warn("Panel rejected or reported different values for group settings.", {
+        component: "mqtt",
+        panel: panel.name,
+        group: current.groupName,
+        requestId
+      });
+    }
+    this.notifyPanelConnectionsChanged();
   }
 
   /** Requests an immediate reboot through the panel firmware's supported command topic. */
@@ -613,6 +732,9 @@ export class MqttRuntime {
     this.panelBootedEventLastHandledAt.delete(panelId);
     this.panelResetReportRequestedAt.delete(panelId);
     this.publishedPanelFavoriteStates.delete(panelId);
+    this.panelGroupAckCapabilities.delete(panelId);
+    this.panelGroupStatuses.delete(panelId);
+    this.clearPanelGroupAckTimeout(panelId);
     await this.runtimeState.removePanel(panelId);
   }
 
@@ -673,6 +795,10 @@ export class MqttRuntime {
     const eventPanel = eventPanelRecord && eventRoot
       ? { ...eventPanelRecord, nodeName: eventRoot, ...(eventRoot !== eventPanelRecord.nodeName ? { unifiedFirmware: true } : {}) }
       : undefined;
+    if (eventPanelRecord && eventRoot && topic === `${eventRoot}/event/group/settings`) {
+      this.handlePanelGroupSettingsAck(eventPanelRecord, payload, message.receivedAt);
+      return;
+    }
     const coreDumpTopicPrefix = eventPanel ? `${eventPanel.nodeName}/event/crashdump/` : "";
     if (eventPanel && topic.startsWith(coreDumpTopicPrefix)) {
       const suffix = topic.slice(coreDumpTopicPrefix.length);
@@ -745,6 +871,7 @@ export class MqttRuntime {
       const lastHandledAt = this.panelDisplayReadyLastHandledAt.get(eventPanelRecord.id);
       if (lastHandledAt !== undefined && message.receivedAt - lastHandledAt < 2_000) return;
       this.panelDisplayReadyLastHandledAt.set(eventPanelRecord.id, message.receivedAt);
+      this.panelGroupAckCapabilities.set(eventPanelRecord.id, parsePanelGroupAckCapability(payload) === true);
 
       const previousSettingsAt = this.unifiedInitSettingsSentAt.get(eventPanelRecord.id);
       const recentSettings = previousSettingsAt !== undefined && Date.now() - previousSettingsAt < 60_000;
@@ -788,6 +915,7 @@ export class MqttRuntime {
         });
         return;
       }
+      this.panelGroupAckCapabilities.set(eventPanelRecord.id, parsePanelGroupAckCapability(payload) === true);
       if (this.pendingUnifiedIdentityAssignments.has(eventPanelRecord.id)) {
         this.logger.info("Panel identity confirmed; waiting for the Nextion display to finish setup before sending full settings.", {
           component: "mqtt",
@@ -816,6 +944,11 @@ export class MqttRuntime {
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/ping`) {
       const telemetry = readPanelTelemetry(payload, message.receivedAt);
+      if (telemetry?.supportsGroupSettingsAck !== undefined) {
+        const previousCapability = this.panelGroupAckCapabilities.get(eventPanel.id);
+        this.panelGroupAckCapabilities.set(eventPanel.id, telemetry.supportsGroupSettingsAck);
+        if (telemetry.supportsGroupSettingsAck && previousCapability !== true) this.schedulePanelGroupSettings(eventPanelRecord ?? eventPanel);
+      }
       for (const listener of this.panelPingListeners) await listener(eventPanelRecord ?? eventPanel, telemetry, message.receivedAt);
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/page/favs`) {
@@ -2227,6 +2360,7 @@ function readPanelTelemetry(payload: string, receivedAt: number): PanelTelemetry
   if (largestFreeBlockBytes !== undefined) telemetry.largestFreeBlockBytes = largestFreeBlockBytes;
   if (loopTimeMs !== undefined) telemetry.loopTimeMs = loopTimeMs;
   if (typeof chipTemperatureC === "number" && Number.isFinite(chipTemperatureC)) telemetry.chipTemperatureC = chipTemperatureC;
+  if (typeof record["group_settings_ack"] === "boolean") telemetry.supportsGroupSettingsAck = record["group_settings_ack"];
   return Object.keys(telemetry).length > 1 ? telemetry : null;
 }
 
@@ -2291,6 +2425,12 @@ function parsePanelReadyIdentity(payload: string): { mac: string; nodeName: stri
   const mac = normalizeMacAddress(typeof record.mac === "string" ? record.mac : undefined);
   const nodeName = typeof record.node_name === "string" ? record.node_name : undefined;
   return mac && nodeName ? { mac, nodeName } : undefined;
+}
+
+/** Reads whether a valid ready message advertises the group settings acknowledgement protocol. */
+function parsePanelGroupAckCapability(payload: string): boolean | undefined {
+  const record = readPayloadRecord(payload);
+  return typeof record?.["group_settings_ack"] === "boolean" ? record["group_settings_ack"] : undefined;
 }
 
 /** Checks the raw payload or one scalar value parsed from its JSON body. */

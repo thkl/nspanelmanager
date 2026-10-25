@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.21"
+  firmware_version: "6.0.22"
   diagnostic_ignore_music_commands: "false"
   diagnostic_skip_music_display: "false"
 
@@ -398,6 +398,7 @@ script:
             if (id(debug_heap_block).has_state()) root["largest_free_block_bytes"] = id(debug_heap_block).state;
             if (id(debug_loop_time).has_state()) root["loop_time_ms"] = id(debug_loop_time).state;
             if (id(panel_chip_temperature).has_state()) root["chip_temperature_c"] = id(panel_chip_temperature).state;
+            root["group_settings_ack"] = true;
 
   - id: publish_panel_ready
     then:
@@ -408,6 +409,7 @@ script:
             root["mac"] = id(panel_mqtt_client).get_mac_address();
             root["node_name"] = id(panel_mqtt_client).get_active_topic_prefix();
             root["firmware_version"] = "$firmware_version";
+            root["group_settings_ack"] = true;
 
   - id: publish_panel_display_ready
     then:
@@ -422,6 +424,39 @@ script:
                   root["mac"] = id(panel_mqtt_client).get_mac_address();
                   root["node_name"] = id(panel_mqtt_client).get_active_topic_prefix();
                   root["firmware_version"] = "$firmware_version";
+                  root["group_settings_ack"] = true;
+
+  - id: apply_panel_group_settings
+    mode: queued
+    parameters:
+      request_id: std::string
+      has_night: bool
+      night: int
+      has_brightness: bool
+      brightness: int
+    then:
+      - lambda: |-
+          if (has_night) {
+            id(disp1).send_command_printf("page0.vaNightMode.val=%d", night);
+            if (night == 1) {
+              id(disp1).send_command_printf("page Screensaver");
+            } else {
+              id(disp1).send_command_printf("page pageWeather");
+            }
+          }
+          if (has_brightness) {
+            id(disp1).send_command_printf("page0.vaBrightnessWeather.val=%d", brightness);
+            id(disp1).send_command_printf("dims=%d", brightness);
+          }
+      - delay: 150ms
+      - mqtt.publish_json:
+          topic: !lambda |-
+            return id(panel_mqtt_client).get_active_topic_prefix() + "/event/group/settings";
+          payload: |-
+            root["request_id"] = request_id;
+            root["status"] = "applied";
+            if (has_night) root["night"] = night;
+            if (has_brightness) root["brightness"] = brightness;
 
   - id: publish_hmi_update_status
     parameters:
@@ -1109,6 +1144,21 @@ panel_mqtt:
                     id(disp1).send_command_printf("page pageWeather");
                   }
                }
+
+    - topic: cmnd/group/settings
+      then:
+        - lambda: |-
+            if (!x["request_id"].is<const char*>()) return;
+            const std::string request_id = x["request_id"].as<std::string>();
+            if (request_id.empty() || request_id.size() > 64) return;
+            const bool has_night = x.containsKey("night");
+            const bool has_brightness = x.containsKey("brightness");
+            if (!has_night && !has_brightness) return;
+            if (has_night && (!x["night"].is<int>() || (x["night"].as<int>() != 0 && x["night"].as<int>() != 1))) return;
+            if (has_brightness && (!x["brightness"].is<int>() || x["brightness"].as<int>() < 0 || x["brightness"].as<int>() > 100)) return;
+            const int night = has_night ? x["night"].as<int>() : 0;
+            const int brightness = has_brightness ? x["brightness"].as<int>() : 0;
+            id(apply_panel_group_settings)->execute(request_id, has_night, night, has_brightness, brightness);
     
     - topic: cmnd/weather
       then:

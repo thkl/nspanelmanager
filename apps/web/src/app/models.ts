@@ -200,6 +200,19 @@ export interface PanelTelemetry {
   largestFreeBlockBytes?: number;
   loopTimeMs?: number;
   chipTemperatureC?: number;
+  supportsGroupSettingsAck?: boolean;
+}
+
+export type PanelGroupSettingsDelivery = "not_sent" | "pending" | "applied" | "timed_out" | "unconfirmed" | "publish_failed" | "failed";
+
+export interface PanelGroupSettingsStatus {
+  groupName: string;
+  night?: 0 | 1;
+  brightness?: number;
+  delivery: PanelGroupSettingsDelivery;
+  requestId?: string;
+  requestedAt?: number;
+  acknowledgedAt?: number;
 }
 
 export interface PanelConnectionStatus {
@@ -209,6 +222,7 @@ export interface PanelConnectionStatus {
   lastSeenAt: number | null;
   lastResetReport: PanelResetReport | null;
   telemetry: PanelTelemetry | null;
+  groupSettings?: PanelGroupSettingsStatus;
 }
 
 /** Metadata for the latest Nextion HMI artifact uploaded to the manager. */

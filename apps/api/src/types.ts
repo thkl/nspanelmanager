@@ -120,6 +120,20 @@ export interface PanelTelemetry {
   largestFreeBlockBytes?: number;
   loopTimeMs?: number;
   chipTemperatureC?: number;
+  supportsGroupSettingsAck?: boolean;
+}
+
+export type PanelGroupSettingsDelivery = "not_sent" | "pending" | "applied" | "timed_out" | "unconfirmed" | "publish_failed" | "failed";
+
+/** Latest desired group state and delivery confirmation for one configured panel. */
+export interface PanelGroupSettingsStatus {
+  groupName: string;
+  night?: 0 | 1;
+  brightness?: number;
+  delivery: PanelGroupSettingsDelivery;
+  requestId?: string;
+  requestedAt?: number;
+  acknowledgedAt?: number;
 }
 
 /** Live MQTT connectivity, telemetry, and latest reboot report for one panel. */
@@ -130,6 +144,7 @@ export interface PanelConnectionStatus {
   lastSeenAt: number | null;
   lastResetReport: PanelResetReport | null;
   telemetry: PanelTelemetry | null;
+  groupSettings?: PanelGroupSettingsStatus;
 }
 
 /** Metadata returned by the authenticated HMI upload and status endpoints. */

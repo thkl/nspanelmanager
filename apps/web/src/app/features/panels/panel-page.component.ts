@@ -3,7 +3,7 @@ import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { concatMap, from, of, switchMap, toArray, type Observable } from "rxjs";
 import { ManagerStore } from "../../manager-store.service";
-import type { CoreDumpRecord, DiscoveredPanel, Panel, PanelBinding, PanelTelemetry, PluginDefinition } from "../../models";
+import type { CoreDumpRecord, DiscoveredPanel, Panel, PanelBinding, PanelGroupSettingsDelivery, PanelGroupSettingsStatus, PanelTelemetry, PluginDefinition } from "../../models";
 import { PanelScreenPreviewComponent } from "./panel-screen-preview.component";
 
 /**
@@ -58,6 +58,27 @@ export class PanelPageComponent implements OnInit {
     if (Number.isFinite(telemetry.loopTimeMs)) parts.push(`Loop ${Math.round(telemetry.loopTimeMs!)} ms`);
     if (Number.isFinite(telemetry.chipTemperatureC)) parts.push(`Chip ${telemetry.chipTemperatureC!.toFixed(1)}°C`);
     return parts.join(" · ");
+  }
+
+  /** Formats the manager's latest requested group values for one panel. */
+  formatGroupSettings(status: PanelGroupSettingsStatus): string {
+    const parts = [`Group ${status.groupName}`, this.groupSettingsDeliveryLabel(status.delivery)];
+    if (status.night !== undefined) parts.push(status.night === 1 ? "Night on" : "Night off");
+    if (status.brightness !== undefined) parts.push(`Brightness ${status.brightness}%`);
+    return parts.join(" · ");
+  }
+
+  /** Converts delivery states into short panel-list labels. */
+  groupSettingsDeliveryLabel(delivery: PanelGroupSettingsDelivery): string {
+    switch (delivery) {
+      case "not_sent": return "not sent";
+      case "pending": return "awaiting firmware acknowledgement";
+      case "applied": return "firmware acknowledged";
+      case "timed_out": return "no firmware acknowledgement";
+      case "unconfirmed": return "sent; firmware has no acknowledgement";
+      case "publish_failed": return "could not publish";
+      case "failed": return "panel rejected or applied different values";
+    }
   }
 
   /** Estimates the latest boot time from the manager receipt time and panel uptime. */

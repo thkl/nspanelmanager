@@ -140,6 +140,14 @@ nspanel-screen-preview { margin-bottom: 22px; }
   overflow-wrap: anywhere;
 }
 
+.panel-row-copy .panel-group-status {
+  color: var(--green-text);
+  font-family: inherit;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .row-arrow {
   margin-left: auto;
   color: var(--ink-faint);

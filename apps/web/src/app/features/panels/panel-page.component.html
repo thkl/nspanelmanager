@@ -23,6 +23,12 @@
             @if (connection.telemetry; as telemetry) {
               <small class="panel-telemetry">{{ formatTelemetry(telemetry) }} · {{ telemetry.reportedAt | date:'shortTime' }}</small>
             }
+            @if (connection.groupSettings; as groupSettings) {
+              <small class="panel-group-status">{{ formatGroupSettings(groupSettings) }}
+                @if (groupSettings.acknowledgedAt; as acknowledgedAt) { · confirmed {{ acknowledgedAt | date:'shortTime' }} }
+                @else if (groupSettings.requestedAt; as requestedAt) { · sent {{ requestedAt | date:'shortTime' }} }
+              </small>
+            }
           }
         </span>
         <span class="connection-status" [class.online]="manager.panelConnections()[panel.nodeName]?.status === 'online'" [class.offline]="manager.panelConnections()[panel.nodeName]?.status !== 'online'" [attr.aria-label]="manager.panelConnections()[panel.nodeName]?.status === 'online' ? 'Online' : 'Offline'">
