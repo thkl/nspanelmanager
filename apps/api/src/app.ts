@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import path from "node:path";
 import type { ConfigStore } from "./services/config-store.js";
 import type { MqttRuntime } from "./services/mqtt-runtime.js";
@@ -63,8 +63,21 @@ export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRe
   app.use("/api/broker", createBrokerRouter(store, mqttRuntime, pluginRegistry));
   app.use("/api/panels", createPanelRouter(store, mqttRuntime, pluginRegistry));
   app.use("/api/routes", createMqttRouteRouter(store, mqttRuntime));
-  app.use("/api/plugins", createPluginsRouter(store, mqttRuntime, pluginRegistry));
+  app.use("/api/plugins", createPluginsRouter(store, mqttRuntime, pluginRegistry, logger));
   app.use("/api", (_request, response) => response.status(404).json({ error: "API endpoint not found." }));
+  app.use("/api", (error: unknown, request: Request, response: Response, next: NextFunction) => {
+    const status = apiErrorStatus(error);
+    const detail = apiErrorDetail(error);
+    logger.error("Unhandled API request failed.", {
+      component: "api",
+      method: request.method,
+      path: request.path,
+      status: String(status),
+      detail
+    });
+    if (response.headersSent) return next(error);
+    return response.status(status).json({ error: status >= 500 ? "Internal server error." : detail });
+  });
 
   const webRoot = process.env.WEB_ROOT || path.resolve(process.cwd(), "../web/dist/web/browser");
   app.use(express.static(webRoot));
@@ -98,4 +111,20 @@ function publicConfig(config: ReturnType<ConfigStore["get"]>, pluginRegistry: Pl
     broker: { ...broker, passwordConfigured: Boolean(password) },
     pluginProfiles: config.pluginProfiles.map((profile) => presentPluginProfile(profile, pluginRegistry))
   };
+}
+
+/** Uses an HTTP error's safe status field or defaults to an internal failure. */
+function apiErrorStatus(error: unknown): number {
+  if (!error || typeof error !== "object") return 500;
+  const candidate = "statusCode" in error ? error.statusCode : "status" in error ? error.status : undefined;
+  return typeof candidate === "number" && Number.isInteger(candidate) && candidate >= 400 && candidate <= 599
+    ? candidate
+    : 500;
+}
+
+/** Includes a bounded chain of nested causes in the API diagnostic log. */
+function apiErrorDetail(error: unknown, depth = 0): string {
+  if (!(error instanceof Error)) return String(error);
+  if (depth >= 3 || error.cause === undefined) return error.message;
+  return `${error.message} (cause: ${apiErrorDetail(error.cause, depth + 1)})`;
 }

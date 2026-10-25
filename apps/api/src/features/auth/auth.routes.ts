@@ -80,7 +80,12 @@ export function createAuthRouter(auth: AuthService, logger: Logger): Router {
       const result = await auth.completeSsoLogin(transactionToken, currentUrl);
       response.setHeader("Set-Cookie", [auth.clearOidcTransactionCookie(), auth.sessionCookie(result.token)]);
       response.redirect("/");
-    } catch {
+    } catch (error) {
+      logger.warn("OIDC sign-in callback failed.", {
+        component: "auth",
+        phase: "sso-callback",
+        detail: message(error)
+      });
       response.setHeader("Set-Cookie", auth.clearOidcTransactionCookie());
       response.redirect("/?login=sso-failed");
     }

@@ -3,12 +3,16 @@ import type { PluginConfigValue, ResolvedPluginInstance } from "../../../types.j
 import type { PluginState } from "../plugin-contract.js";
 import { configString } from "../plugin-contract.js";
 import { XYToRGB } from "../nextion-color-wheel.js";
+import type { Logger } from "../../../services/logger.js";
 
 /** Domains whose favorite action can use Home Assistant's generic toggle service. */
 const TOGGLEABLE_DOMAINS = new Set(["fan", "input_boolean", "light", "media_player", "switch"]);
 
 /** Domains with implemented state mapping and panel behavior. */
 const SUPPORTED_DOMAINS = new Set([...TOGGLEABLE_DOMAINS, "cover", "vacuum"]);
+
+/** Allows full Home Assistant registry responses from larger installations. */
+const HOME_ASSISTANT_REGISTRY_MAX_PAYLOAD_BYTES = 32 * 1024 * 1024;
 
 /**
  * Owns the Home Assistant network boundary and the conversions between HA
@@ -66,7 +70,11 @@ interface HomeAssistantAreaRegistryEntry {
 }
 
 /** Loads supported entity states and joins them with Home Assistant area registries. */
-export async function fetchHomeAssistantEntityOptions(baseUrl: string, accessToken: string): Promise<HomeAssistantEntityOptions> {
+export async function fetchHomeAssistantEntityOptions(
+  baseUrl: string,
+  accessToken: string,
+  logger: Logger
+): Promise<HomeAssistantEntityOptions> {
   const response = await homeAssistantFetch(baseUrl, accessToken, "/api/states");
   if (!Array.isArray(response)) throw new Error("Home Assistant returned an invalid entity list.");
 
@@ -79,15 +87,31 @@ export async function fetchHomeAssistantEntityOptions(baseUrl: string, accessTok
       domain: entityDomain(entity.entity_id) ?? ""
     }));
 
+  let areaEntries: HomeAssistantAreaRegistryEntry[] = [];
+  let areasAvailable = false;
   try {
-    const [entityRegistry, deviceRegistry, areaRegistry] = await homeAssistantWebSocketRequests(baseUrl, accessToken, [
-      "config/entity_registry/list",
-      "config/device_registry/list",
+    const [areaRegistry] = await homeAssistantWebSocketRequests(baseUrl, accessToken, [
       "config/area_registry/list"
+    ]);
+    areaEntries = parseAreaRegistry(areaRegistry);
+    areasAvailable = true;
+  } catch (error) {
+    logger.warn("Home Assistant area registry lookup failed.", {
+      component: "plugin",
+      plugin: "home-assistant",
+      phase: "entity options",
+      registry: "areas",
+      detail: errorDetail(error)
+    });
+  }
+
+  try {
+    const [entityRegistry, deviceRegistry] = await homeAssistantWebSocketRequests(baseUrl, accessToken, [
+      "config/entity_registry/list",
+      "config/device_registry/list"
     ]);
     const entityEntries = parseEntityRegistry(entityRegistry);
     const deviceEntries = parseDeviceRegistry(deviceRegistry);
-    const areaEntries = parseAreaRegistry(areaRegistry);
     const entityById = new Map(entityEntries.map((entry) => [entry.entity_id, entry]));
     const deviceAreaById = new Map(deviceEntries.map((entry) => [entry.id, entry.area_id]));
     const areaNameById = new Map(areaEntries.map((entry) => [entry.id, entry.name]));
@@ -106,11 +130,24 @@ export async function fetchHomeAssistantEntityOptions(baseUrl: string, accessTok
       areas: areaEntries
         .map(({ id, name }) => ({ id, name }))
         .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" })),
-      areasAvailable: true
+      areasAvailable
     };
-  } catch {
-    // Keep type and text filtering available if a reverse proxy blocks the registry WebSocket.
-    return { entities: sortHomeAssistantEntities(states), areas: [], areasAvailable: false };
+  } catch (error){
+    logger.warn("Home Assistant entity registry lookup failed; returning entities without area assignments.", {
+      component: "plugin",
+      plugin: "home-assistant",
+      phase: "entity options",
+      registry: "entities and devices",
+      detail: errorDetail(error)
+    });
+    // Keep area selection and type/text filtering if the entity registry is too large.
+    return {
+      entities: sortHomeAssistantEntities(states),
+      areas: areaEntries
+        .map(({ id, name }) => ({ id, name }))
+        .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" })),
+      areasAvailable
+    };
   }
 }
 
@@ -119,12 +156,19 @@ export async function getHomeAssistantVacuumAreas(
   instance: ResolvedPluginInstance,
   entityId: string
 ): Promise<HomeAssistantAreaOption[]> {
-  const [entityRegistry, areaRegistry] = await homeAssistantWebSocketRequests(
+  const [entityRegistry] = await homeAssistantWebSocketRequests(
     configString(instance, "baseUrl"),
     configString(instance, "accessToken"),
-    ["config/entity_registry/list", "config/area_registry/list"]
+    [{ type: "config/entity_registry/get_entries", entity_ids: [entityId] }]
   );
-  const registryEntry = parseEntityRegistry(entityRegistry).find((entry) => entry.entity_id === entityId);
+  const [areaRegistry] = await homeAssistantWebSocketRequests(
+    configString(instance, "baseUrl"),
+    configString(instance, "accessToken"),
+    ["config/area_registry/list"]
+  );
+  const registryEntry = isRecord(entityRegistry)
+    ? parseEntityRegistry([entityRegistry[entityId]])[0]
+    : undefined;
   const vacuumOptions = registryEntry?.options?.["vacuum"];
   const areaMapping = isRecord(vacuumOptions) && isRecord(vacuumOptions["area_mapping"])
     ? vacuumOptions["area_mapping"]
@@ -302,7 +346,11 @@ export function displayValue(value: unknown, fallback: string): string {
 }
 
 /** Sends one authenticated WebSocket request for each registry command. */
-async function homeAssistantWebSocketRequests(baseUrl: string, accessToken: string, commands: string[]): Promise<unknown[]> {
+async function homeAssistantWebSocketRequests(
+  baseUrl: string,
+  accessToken: string,
+  commands: Array<string | { type: string; [key: string]: unknown }>
+): Promise<unknown[]> {
   const url = new URL(normalizeHomeAssistantBaseUrl(baseUrl));
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = `${url.pathname.replace(/\/+$/, "")}/api/websocket`;
@@ -310,7 +358,10 @@ async function homeAssistantWebSocketRequests(baseUrl: string, accessToken: stri
   url.hash = "";
 
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url.toString(), { handshakeTimeout: 10_000, maxPayload: 2 * 1024 * 1024 });
+    const socket = new WebSocket(url.toString(), {
+      handshakeTimeout: 10_000,
+      maxPayload: HOME_ASSISTANT_REGISTRY_MAX_PAYLOAD_BYTES
+    });
     const results: unknown[] = [];
     const received = new Set<number>();
     let authenticated = false;
@@ -332,8 +383,8 @@ async function homeAssistantWebSocketRequests(baseUrl: string, accessToken: stri
         const parsed: unknown = JSON.parse(data.toString());
         if (!isRecord(parsed)) throw new Error("Unexpected Home Assistant WebSocket response.");
         message = parsed;
-      } catch {
-        finish(new Error("Home Assistant returned an invalid WebSocket response."));
+      } catch (error) {
+        finish(new Error("Home Assistant returned an invalid WebSocket response.", { cause: error }));
         return;
       }
 
@@ -349,7 +400,8 @@ async function homeAssistantWebSocketRequests(baseUrl: string, accessToken: stri
         if (authenticated) return;
         authenticated = true;
         commands.forEach((command, index) => {
-          socket.send(JSON.stringify({ id: index + 1, type: command }));
+          const request = typeof command === "string" ? { type: command } : command;
+          socket.send(JSON.stringify({ ...request, id: index + 1 }));
         });
         return;
       }
@@ -357,7 +409,11 @@ async function homeAssistantWebSocketRequests(baseUrl: string, accessToken: stri
       const responseId = typeof message["id"] === "number" ? message["id"] : undefined;
       if (!authenticated || responseId === undefined || responseId < 1 || responseId > commands.length) return;
       if (message["type"] !== "result" || message["success"] !== true) {
-        finish(new Error("Home Assistant could not return its entity and area registry."));
+        const responseError = isRecord(message["error"]) ? message["error"] : undefined;
+        const cause = responseError
+          ? new Error(`${String(responseError["code"] ?? "registry_error")}: ${String(responseError["message"] ?? "Unknown registry error.")}`)
+          : undefined;
+        finish(new Error("Home Assistant rejected a registry request.", cause ? { cause } : undefined));
         return;
       }
       results[responseId - 1] = message["result"];
@@ -365,7 +421,10 @@ async function homeAssistantWebSocketRequests(baseUrl: string, accessToken: stri
       if (received.size === commands.length) finish();
     });
 
-    socket.on("error", () => finish(new Error("Could not connect to the Home Assistant registry WebSocket.")));
+    socket.on("error", (error) => {
+      finish(new Error("Could not connect to the Home Assistant registry WebSocket.", { cause: error }));
+    });
+
     socket.on("close", () => {
       if (!settled) finish(new Error("Home Assistant closed the registry WebSocket."));
     });
@@ -432,8 +491,9 @@ function parseDeviceRegistry(value: unknown): HomeAssistantDeviceRegistryEntry[]
 /** Validates and maps the Area Registry subset used to display filter labels. */
 function parseAreaRegistry(value: unknown): HomeAssistantAreaRegistryEntry[] {
   return asArrayOfRecords(value).flatMap((entry) => {
-    if (typeof entry["id"] !== "string" || typeof entry["name"] !== "string") return [];
-    return [{ id: entry["id"], name: entry["name"] }];
+    const id = typeof entry["area_id"] === "string" ? entry["area_id"] : entry["id"];
+    if (typeof id !== "string" || typeof entry["name"] !== "string") return [];
+    return [{ id, name: entry["name"] }];
   });
 }
 
@@ -447,4 +507,12 @@ function isRgbColor(value: unknown): value is [number, number, number] {
   return Array.isArray(value) && value.length === 3 && value.every((channel) =>
     typeof channel === "number" && Number.isFinite(channel) && channel >= 0 && channel <= 255
   );
+}
+
+/** Converts unknown failures to a concise, safe value for structured logs. */
+function errorDetail(error: unknown, depth = 0): string {
+  if (!(error instanceof Error)) return String(error);
+  if (depth >= 3 || error.cause === undefined) return error.message;
+  const detail = ` (cause: ${errorDetail(error.cause, depth + 1)})`;
+  return `${error.message}${detail}`;
 }

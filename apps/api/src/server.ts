@@ -81,7 +81,7 @@ async function startServer(): Promise<void> {
     ssoButtonAvailable: String(ssoEnabled && hasLocalUsers),
     ...(ssoEnabled ? { callbackUrl: authService.getOidcRedirectUrl().href } : {})
   });
-  const pluginRegistry = createDefaultPluginRegistry();
+  const pluginRegistry = createDefaultPluginRegistry(logger);
   const mqttRuntime = new MqttRuntime(store, pluginRegistry, runtimeState, logger);
   let realtimeServer: RealtimeWebSocketServer | undefined;
   const hmiUpdateService = new HmiUpdateService(runtimeState, (job) => realtimeServer?.broadcast({ type: "hmi-job", job }), logger);

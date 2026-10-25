@@ -29,7 +29,6 @@ const mod = function (n:number, m:number) {
 export function decodeNextionRgb(value: string): NextionWheelColor | undefined {
 
   const parts = value.trim().split("|");
-  console.log(parts);
   if (parts.length !== 3 || parts.some((part) => !/^\d+$/.test(part))) return undefined;
   const [red, green, blue] = parts.map(Number);
   if ([red, green, blue].some((channel) => channel < 0 || channel > 255)) return undefined;

@@ -215,7 +215,6 @@ export class MqttCoverPlugin implements PluginDefinition {
       topic: `${panel.nodeName}/cmnd/level/config`,
       payload: JSON.stringify({ name: title || instance.name, settings: parsePresets(tileConfigString(instance, "presets")), levelTopic: levelTopic, topic: "",version: "2" })
     };
-    console.log(result);
     return result;
   }
 

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Panel, PanelBinding, PluginConfigValue, PluginInstance, PluginProfile, ResolvedPluginInstance } from "../../types.js";
 import type { ConfigStore } from "../../services/config-store.js";
 import type { MqttRuntime } from "../../services/mqtt-runtime.js";
+import type { Logger } from "../../services/logger.js";
 import { pluginConfigSchema, type MqttMessageEnvelope, type PluginDefinition, type PluginRuntimeContext } from "./plugin-contract.js";
 import type { PluginRegistry } from "./plugin-registry.js";
 import { checkScriptSyntax } from "./script-runtime.js";
@@ -14,7 +15,7 @@ import { preserveBlankPluginSecrets, presentPluginProfile } from "./plugin-profi
  * favorite bindings. Plugin schemas drive the Angular editor; profiles hold
  * shared behavior while instances supply their own names and variable values.
  */
-export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, registry: PluginRegistry): Router {
+export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, registry: PluginRegistry, logger: Logger): Router {
   const router = Router();
 
   router.get("/", (_request, response) => response.json({ plugins: registry.list() }));
@@ -32,9 +33,18 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
       return response.status(409).json({ error: "Save the Home Assistant URL and access token before loading devices." });
     }
     try {
-      const options = await fetchHomeAssistantEntityOptions(baseUrl, accessToken);
-      return response.json(options);
+      const options = await fetchHomeAssistantEntityOptions(baseUrl, accessToken, logger);
+      const result =  response.json(options);
+      return result;
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      logger.error("Home Assistant entity API request failed.", {
+        component: "api",
+        plugin: "home-assistant",
+        phase: "entity options",
+        profile: profile.name,
+        detail
+      });
       return response.status(502).json({ error: error instanceof Error ? error.message : "Could not load entities from Home Assistant." });
     }
   });

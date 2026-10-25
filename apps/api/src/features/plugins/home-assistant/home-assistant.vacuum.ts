@@ -1,5 +1,6 @@
 import type { PanelBinding, ResolvedPluginInstance } from "../../../types.js";
 import type { PluginActionResult, PluginFavoritePressResult, PluginScreen, PluginState } from "../plugin-contract.js";
+import type { Logger } from "../../../services/logger.js";
 import {
   callHomeAssistantService,
   displayValue,
@@ -21,6 +22,9 @@ const VACUUM_AREA_PAGE_SIZE = 5;
  * control actions in the manager's plugin info pages.
  */
 export class HomeAssistantVacuumControls {
+  /** Creates vacuum controls with the manager's structured logger. */
+  constructor(private readonly logger: Logger) {}
+
   /** Opens the info page from a favorite, or starts/pauses from a hardware button. */
   async handleFavoritePress(
     instance: ResolvedPluginInstance,
@@ -37,8 +41,6 @@ export class HomeAssistantVacuumControls {
   renderScreen(instance: ResolvedPluginInstance, state: PluginState, screen: string): PluginScreen | undefined {
     if (screen.startsWith("areas")) return this.renderAreasScreen(instance, state, screen);
     if (screen !== "overview") return undefined;
-
-    console.log(JSON.stringify(state));
 
     const details = [`Status: ${displayValue(state["entityState"], "Unknown")}`];
     const batteryLevel = numberValue(state, "batteryLevel");
@@ -123,7 +125,14 @@ export class HomeAssistantVacuumControls {
         vacuumAreas: await getHomeAssistantVacuumAreas(instance, entityId),
         vacuumAreaLookup: "loaded"
       };
-    } catch {
+    } catch (error) {
+      this.logger.error("Home Assistant vacuum area lookup failed.", {
+        component: "plugin",
+        plugin: instance.name,
+        phase: "vacuum area lookup",
+        entity: entityId,
+        detail: error instanceof Error ? error.message : String(error)
+      });
       return { vacuumAreas: [], vacuumAreaLookup: "unavailable" };
     }
   }

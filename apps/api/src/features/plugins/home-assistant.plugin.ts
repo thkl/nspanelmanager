@@ -1,4 +1,5 @@
 import type { Panel, PanelBinding, PluginConfigValue, ResolvedPluginInstance } from "../../types.js";
+import { Logger } from "../../services/logger.js";
 import type {
   MqttMessageEnvelope,
   PluginActionResult,
@@ -131,7 +132,12 @@ export class HomeAssistantPlugin implements PluginDefinition {
   private readonly switchControls = new HomeAssistantSwitchControls();
   private readonly lightControls = new HomeAssistantLightControls();
   private readonly coverControls = new HomeAssistantCoverControls();
-  private readonly vacuumControls = new HomeAssistantVacuumControls();
+  private readonly vacuumControls: HomeAssistantVacuumControls;
+
+  /** Builds Home Assistant controllers with the manager's structured logger. */
+  constructor(logger: Logger = new Logger()) {
+    this.vacuumControls = new HomeAssistantVacuumControls(logger);
+  }
 
   /** Validates the HA connection, refresh interval, and device-control options. */
   validateConfig(config: Record<string, PluginConfigValue>): string | undefined {

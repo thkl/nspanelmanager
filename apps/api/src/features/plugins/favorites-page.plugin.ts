@@ -68,7 +68,6 @@ export class FavoritesPagePlugin implements PluginDefinition {
       title: stringValue(instance.config.title, "Favorites"),
       buttons: Array.from({ length: 12 }, (_, index) => ({ label: entries[index]?.label ?? "" , topic:entries[index]?.topic ?? "" }))
     };
-    console.log(page);
     return page;
   }
 
