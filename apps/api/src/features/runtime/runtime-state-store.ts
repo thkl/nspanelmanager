@@ -46,10 +46,17 @@ export interface PanelFlowFrame {
   flowBinding?: import("../../types.js").PanelBinding;
 }
 
+/** Last requested temporary night and brightness values for one panel group. */
+export interface PanelGroupRuntimeSettings {
+  night?: 0 | 1;
+  brightness?: number;
+}
+
 interface RuntimeSnapshot {
   version: 1;
   panelSessions: Record<string, PanelFlowSession>;
   panelResetReports: Record<string, PanelResetReport>;
+  panelGroupSettings: Record<string, PanelGroupRuntimeSettings>;
   hmiUpdateJobs: HmiUpdateJob[];
   firmwareUpdateJobs: FirmwareUpdateJob[];
   firmwareRollout: FirmwareRollout | null;
@@ -102,6 +109,7 @@ export class RuntimeStateStore {
     const rawPluginStates = isRecord(value.pluginStates) ? value.pluginStates : {};
     const pluginStates = normalizePluginStates(rawPluginStates);
     const panelResetReports = normalizePanelResetReports(value.panelResetReports);
+    const panelGroupSettings = normalizePanelGroupSettings(value.panelGroupSettings);
     const hmiUpdateJobs = normalizeHmiUpdateJobs(value.hmiUpdateJobs);
     const firmwareUpdateJobs = normalizeFirmwareUpdateJobs(value.firmwareUpdateJobs);
     const firmwareRollout = normalizeFirmwareRollout(value.firmwareRollout);
@@ -109,6 +117,7 @@ export class RuntimeStateStore {
       version: 1,
       panelSessions: isRecord(value.panelSessions) ? value.panelSessions as Record<string, PanelFlowSession> : {},
       panelResetReports,
+      panelGroupSettings,
       hmiUpdateJobs,
       firmwareUpdateJobs,
       firmwareRollout,
@@ -124,6 +133,8 @@ export class RuntimeStateStore {
       || JSON.stringify(value.pluginStates) !== JSON.stringify(pluginStates)
       || !Object.hasOwn(value, "panelResetReports")
       || JSON.stringify(value.panelResetReports) !== JSON.stringify(panelResetReports)
+      || !Object.hasOwn(value, "panelGroupSettings")
+      || JSON.stringify(value.panelGroupSettings) !== JSON.stringify(panelGroupSettings)
       || !Array.isArray(value.hmiUpdateJobs)
       || JSON.stringify(value.hmiUpdateJobs) !== JSON.stringify(hmiUpdateJobs)
       || !Array.isArray(value.firmwareUpdateJobs)
@@ -245,6 +256,18 @@ export class RuntimeStateStore {
   /** Saves the latest reboot report independently from panel configuration and script values. */
   async setPanelResetReport(panelId: string, report: PanelResetReport): Promise<void> {
     this.snapshot.panelResetReports[panelId] = structuredClone(report);
+    this.persist();
+  }
+
+  /** Returns the last temporary runtime settings received for a panel group. */
+  getPanelGroupSettings(groupName: string): PanelGroupRuntimeSettings | undefined {
+    const settings = this.snapshot.panelGroupSettings[groupName];
+    return settings ? structuredClone(settings) : undefined;
+  }
+
+  /** Saves a panel group's temporary runtime settings for replay after display reconnects. */
+  async setPanelGroupSettings(groupName: string, settings: PanelGroupRuntimeSettings): Promise<void> {
+    this.snapshot.panelGroupSettings[groupName] = structuredClone(settings);
     this.persist();
   }
 
@@ -415,8 +438,21 @@ export class RuntimeStateStore {
   }
 }
 
-function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, hmiUpdateJobs: [], firmwareUpdateJobs: [], firmwareRollout: null, values: {}, pluginStates: {} }; }
+function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, panelGroupSettings: {}, hmiUpdateJobs: [], firmwareUpdateJobs: [], firmwareRollout: null, values: {}, pluginStates: {} }; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
+
+function normalizePanelGroupSettings(value: unknown): Record<string, PanelGroupRuntimeSettings> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([groupName, candidate]) => {
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(groupName) || !isRecord(candidate)) return [];
+    const settings: PanelGroupRuntimeSettings = {};
+    if (candidate.night === 0 || candidate.night === 1) settings.night = candidate.night;
+    if (typeof candidate.brightness === "number" && Number.isInteger(candidate.brightness) && candidate.brightness >= 0 && candidate.brightness <= 100) {
+      settings.brightness = candidate.brightness;
+    }
+    return Object.keys(settings).length ? [[groupName, settings]] : [];
+  }));
+}
 
 function normalizePanelResetReports(value: unknown): Record<string, PanelResetReport> {
   if (!isRecord(value)) return {};

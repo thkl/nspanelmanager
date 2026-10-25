@@ -3,11 +3,12 @@ import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store.js";
 import type { DiscoveredPanel, ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelTelemetry, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
-import type { PanelFlowSession, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
+import type { PanelFlowSession, PanelGroupRuntimeSettings, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
 import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 import { interpolatePluginTemplate } from "../features/plugins/plugin-variables.js";
 import { panelBootstrapTopicRoot, panelTopicRoot, panelTopicRootForMessage, panelTopicRoots } from "../domain/panel-topics.js";
+import { panelGroupSettingsTopic } from "../domain/panel-groups.js";
 import { Logger } from "./logger.js";
 
 /**
@@ -334,6 +335,9 @@ export class MqttRuntime {
         desiredTopics.add(`${root}/event/crashdump/#`);
       }
     }
+    for (const groupName of new Set(config.panels.flatMap((panel) => panel.groupName ? [panel.groupName] : []))) {
+      desiredTopics.add(panelGroupSettingsTopic(groupName));
+    }
     for (const route of config.routes) desiredTopics.add(panelRouteSourceTopic(route, config.panels));
     for (const instance of instances) {
       if (!instance.enabled) continue;
@@ -404,12 +408,16 @@ export class MqttRuntime {
     const configFingerprint = JSON.stringify({
       nodeName: panel.nodeName,
       topicRoot,
+      groupName: panel.groupName ?? "",
       settings: {
         ...settings,
         music: configuredPlayers.map(({ id, name, sonos, player }) => ({ id, name, sonos, player }))
       }
     });
-    if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) return true;
+    if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) {
+      this.publishPanelGroupSettings(panel);
+      return true;
+    }
     const published = this.publish(`${topicRoot}/cmnd/settings`, JSON.stringify(settings));
     if (published) {
       this.publishedPanelSettings.set(panel.id, configFingerprint);
@@ -418,6 +426,22 @@ export class MqttRuntime {
         this.unifiedInitRetryUsed.delete(panel.id);
         this.pendingUnifiedIdentityAssignments.delete(panel.id);
       }
+      this.publishPanelGroupSettings(panel);
+    }
+    return published;
+  }
+
+  /** Publishes one panel group's latest temporary settings to every assigned panel. */
+  private publishPanelGroupSettings(panel: Panel, settings = panel.groupName ? this.runtimeState.getPanelGroupSettings(panel.groupName) : undefined): boolean {
+    if (!panel.groupName || !settings) return true;
+    const root = panelTopicRoot(panel);
+    let published = true;
+    if (settings.night !== undefined) {
+      published = this.publish(`${root}/cmnd/night`, JSON.stringify({ night: settings.night })) && published;
+    }
+    if (settings.brightness !== undefined) {
+      published = this.publish(`${root}/cmnd/settings/brightness`, JSON.stringify({ brightness: settings.brightness })) && published;
+      published = this.publish(`${root}/cmnd/nextion`, `dims=${settings.brightness}`) && published;
     }
     return published;
   }
@@ -597,6 +621,10 @@ export class MqttRuntime {
   private async handleMessage(message: MqttMessageEnvelope): Promise<void> {
     if (message.topic.startsWith("esphome/discover/")) {
       await this.recordDiscoveredPanel(message.topic, message.payload, message.receivedAt);
+      return;
+    }
+    if (message.topic.startsWith("nspanelmanager/groups/")) {
+      await this.handlePanelGroupSettingsMessage(message.topic, message.payload);
       return;
     }
     let config = this.store.get();
@@ -845,6 +873,49 @@ export class MqttRuntime {
       if (route.direction === "external-to-panel" && eventPanel) continue;
       this.applyRoute(route, topic, payload, eventPanel, config.panels);
     }
+  }
+
+  /** Validates and persists a group runtime update before publishing it to the member panels. */
+  private async handlePanelGroupSettingsMessage(topic: string, payload: string): Promise<void> {
+    const match = /^nspanelmanager\/groups\/([A-Za-z0-9_-]{1,40})\/cmnd\/settings$/.exec(topic);
+    if (!match) return;
+    const groupName = match[1];
+    const config = this.store.get();
+    const panels = config.panels.filter((panel) => panel.groupName === groupName);
+    if (panels.length === 0) return;
+    const patch = parsePanelGroupRuntimeSettings(payload);
+    if (!patch) {
+      this.logger.warn("Ignored an invalid panel group settings message.", {
+        component: "mqtt",
+        topic,
+        expectedPayload: '{"night":0|1,"brightness":0..100}'
+      });
+      return;
+    }
+    const previous = this.runtimeState.getPanelGroupSettings(groupName) ?? {};
+    const settings = { ...previous, ...patch };
+    await this.runtimeState.setPanelGroupSettings(groupName, settings);
+    try {
+      await this.runtimeState.flush();
+    } catch (error) {
+      this.logger.error("Panel group settings could not be confirmed on durable storage; applying them to online panels anyway.", {
+        component: "mqtt",
+        group: groupName,
+        detail: error instanceof Error ? error.message : String(error)
+      });
+    }
+    let publishedPanels = 0;
+    for (const panel of panels) {
+      if (this.publishPanelGroupSettings(panel, settings)) publishedPanels++;
+    }
+    this.logger.info("Applied and saved panel group runtime settings.", {
+      component: "mqtt",
+      group: groupName,
+      panelCount: String(panels.length),
+      publishedPanels: String(publishedPanels),
+      night: settings.night === undefined ? "unchanged" : String(settings.night),
+      brightness: settings.brightness === undefined ? "unchanged" : String(settings.brightness)
+    });
   }
 
   /** Applies panel LWT status and ping packets to the in-memory connection view. */
@@ -2040,6 +2111,28 @@ function normalizeMacAddress(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Parses the supported partial runtime settings from a panel group command. */
+function parsePanelGroupRuntimeSettings(payload: string): PanelGroupRuntimeSettings | undefined {
+  let value: unknown;
+  try { value = JSON.parse(payload); } catch { return undefined; }
+  if (!isRecord(value)) return undefined;
+  const keys = Object.keys(value);
+  if (keys.length === 0 || keys.some((key) => key !== "night" && key !== "brightness")) return undefined;
+
+  const settings: PanelGroupRuntimeSettings = {};
+  if (Object.hasOwn(value, "night")) {
+    const night = value.night;
+    if (night !== 0 && night !== 1 && night !== false && night !== true) return undefined;
+    settings.night = night === 1 || night === true ? 1 : 0;
+  }
+  if (Object.hasOwn(value, "brightness")) {
+    const brightness = value.brightness;
+    if (typeof brightness !== "number" || !Number.isInteger(brightness) || brightness < 0 || brightness > 100) return undefined;
+    settings.brightness = brightness;
+  }
+  return Object.keys(settings).length ? settings : undefined;
 }
 
 function stringField(value: unknown): string | undefined {

@@ -6,6 +6,7 @@ import type { ConfigStore } from "../services/config-store.js";
 import type { MqttRuntime } from "../services/mqtt-runtime.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 import { panelBootstrapTopicRoot, panelTopicRoot } from "../domain/panel-topics.js";
+import { isValidPanelGroupName } from "../domain/panel-groups.js";
 
 /**
  * Creates the HTTP endpoints for panel profile lifecycle operations.
@@ -80,6 +81,9 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     const nodeName = stringValue(input.nodeName).trim();
     if (!name || !validNodeName(nodeName)) return response.status(400).json({ error: "Name and a valid MQTT node name are required." });
     if (store.get().panels.some((panel) => panel.id !== current.id && panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
+    if (input.groupName !== undefined && input.groupName !== null && typeof input.groupName !== "string") return response.status(400).json({ error: "Panel group must be a string." });
+    const groupName = input.groupName === undefined ? current.groupName : stringValue(input.groupName).trim() || undefined;
+    if (groupName && !isValidPanelGroupName(groupName)) return response.status(400).json({ error: "Panel group must contain 1–40 letters, numbers, underscores, or hyphens." });
     const nativePluginInstances = normalizeNativePluginInstances(input.nativePluginInstances === undefined ? current.nativePluginInstances : input.nativePluginInstances);
     for (const [pageId, instanceId] of Object.entries(nativePluginInstances)) {
       const instance = store.get().pluginInstances.find((item) => item.id === instanceId);
@@ -127,7 +131,7 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
         return response.status(400).json({ error: `Main button ${index + 1} uses the level page and must be assigned to a cover plugin.` });
       }
     }
-    const panel: Panel = { ...current, name, nodeName, settings, nativePluginInstances, panelEventPluginInstances, hardwareButtonPluginInstances };
+    const panel: Panel = { ...current, name, nodeName, groupName, settings, nativePluginInstances, panelEventPluginInstances, hardwareButtonPluginInstances };
     await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
     mqttRuntime.syncSubscriptions();
     const settingsTopicRoot = current.nodeName !== nodeName

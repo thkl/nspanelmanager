@@ -32,6 +32,8 @@ export interface Panel {
   nodeName: string;
   /** Stable hardware identity reported by ESPHome MQTT discovery. */
   macAddress?: string;
+  /** MQTT-safe group key for shared runtime settings such as night mode. */
+  groupName?: string;
   /** Set after this profile is detected on the unified, MAC-addressed firmware topic. */
   unifiedFirmware?: boolean;
   settings: PanelSettings;

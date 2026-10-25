@@ -219,6 +219,32 @@ nspanel-screen-preview { margin-bottom: 22px; }
   gap: 8px;
 }
 
+.panel-group-settings {
+  align-items: end;
+  margin-top: 12px;
+}
+
+.panel-group-help {
+  min-width: 0;
+  padding-bottom: 2px;
+}
+
+.panel-group-help small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.panel-group-help code {
+  display: block;
+  margin-top: 4px;
+  color: var(--green-text);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
 .discovery-heading b,
 .panel-identity b {
   display: block;

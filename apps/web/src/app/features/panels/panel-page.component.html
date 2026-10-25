@@ -8,6 +8,7 @@
       <button class="panel-row" [class.selected]="selectedPanelId() === panel.id" [attr.aria-pressed]="selectedPanelId() === panel.id" (click)="selectPanel(panel)">
         <span class="panel-icon">▣</span><span class="panel-row-copy"><b>{{ panel.name }}</b><small>{{ panel.nodeName }}</small>
           @if (panel.macAddress) { <small>MAC {{ panel.macAddress }}</small> }
+          @if (panel.groupName) { <small>Group {{ panel.groupName }}</small> }
           @if (manager.panelConnections()[panel.nodeName]; as connection) {
             @if (connection.lastResetReport; as report) {
               <small class="panel-reset-reason">Reboot reason: {{ report.reason }}
@@ -102,6 +103,18 @@
       }
       <div class="settings-scroll">
         <div class="panel-identity"><div><b>Hardware identity</b><small>{{ panel.macAddress || 'No device assigned' }}</small></div>@if (panel.macAddress) { <button class="button ghost small" (click)="clearPanelMacAddress(panel)">Unassign device</button> }</div>
+        <div class="form-grid two-col panel-group-settings">
+          <label>Panel group<input [(ngModel)]="panel.groupName" placeholder="downstairs" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}"></label>
+          <div class="panel-group-help">
+            @if (panel.groupName) {
+              <small>Shared runtime settings topic</small>
+              <code>nspanelmanager/groups/{{ panel.groupName }}/cmnd/settings</code>
+              <small>Send partial JSON, such as &#123;"night":1,"brightness":1&#125; at night and &#123;"night":0,"brightness":100&#125; by day. The manager saves the latest values and reapplies them after the display reconnects.</small>
+            } @else {
+              <small>Assign panels to the same group to share runtime night and brightness settings.</small>
+            }
+          </div>
+        </div>
         <section class="panel-crash-dump" aria-label="Panel crash dump">
           <div>
             <b>Crash dump</b>

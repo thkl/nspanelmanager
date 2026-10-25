@@ -68,6 +68,7 @@ export class ConfigStore {
         firmwareRollout: normalizeFirmwareRolloutSettings(saved.firmwareRollout),
         panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
           ...panel,
+          ...(typeof panel.groupName === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(panel.groupName) ? { groupName: panel.groupName } : { groupName: undefined }),
           autoUpdateFirmware: panel.autoUpdateFirmware === true,
           ...(normalizeMacAddress(panel.macAddress) ? { macAddress: normalizeMacAddress(panel.macAddress) } : { macAddress: undefined }),
           unifiedFirmware: panel.unifiedFirmware === true && Boolean(normalizeMacAddress(panel.macAddress)),

@@ -29,6 +29,7 @@ export interface Panel {
   name: string;
   nodeName: string;
   macAddress?: string;
+  groupName?: string;
   unifiedFirmware?: boolean;
   settings: PanelSettings;
   nativePluginInstances?: Record<string, string>;

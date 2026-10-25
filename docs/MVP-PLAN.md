@@ -123,6 +123,7 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 7. **Sonos — Implemented.** Shared player state, panel player selection, playback and volume commands, favorites handoff, and join/leave group actions use the existing MQTT bridge.
 8. **Screen dimmer — Implemented.** Panel page events can be assigned to a screen-dimmer instance that sets Nextion brightness by page.
 9. **Firmware and HMI delivery — In progress.** Single-panel Nextion HMI upload and delivery are implemented. ESPHome firmware OTA and observable multi-panel rollouts remain planned.
+10. **Persistence and runtime process architecture — Planned next.** Migrate the manager's JSON-backed configuration, runtime state, and user stores to SQLite with a versioned, recoverable migration. Add revision history and administrator rollback for panel and plugin configuration. Review whether the MQTT/panel display-driving runtime should move into a separately supervised worker process; define ownership of the MQTT connection and scheduled work before making that split.
 
 ## MVP Acceptance Criteria
 
@@ -148,6 +149,14 @@ User-authored JavaScript is part of the scripted-plugin slice, not a later visua
 ## Decisions for Later Milestones
 
 - Should firmware artifacts be uploaded per panel, or should the manager build target-specific images from a shared ESPHome configuration?
+
+## Next Milestone: Persistence and Runtime Process Architecture
+
+- Replace `manager.json`, `runtime-state.json`, and `users.json` with a SQLite database. Add schema migrations and a one-time import that preserves existing panel assignments, plugin instances, users, runtime state, and update records.
+- Record revisions for panel and plugin configuration changes, including who changed them and when. Let an administrator restore a prior revision; apply the restored configuration through the normal runtime update path and save it as a new revision rather than erasing history.
+- Keep firmware, HMI, crash-dump, and scheduled-backup ZIP files as filesystem artifacts; update backup and restore procedures to include the SQLite database and those files consistently.
+- Review the boundary between the HTTP API and the MQTT/panel display-driving runtime. Decide whether the runtime should run in a separately supervised worker process, and document its health, restart, and API communication behavior before splitting it.
+- Ensure only one active runtime owns the manager's MQTT connection and scheduled backup execution, so a future multi-process deployment cannot duplicate panel commands or scheduled backups.
 
 ## Post-MVP Roadmap: Firmware and HMI Delivery
 
