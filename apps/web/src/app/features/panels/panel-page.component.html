@@ -20,6 +20,7 @@
             } @else {
               <small class="panel-reset-reason">Reboot reason: no report yet</small>
             }
+            @if (connection.ip; as ip) { <small class="panel-ip">IP {{ ip }}</small> }
             @if (connection.telemetry; as telemetry) {
               <small class="panel-telemetry">{{ formatTelemetry(telemetry) }} · {{ telemetry.reportedAt | date:'shortTime' }}</small>
             }

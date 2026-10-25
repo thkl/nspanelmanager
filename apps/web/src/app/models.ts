@@ -221,6 +221,7 @@ export interface PanelGroupSettingsStatus {
 export interface PanelConnectionStatus {
   panelId: string;
   nodeName: string;
+  ip?: string;
   status: "online" | "offline";
   lastSeenAt: number | null;
   lastResetReport: PanelResetReport | null;

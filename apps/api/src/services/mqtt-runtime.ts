@@ -52,6 +52,7 @@ export class MqttRuntime {
   private readonly panelFirmwareVersions = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
   private readonly discoveredPanels = new Map<string, DiscoveredPanel>();
+  private readonly panelIps = new Map<string, { ip: string; macAddress: string; name: string }>();
   private readonly panelConnectionListeners = new Set<(panels: PanelConnectionStatus[]) => void>();
   private readonly discoveredPanelListeners = new Set<(panels: DiscoveredPanel[]) => void>();
   private readonly mqttStatusListeners = new Set<(status: { connected: boolean; error: string }) => void>();
@@ -162,9 +163,12 @@ export class MqttRuntime {
         ? this.panelGroupStatuses.get(panel.id)
         : undefined;
       const desiredGroupSettings = panel.groupName ? this.runtimeState.getPanelGroupSettings(panel.groupName) : undefined;
+      const discoveredAddress = this.panelIps.get(panel.id);
+      const ip = discoveredAddress && this.panelIpMatchesPanel(discoveredAddress, panel) ? discoveredAddress.ip : undefined;
       return {
         panelId: panel.id,
         nodeName: panel.nodeName,
+        ...(ip ? { ip } : {}),
         status: connection?.status === "online" && heartbeatFresh ? "online" : "offline",
         lastSeenAt: connection?.lastSeenAt ?? null,
         lastResetReport: resetReport ?? null,
@@ -1236,9 +1240,8 @@ export class MqttRuntime {
     if (!macAddress || !name) return;
     const isMacSuffixedPanel = /^nspanel-[a-f0-9]{6}$/i.test(name);
     const config = this.store.get();
-    const configuredPanel = config.panels.find((panel) =>
-      panel.nodeName.toLowerCase() === name.toLowerCase() || normalizeMacAddress(panel.macAddress) === macAddress
-    );
+    const configuredPanel = config.panels.find((panel) => normalizeMacAddress(panel.macAddress) === macAddress)
+      ?? config.panels.find((panel) => panel.nodeName.toLowerCase() === name.toLowerCase());
     const matchesConfiguredPanel = Boolean(configuredPanel);
     if (!isMacSuffixedPanel && !matchesConfiguredPanel) return;
     if (isMacSuffixedPanel && configuredPanel && normalizeMacAddress(configuredPanel.macAddress) === macAddress && !configuredPanel.unifiedFirmware) {
@@ -1260,6 +1263,10 @@ export class MqttRuntime {
     };
     this.discoveredPanels.delete(macAddress);
     this.discoveredPanels.set(macAddress, panel);
+    if (configuredPanel && panel.ip) {
+      this.panelIps.set(configuredPanel.id, { ip: panel.ip, macAddress, name: panel.name });
+      this.notifyPanelConnectionsChanged();
+    }
     while (this.discoveredPanels.size > MqttRuntime.DISCOVERED_PANEL_LIMIT) {
       const oldestMac = [...this.discoveredPanels.entries()].sort((left, right) => left[1].lastSeenAt - right[1].lastSeenAt)[0]?.[0];
       if (!oldestMac) break;
@@ -1283,6 +1290,13 @@ export class MqttRuntime {
   private notifyDiscoveredPanelsChanged(): void {
     const panels = [...this.discoveredPanels.values()].sort((left, right) => right.lastSeenAt - left.lastSeenAt);
     for (const listener of this.discoveredPanelListeners) listener(panels);
+  }
+
+  /** Keeps a discovered address attached only while the panel identity still matches. */
+  private panelIpMatchesPanel(address: { ip: string; macAddress: string; name: string }, panel: Panel): boolean {
+    return panel.macAddress
+      ? normalizeMacAddress(panel.macAddress) === address.macAddress
+      : panel.nodeName.toLowerCase() === address.name.toLowerCase();
   }
 
   private notifyMqttStatusChanged(): void {
