@@ -221,7 +221,9 @@ nspanel-screen-preview { margin-bottom: 22px; }
 
 .panel-group-settings {
   align-items: end;
-  margin-top: 12px;
+  margin-top: 12px !important;
+  margin-left: 5px !important;
+  margin-bottom: 12px !important;
 }
 
 .panel-group-help {
