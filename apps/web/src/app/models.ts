@@ -144,6 +144,7 @@ export interface PluginDefinition {
   panelEventObserver?: boolean;
   instanceVariableFields?: Array<{ key: string; label: string; required?: boolean; help?: string; optionSource?: "home-assistant-entities" }>;
   homeTileType?: "light" | "cover";
+  homeTileTypeByEntityDomain?: Record<string, "light" | "cover">;
   configSchema: PluginConfigField[];
 }
 

@@ -60,11 +60,13 @@ export interface PluginFavoritePanelPageResult {
 export interface PluginFavoritePressResult {
   commands?: PluginCommand[];
   statePatch?: PluginState;
+  /** Opens a plugin-owned information screen instead of executing a direct toggle. */
+  screen?: string;
 }
 
 /** Commands and optional light-page navigation produced by holding a favorite. */
 export interface PluginFavoriteLongPressResult extends PluginFavoritePressResult {
-  page?: "light" | "closed";
+  page?: "light" | "level" | "closed";
 }
 
 /** Normalized device state cached per instance and restored from the last durable runtime snapshot after restart. */
@@ -216,6 +218,12 @@ export interface PluginDefinition {
   readonly instanceVariableFields?: readonly PluginInstanceVariableField[];
   /** Device capability exposed to the four configurable panel home tiles. */
   readonly homeTileType?: "light" | "cover";
+  /** Entity domains that select a home-tile capability for this instance. */
+  readonly homeTileTypeByEntityDomain?: Readonly<Record<string, "light" | "cover">>;
+  /** Resolves a home-tile capability from the current instance configuration. */
+  homeTileTypeForInstance?(instance: ResolvedPluginInstance): "light" | "cover" | undefined;
+  /** Resolves the selected favorite page for an entity-aware plugin instance. */
+  favoritePanelPageForInstance?(instance: ResolvedPluginInstance): "level" | undefined;
   readonly configSchema: readonly PluginConfigField[];
 
   /** Returns an error message when reusable plugin configuration is incomplete. */

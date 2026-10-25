@@ -406,16 +406,25 @@ export class PanelPageComponent implements OnInit {
 
   /** Lists enabled or saved instances whose plugin can drive a main-screen tile. */
   homeTileInstances() {
-    const pluginIds = new Set(this.pluginDefinitions().filter((plugin) => plugin.homeTileType).map((plugin) => plugin.id));
-    const profileIds = new Set(this.manager.config().pluginProfiles.filter((profile) => pluginIds.has(profile.pluginId)).map((profile) => profile.id));
-    return this.manager.config().pluginInstances.filter((instance) => profileIds.has(instance.pluginProfileId));
+    const profiles = this.manager.config().pluginProfiles;
+    const definitions = this.pluginDefinitions();
+    return this.manager.config().pluginInstances.filter((instance) => {
+      const profile = profiles.find((candidate) => candidate.id === instance.pluginProfileId);
+      const definition = definitions.find((candidate) => candidate.id === profile?.pluginId);
+      if (definition?.homeTileType) return true;
+      const entityDomain = instance.variables.entityId?.split(".")[0]?.toLowerCase();
+      return Boolean(entityDomain && definition?.homeTileTypeByEntityDomain?.[entityDomain]);
+    });
   }
 
   /** Returns the configured light or cover capability for an assigned instance. */
   homeTileType(pluginInstanceId?: string): "light" | "cover" | undefined {
     const instance = this.homeTileInstances().find((candidate) => candidate.id === pluginInstanceId);
     const profile = instance && this.manager.config().pluginProfiles.find((candidate) => candidate.id === instance.pluginProfileId);
-    return this.pluginDefinitions().find((plugin) => plugin.id === profile?.pluginId)?.homeTileType;
+    const definition = this.pluginDefinitions().find((plugin) => plugin.id === profile?.pluginId);
+    const entityDomain = instance?.variables.entityId?.split(".")[0]?.toLowerCase();
+    const entityTileType = entityDomain ? definition?.homeTileTypeByEntityDomain?.[entityDomain] : undefined;
+    return entityTileType ?? definition?.homeTileType;
   }
 
   /** Assigns an instance and chooses its built-in detail page as the initial action. */

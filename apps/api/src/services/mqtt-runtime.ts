@@ -1981,7 +1981,7 @@ export class MqttRuntime {
       pluginInstanceId: target.id,
       screen,
       ...(targetDefinition.renderMenuPage ? { menuPageActive: true } : {}),
-      ...(targetDefinition.favoritePanelPage ? { favoritePanelPage: targetDefinition.favoritePanelPage } : {}),
+        ...(this.favoritePanelPageFor(targetDefinition, target) ? { favoritePanelPage: this.favoritePanelPageFor(targetDefinition, target) } : {}),
       history: [],
       flowBinding: targetBinding,
       ancestors
@@ -1989,7 +1989,7 @@ export class MqttRuntime {
     await this.renderBinding(panel, targetBinding, target, screen);
   }
 
-  /** Runs a favorite action without opening or changing a plugin screen. */
+  /** Runs a favorite action, opening a plugin screen when the result requests one. */
   private async executeDirectFavoritePress(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance, definition: PluginDefinition): Promise<void> {
     if (!definition.handleFavoritePress) return;
     try {
@@ -2006,6 +2006,19 @@ export class MqttRuntime {
       for (const command of result?.commands ?? []) {
         if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
       }
+      if (result?.screen) {
+        const favoritePanelPage = this.favoritePanelPageFor(definition, instance);
+        this.panelHomeTilePages.delete(panel.id);
+        this.activeFavoriteLightPages.delete(panel.id);
+        await this.runtimeState.setPanelSession(panel.id, {
+          bindingId: binding.id,
+          pluginInstanceId: instance.id,
+          screen: result.screen,
+          ...(favoritePanelPage ? { favoritePanelPage } : {}),
+          history: []
+        });
+        await this.renderBinding(panel, binding, instance, result.screen);
+      }
       this.recordPluginActivity(instance.id);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -2017,7 +2030,7 @@ export class MqttRuntime {
     }
   }
 
-  /** Runs a plugin's long-press action and tracks its native light page when opened. */
+  /** Runs a plugin's long-press action and tracks its native light or level page. */
   private async executeFavoriteLongPress(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance, definition: PluginDefinition): Promise<void> {
     if (!definition.handleFavoriteLongPress) return;
     try {
@@ -2034,6 +2047,21 @@ export class MqttRuntime {
       if (result?.page === "light") {
         this.panelHomeTilePages.delete(panel.id);
         this.activeFavoriteLightPages.set(panel.id, { bindingId: binding.id, pluginInstanceId: instance.id });
+      } else if (result?.page === "level") {
+        const favoritePanelPage = this.favoritePanelPageFor(definition, instance);
+        if (favoritePanelPage && definition.openFavoritePanelPage) {
+          this.panelHomeTilePages.delete(panel.id);
+          this.activeFavoriteLightPages.delete(panel.id);
+          await this.runtimeState.setPanelSession(panel.id, {
+            bindingId: binding.id,
+            pluginInstanceId: instance.id,
+            screen: "level",
+            favoritePanelPage,
+            history: []
+          });
+          await this.renderBinding(panel, binding, instance, "level");
+          return;
+        }
       } else if (result?.page === "closed") {
         this.activeFavoriteLightPages.delete(panel.id);
       }
@@ -2123,7 +2151,7 @@ export class MqttRuntime {
         pluginInstanceId: instance.id,
         screen: startScreen,
         ...(definition.renderMenuPage ? { menuPageActive: true } : {}),
-        ...(definition.favoritePanelPage ? { favoritePanelPage: definition.favoritePanelPage } : {}),
+        ...(this.favoritePanelPageFor(definition, instance) ? { favoritePanelPage: this.favoritePanelPageFor(definition, instance) } : {}),
         history: []
       });
       await this.renderBinding(panel, binding, instance, startScreen);
@@ -2161,7 +2189,7 @@ export class MqttRuntime {
         pluginInstanceId: instance.id,
         screen: startScreen,
         ...(definition.renderMenuPage ? { menuPageActive: true } : {}),
-        ...(definition.favoritePanelPage ? { favoritePanelPage: definition.favoritePanelPage } : {}),
+        ...(this.favoritePanelPageFor(definition, instance) ? { favoritePanelPage: this.favoritePanelPageFor(definition, instance) } : {}),
         history: []
       });
       await this.renderBinding(panel, binding, instance, startScreen);
@@ -2301,6 +2329,11 @@ export class MqttRuntime {
     if (definition) await this.showScreen(panel, binding, instance, this.runtimeState.getPluginState(instance.id), screen);
   }
 
+  /** Resolves a fixed or entity-specific native favorite page for this instance. */
+  private favoritePanelPageFor(definition: PluginDefinition, instance: ResolvedPluginInstance): "level" | undefined {
+    return definition.favoritePanelPageForInstance?.(instance) ?? definition.favoritePanelPage;
+  }
+
   private async showScreen(panel: Panel, binding: PanelBinding, instance: ResolvedPluginInstance, state: PluginState, screen: string): Promise<void> {
     const definition: PluginDefinition | undefined = this.plugins.get(instance.pluginId);
     const isCurrentSession = (): boolean => {
@@ -2309,7 +2342,7 @@ export class MqttRuntime {
     };
     if (!definition || !isCurrentSession()) return;
     const context = this.createPluginContext(panel, binding, instance);
-    if (definition.favoritePanelPage && definition.openFavoritePanelPage) {
+    if (this.favoritePanelPageFor(definition, instance) && definition.openFavoritePanelPage) {
       try {
         const result = await definition.openFavoritePanelPage(instance, panel, binding, state);
         if (!isCurrentSession()) return;

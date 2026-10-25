@@ -124,10 +124,16 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       const instance = store.get().pluginInstances.find((item) => item.id === button.pluginInstanceId);
       const profile = instance && store.get().pluginProfiles.find((item) => item.id === instance.pluginProfileId);
       const definition = profile && pluginRegistry.get(profile.pluginId);
-      if (!instance || !definition?.homeTileType) {
+      const resolvedInstance = instance && profile && definition
+        ? { ...instance, pluginId: definition.id, config: profile.config }
+        : undefined;
+      const homeTileType = resolvedInstance && definition
+        ? definition.homeTileTypeForInstance?.(resolvedInstance) ?? definition.homeTileType
+        : undefined;
+      if (!resolvedInstance || !definition || !homeTileType) {
         return response.status(400).json({ error: `Choose a registered light or cover plugin instance for main button ${index + 1}.` });
       }
-      if (button.mode === 1 && definition.homeTileType !== "cover") {
+      if (button.mode === 1 && homeTileType !== "cover") {
         return response.status(400).json({ error: `Main button ${index + 1} uses the level page and must be assigned to a cover plugin.` });
       }
     }
