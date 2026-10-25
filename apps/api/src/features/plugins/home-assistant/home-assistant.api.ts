@@ -50,6 +50,7 @@ interface HomeAssistantEntityRegistryEntry {
   entity_id: string;
   area_id?: string | null;
   device_id?: string | null;
+  options?: Record<string, unknown>;
 }
 
 /** Device Registry fields needed when an entity inherits its device's area. */
@@ -111,6 +112,32 @@ export async function fetchHomeAssistantEntityOptions(baseUrl: string, accessTok
     // Keep type and text filtering available if a reverse proxy blocks the registry WebSocket.
     return { entities: sortHomeAssistantEntities(states), areas: [], areasAvailable: false };
   }
+}
+
+/** Loads Home Assistant areas mapped to a vacuum entity's cleanable segments. */
+export async function getHomeAssistantVacuumAreas(
+  instance: ResolvedPluginInstance,
+  entityId: string
+): Promise<HomeAssistantAreaOption[]> {
+  const [entityRegistry, areaRegistry] = await homeAssistantWebSocketRequests(
+    configString(instance, "baseUrl"),
+    configString(instance, "accessToken"),
+    ["config/entity_registry/list", "config/area_registry/list"]
+  );
+  const registryEntry = parseEntityRegistry(entityRegistry).find((entry) => entry.entity_id === entityId);
+  const vacuumOptions = registryEntry?.options?.["vacuum"];
+  const areaMapping = isRecord(vacuumOptions) && isRecord(vacuumOptions["area_mapping"])
+    ? vacuumOptions["area_mapping"]
+    : undefined;
+  if (!areaMapping) return [];
+
+  const mappedAreaIds = new Set(Object.entries(areaMapping)
+    .filter(([, segmentIds]) => Array.isArray(segmentIds) && segmentIds.length > 0)
+    .map(([areaId]) => areaId));
+  return parseAreaRegistry(areaRegistry)
+    .filter((area) => mappedAreaIds.has(area.id))
+    .map(({ id, name }) => ({ id, name }))
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
 }
 
 /** Returns the configured, validated entity ID for a plugin instance. */
@@ -388,7 +415,8 @@ function parseEntityRegistry(value: unknown): HomeAssistantEntityRegistryEntry[]
     return [{
       entity_id: entry["entity_id"],
       area_id: typeof entry["area_id"] === "string" ? entry["area_id"] : null,
-      device_id: typeof entry["device_id"] === "string" ? entry["device_id"] : null
+      device_id: typeof entry["device_id"] === "string" ? entry["device_id"] : null,
+      options: isRecord(entry["options"]) ? entry["options"] : undefined
     }];
   });
 }

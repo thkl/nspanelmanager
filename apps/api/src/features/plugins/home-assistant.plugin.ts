@@ -298,12 +298,12 @@ export class HomeAssistantPlugin implements PluginDefinition {
   /** Handles the vacuum info-page button actions. */
   handleAction(
     instance: ResolvedPluginInstance,
-    _state: PluginState,
+    state: PluginState,
     action: string,
     _context: PluginRuntimeContext
   ): Promise<PluginActionResult> {
     if (entityDomain(instance.variables.entityId) !== "vacuum") return Promise.resolve({ screen: "exit" });
-    return this.vacuumControls.handleAction(instance, requiredEntityId(instance), action);
+    return this.vacuumControls.handleAction(instance, requiredEntityId(instance), state, action);
   }
 
   /** Dispatches home-tile events to the controller for the selected entity. */

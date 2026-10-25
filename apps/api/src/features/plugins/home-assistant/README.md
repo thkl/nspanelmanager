@@ -58,9 +58,12 @@ Assistant cover services.
 
 ### Vacuum robots
 
-A favorite tap opens the generic plugin info screen. Its buttons call
-`vacuum.start_pause`, `vacuum.return_to_base`, and `vacuum.locate`. A hardware
-button uses Start/Pause directly because it has no screen to open.
+A favorite tap opens the plugin info screen. Its buttons call
+`vacuum.start_pause`, `vacuum.return_to_base`, and `vacuum.locate`. When the
+vacuum integration supports Home Assistant area cleaning and its segments are
+mapped to Home Assistant areas, a Clean area submenu lists those mappings and
+calls `vacuum.clean_area` for the selected area. A hardware button uses
+Start/Pause directly because it has no screen to open.
 
 ## Adding another Home Assistant domain
 
