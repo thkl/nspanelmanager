@@ -26,6 +26,11 @@ interface PluginInstanceGroup {
   instances: PluginInstance[];
 }
 
+interface HomeAssistantEntityGroup {
+  label: string;
+  entities: HomeAssistantEntityOption[];
+}
+
 /**
  * Configures reusable plugin profiles and per-device instances. Registry
  * schemas drive the profile editor; panel favorite bindings live with panels.
@@ -52,8 +57,12 @@ export class PluginsPageComponent implements OnInit {
   readonly instanceConfig = signal<Record<string, PluginConfigValue>>({});
   readonly instanceVariables = signal<Record<string, string>>({});
   readonly homeAssistantEntities = signal<Record<string, HomeAssistantEntityOption[]>>({});
+  readonly homeAssistantAreasAvailable = signal<Record<string, boolean>>({});
   readonly loadingHomeAssistantProfileId = signal("");
   readonly homeAssistantEntityErrors = signal<Record<string, string>>({});
+  readonly homeAssistantEntitySearch = signal("");
+  readonly homeAssistantEntityTypeFilter = signal("all");
+  readonly homeAssistantAreaFilter = signal("all");
   readonly editingInstanceId = signal<string | null>(null);
   readonly instanceSearch = signal("");
   readonly expandedInstanceGroups = signal<Set<string>>(new Set());
@@ -639,6 +648,7 @@ export class PluginsPageComponent implements OnInit {
     this.instanceName.set(instance.name);
     this.selectedPluginProfileId.set(instance.pluginProfileId);
     this.instanceVariables.set(this.withProfileVariableDefaults(instance.pluginProfileId, instance.variables ?? {}));
+    this.resetHomeAssistantEntityFilters();
     this.loadHomeAssistantEntitiesForProfile(instance.pluginProfileId);
     this.clearPagePreview();
   }
@@ -650,11 +660,13 @@ export class PluginsPageComponent implements OnInit {
     this.selectedPluginProfileId.set("");
     this.instanceVariables.set({});
     this.loadingHomeAssistantProfileId.set("");
+    this.resetHomeAssistantEntityFilters();
     this.clearPagePreview();
   }
 
   /** Selects a reusable plugin for the instance draft. */
   setInstanceProfile(pluginProfileId: string): void {
+    if (this.selectedPluginProfileId() !== pluginProfileId) this.resetHomeAssistantEntityFilters();
     this.selectedPluginProfileId.set(pluginProfileId);
     this.instanceVariables.set(this.withProfileVariableDefaults(pluginProfileId, this.instanceVariables()));
     this.loadHomeAssistantEntitiesForProfile(pluginProfileId);
@@ -668,8 +680,10 @@ export class PluginsPageComponent implements OnInit {
     this.loadingHomeAssistantProfileId.set(profileId);
     this.homeAssistantEntityErrors.update((errors) => ({ ...errors, [profileId]: "" }));
     this.manager.loadHomeAssistantEntities(profileId).subscribe({
-      next: ({ entities }) => {
+      next: (result) => {
+        const { entities } = result;
         this.homeAssistantEntities.update((current) => ({ ...current, [profileId]: entities }));
+        this.homeAssistantAreasAvailable.update((current) => ({ ...current, [profileId]: result.areasAvailable }));
         if (this.loadingHomeAssistantProfileId() === profileId) this.loadingHomeAssistantProfileId.set("");
       },
       error: (error) => {
@@ -682,6 +696,85 @@ export class PluginsPageComponent implements OnInit {
   /** Returns entity choices for the currently selected Home Assistant profile. */
   homeAssistantEntityOptions(): HomeAssistantEntityOption[] {
     return this.homeAssistantEntities()[this.selectedPluginProfileId()] ?? [];
+  }
+
+  /** Returns available entity domains for the current Home Assistant profile. */
+  homeAssistantEntityTypeOptions(): Array<{ value: string; label: string }> {
+    const domains = new Set(this.homeAssistantEntityOptions().map((entity) => entity.domain));
+    return [...domains]
+      .map((value) => ({ value, label: this.homeAssistantEntityDomainLabel(value) }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }
+
+  /** Returns area choices reported by Home Assistant's registries. */
+  homeAssistantAreaOptions(): Array<{ id: string; name: string }> {
+    const areas = new Map<string, string>();
+    for (const entity of this.homeAssistantEntityOptions()) {
+      if (entity.areaId && entity.areaName) areas.set(entity.areaId, entity.areaName);
+    }
+    return [...areas.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  /** Filters entities by domain, area, and a search across their labels and IDs. */
+  filteredHomeAssistantEntities(): HomeAssistantEntityOption[] {
+    const query = this.homeAssistantEntitySearch().trim().toLocaleLowerCase();
+    const entityType = this.homeAssistantEntityTypeFilter();
+    const area = this.homeAssistantAreaFilter();
+    return this.homeAssistantEntityOptions().filter((entity) => {
+      if (entityType !== "all" && entity.domain !== entityType) return false;
+      if (area === "no-area" && entity.areaId) return false;
+      if (area !== "all" && area !== "no-area" && entity.areaId !== area) return false;
+      if (!query) return true;
+      return [entity.name, entity.entityId, entity.state, entity.areaName, this.homeAssistantEntityDomainLabel(entity.domain)]
+        .some((value) => value?.toLocaleLowerCase().includes(query));
+    });
+  }
+
+  /** Groups visible entity choices by area and type, retaining the current selection. */
+  homeAssistantEntityGroups(selectedEntityId: string): HomeAssistantEntityGroup[] {
+    const visible = this.filteredHomeAssistantEntities();
+    const selected = this.homeAssistantEntityOptions().find((entity) => entity.entityId === selectedEntityId);
+    const groups = new Map<string, HomeAssistantEntityGroup>();
+    if (selected && !visible.some((entity) => entity.entityId === selected.entityId)) {
+      groups.set("selected", { label: "Current selection", entities: [selected] });
+    }
+    for (const entity of visible) {
+      const areaName = entity.areaName ?? "No area";
+      const typeName = this.homeAssistantEntityDomainLabel(entity.domain);
+      const label = `${areaName} · ${typeName}`;
+      const group = groups.get(label) ?? { label, entities: [] };
+      group.entities.push(entity);
+      groups.set(label, group);
+    }
+    return [...groups.values()];
+  }
+
+  /** Formats Home Assistant domains for the entity picker. */
+  homeAssistantEntityDomainLabel(domain: string): string {
+    const labels: Record<string, string> = {
+      cover: "Covers and blinds",
+      fan: "Fans",
+      input_boolean: "Input booleans",
+      light: "Lights",
+      media_player: "Media players",
+      switch: "Switches",
+      vacuum: "Vacuum robots"
+    };
+    return labels[domain] ?? domain.replaceAll("_", " ");
+  }
+
+  /** Reports whether Home Assistant area metadata loaded for the selected profile. */
+  homeAssistantAreaMetadataAvailable(): boolean {
+    return this.homeAssistantAreasAvailable()[this.selectedPluginProfileId()] ?? false;
+  }
+
+  /** Resets picker filters when the selected profile or instance changes. */
+  private resetHomeAssistantEntityFilters(): void {
+    this.homeAssistantEntitySearch.set("");
+    this.homeAssistantEntityTypeFilter.set("all");
+    this.homeAssistantAreaFilter.set("all");
   }
 
   /** Reports whether the selected instance profile declares a Home Assistant entity picker. */

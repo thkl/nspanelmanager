@@ -32,8 +32,8 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
       return response.status(409).json({ error: "Save the Home Assistant URL and access token before loading devices." });
     }
     try {
-      const entities = await fetchHomeAssistantEntityOptions(baseUrl, accessToken);
-      return response.json({ entities });
+      const options = await fetchHomeAssistantEntityOptions(baseUrl, accessToken);
+      return response.json(options);
     } catch (error) {
       return response.status(502).json({ error: error instanceof Error ? error.message : "Could not load entities from Home Assistant." });
     }

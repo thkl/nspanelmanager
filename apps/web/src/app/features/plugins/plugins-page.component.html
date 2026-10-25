@@ -419,14 +419,52 @@
           <div class="variable-row">
             <label><span class="variable-label">{{ variableLabel(entry.name) }}@if (variableField(entry.name)?.required) { <em>Required</em> }</span><input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" [placeholder]="isFixedVariable(entry.name) ? entry.name : 'room'" [disabled]="isFixedVariable(entry.name)" autocomplete="off"></label>
             @if (variableField(entry.name)?.optionSource === 'home-assistant-entities') {
-              <label>Home Assistant entity
-                <select [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)">
-                  <option value="">Choose a device…</option>
-                  @for (entity of homeAssistantEntityOptions(); track entity.entityId) { <option [value]="entity.entityId">{{ entity.name }} · {{ entity.entityId }} ({{ entity.state }})</option> }
-                </select>
-                @if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }
-                @if (homeAssistantEntityError()) { <small class="variable-error" role="alert">{{ homeAssistantEntityError() }}</small> }
-              </label>
+              <div class="ha-entity-field">
+                <span class="ha-entity-field-label">Home Assistant entity</span>
+                <div class="ha-entity-picker">
+                  <label>Search devices
+                    <input type="search" [ngModel]="homeAssistantEntitySearch()" (ngModelChange)="homeAssistantEntitySearch.set($event)" placeholder="Name or entity ID">
+                  </label>
+                  <div class="ha-entity-filters">
+                    <label>Entity type
+                      <select [ngModel]="homeAssistantEntityTypeFilter()" (ngModelChange)="homeAssistantEntityTypeFilter.set($event)">
+                        <option value="all">All types</option>
+                        @for (type of homeAssistantEntityTypeOptions(); track type.value) {
+                          <option [value]="type.value">{{ type.label }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label>Area
+                      <select [ngModel]="homeAssistantAreaFilter()" (ngModelChange)="homeAssistantAreaFilter.set($event)" [disabled]="!homeAssistantAreaMetadataAvailable()">
+                        <option value="all">All areas</option>
+                        <option value="no-area">No area</option>
+                        @for (area of homeAssistantAreaOptions(); track area.id) {
+                          <option [value]="area.id">{{ area.name }}</option>
+                        }
+                      </select>
+                    </label>
+                  </div>
+                  <small class="ha-entity-count">{{ filteredHomeAssistantEntities().length }} of {{ homeAssistantEntityOptions().length }} devices</small>
+                  <select [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)">
+                    <option value="">Choose a device…</option>
+                    @for (group of homeAssistantEntityGroups(entry.value); track group.label) {
+                      <optgroup [label]="group.label">
+                        @for (entity of group.entities; track entity.entityId) {
+                          <option [value]="entity.entityId">{{ entity.name }} · {{ entity.entityId }} ({{ entity.state }})</option>
+                        }
+                      </optgroup>
+                    }
+                  </select>
+                  @if (homeAssistantEntityOptions().length && filteredHomeAssistantEntities().length === 0) {
+                    <small>No devices match these filters. The current selection stays available above.</small>
+                  }
+                  @if (homeAssistantEntityOptions().length && !homeAssistantAreaMetadataAvailable()) {
+                    <small>Area details are unavailable. Search and entity type filters still work.</small>
+                  }
+                  @if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }
+                  @if (homeAssistantEntityError()) { <small class="variable-error" role="alert">{{ homeAssistantEntityError() }}</small> }
+                </div>
+              </div>
             } @else {
               <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" [placeholder]="isFixedVariable(entry.name) ? 'Required value' : 'livingroom'"></textarea>@if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }</label>
             }

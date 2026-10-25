@@ -177,6 +177,8 @@ export interface HomeAssistantEntityOption {
   name: string;
   state: string;
   domain: string;
+  areaId?: string;
+  areaName?: string;
 }
 
 export interface PanelBinding {

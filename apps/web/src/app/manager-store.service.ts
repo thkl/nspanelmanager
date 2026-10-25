@@ -452,8 +452,8 @@ export class ManagerStore {
   }
 
   /** Lists selectable Home Assistant entities using the credentials saved in one plugin profile. */
-  loadHomeAssistantEntities(profileId: string): Observable<{ entities: HomeAssistantEntityOption[] }> {
-    return this.http.get<{ entities: HomeAssistantEntityOption[] }>(`/api/plugins/profiles/${encodeURIComponent(profileId)}/home-assistant-entities`);
+  loadHomeAssistantEntities(profileId: string): Observable<{ entities: HomeAssistantEntityOption[]; areasAvailable: boolean }> {
+    return this.http.get<{ entities: HomeAssistantEntityOption[]; areasAvailable: boolean }>(`/api/plugins/profiles/${encodeURIComponent(profileId)}/home-assistant-entities`);
   }
 
   /** Renders a page or simulates its button action with disposable MQTT and storage effects. */
