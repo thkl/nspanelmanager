@@ -180,6 +180,29 @@ Add an authenticated firmware and HMI workspace for administrators to upload art
 - Persist artifact metadata and update-job history in the manager data directory, while keeping download URLs temporary and credentials protected.
 - Document USB/serial recovery for panels that cannot reconnect after an update. Validate firmware and HMI updates on a test panel before enabling broad rollouts.
 
+## Post-MVP Roadmap: Operations and Usability
+
+### Panel Health Notifications
+
+- Add manager health notifications for offline panels, unexpected reboots, firmware/HMI mismatches, and configurable resource thresholds such as low free heap.
+- Add a per-panel notification opt-out. Opted-out panels remain visible in status and diagnostics but do not generate health alerts; this supports test panels that are routinely powered off.
+- Make notification state and recent outcomes visible in the manager, with delivery over the configured notification channels.
+
+### Localization and Help
+
+- Add locale selection for the web UI and move user-visible labels, errors, confirmations, and empty states into translation resources. Keep English as the fallback for missing translations.
+- Add contextual help for configuration fields and workflows, with examples and links to focused documentation for MQTT topics, plugin variables, panel assignments, backups, and updates.
+
+### Plugin Blueprints
+
+- Export and import versioned plugin blueprints so profiles can be shared between manager installations. Optionally include an instance template and its non-secret variables.
+- Include the plugin ID and blueprint schema version, validate imported values against the installed plugin definition, and show a preview before saving.
+- Omit secret fields from exports and clearly identify credentials that must be entered again after import. Report unsupported plugins, invalid fields, and naming conflicts without partially applying the blueprint.
+
+### Runtime Process Architecture
+
+- After SQLite deployment stability is established, review whether the MQTT/panel display-driving runtime should run as a separately supervised worker. Define single ownership of MQTT and scheduled jobs, health reporting, restart behavior, and API communication before splitting processes.
+
 ## Out of Scope for the MVP
 
 - Firmware flashing, OTA management, and changing the panel's TFT assets are out of the MVP and planned as a post-MVP milestone.
