@@ -251,6 +251,28 @@ export function entityStatePatch(entity: HomeAssistantEntity): PluginState {
     const position = numberValue(attributes, "current_position");
     if (position !== undefined) patch["position"] = clampPercent(position);
   }
+  if (domain === "fan") {
+    const percentage = numberValue(attributes, "percentage");
+    const percentageStep = numberValue(attributes, "percentage_step");
+    const supportedFeatures = numberValue(attributes, "supported_features") ?? 0;
+    const presetModes = attributes["preset_modes"];
+    const oscillating = attributes["oscillating"];
+    const direction = attributes["direction"];
+
+    patch["fanPercentage"] = percentage === undefined ? null : clampPercent(percentage);
+    patch["fanPercentageStep"] = percentageStep === undefined ? null : percentageStep;
+    patch["fanPresetMode"] = typeof attributes["preset_mode"] === "string" ? attributes["preset_mode"] : null;
+    patch["fanPresetModes"] = Array.isArray(presetModes)
+      ? presetModes.filter((mode): mode is string => typeof mode === "string")
+      : [];
+    patch["fanOscillating"] = typeof oscillating === "boolean" ? oscillating : null;
+    patch["fanDirection"] = typeof direction === "string" ? direction : null;
+    patch["fanSupportsPercentage"] = Boolean(supportedFeatures & 1)
+      || percentage !== undefined
+      || (percentageStep !== undefined && percentageStep > 0);
+    patch["fanSupportsOscillation"] = Boolean(supportedFeatures & 2) || typeof oscillating === "boolean";
+    patch["fanSupportsDirection"] = Boolean(supportedFeatures & 4) || typeof direction === "string";
+  }
   if (domain === "vacuum") {
     const batteryLevel = numberValue(attributes, "battery_level");
     if (batteryLevel !== undefined) patch["batteryLevel"] = batteryLevel;

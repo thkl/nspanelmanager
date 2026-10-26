@@ -11,7 +11,8 @@ MQTT commands to the existing runtime.
 | --- | --- |
 | `home-assistant.plugin.ts` | Plugin metadata, profile validation, polling, and dispatch to a domain controller. Start here to understand the full flow. |
 | `home-assistant.api.ts` | Home Assistant REST and WebSocket calls, entity/area lookup, and normalization of HA state. |
-| `home-assistant.switch.ts` | Shared one-tap toggle for switches, fans, input booleans, media players, and light favorites. |
+| `home-assistant.switch.ts` | Shared one-tap toggle for switches, input booleans, media players, and light favorites. |
+| `home-assistant.fan.ts` | Fan info screen with speed steps, preset modes, oscillation, and direction controls when supported. |
 | `home-assistant.light.ts` | Light tile input, color page, brightness, and configurable color presets. |
 | `home-assistant.cover.ts` | Cover open/close, stop, position control, and the panel's native level page. |
 | `home-assistant.vacuum.ts` | Vacuum info screen and its start/pause, dock, and locate actions. |
@@ -36,7 +37,15 @@ entity state.
 ### Switch-like entities
 
 Tap the favorite to call `homeassistant.toggle`. This shared flow handles
-`switch`, `fan`, `input_boolean`, and `media_player` entities.
+`switch`, `input_boolean`, and `media_player` entities.
+
+### Fans
+
+A favorite tap opens the fan info screen. It always offers power control, and
+adds speed up/down, preset selection, oscillation, or direction controls when
+Home Assistant reports those capabilities. Speed changes use the entity's
+`percentage_step` when available and otherwise use ten percent. A hardware
+button remains a direct on/off toggle.
 
 ### Lights
 

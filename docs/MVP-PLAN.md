@@ -193,6 +193,12 @@ Add an authenticated firmware and HMI workspace for administrators to upload art
 - Add locale selection for the web UI and move user-visible labels, errors, confirmations, and empty states into translation resources. Keep English as the fallback for missing translations.
 - Add contextual help for configuration fields and workflows, with examples and links to focused documentation for MQTT topics, plugin variables, panel assignments, backups, and updates.
 
+### Mobile Layout
+
+- Improve the existing responsive UI so core workflows work comfortably on narrow screens, including navigation, panel status and editing, plugin instance lists and settings, tables, and firmware/HMI updates.
+- On phones, keep the panel list compact and open the selected panel's details in a slide-out or focused detail view, so the list does not take up the screen while editing.
+- Check touch target sizes, form layout, horizontal overflow, and dialogs at common phone and tablet widths.
+
 ### Plugin Blueprints
 
 - Export and import versioned plugin blueprints so profiles can be shared between manager installations. Optionally include an instance template and its non-secret variables.

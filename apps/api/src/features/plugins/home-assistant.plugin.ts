@@ -26,6 +26,7 @@ import {
   validHomeAssistantBaseUrl
 } from "./home-assistant/home-assistant.api.js";
 import { HomeAssistantCoverControls } from "./home-assistant/home-assistant.cover.js";
+import { HomeAssistantFanControls } from "./home-assistant/home-assistant.fan.js";
 import { HomeAssistantLightControls } from "./home-assistant/home-assistant.light.js";
 import { HomeAssistantSwitchControls } from "./home-assistant/home-assistant.switch.js";
 import { HomeAssistantVacuumControls } from "./home-assistant/home-assistant.vacuum.js";
@@ -35,7 +36,7 @@ export type { HomeAssistantEntityOption, HomeAssistantEntityOptions } from "./ho
 
 /**
  * Registers Home Assistant as a manager plugin and connects plugin lifecycle
- * hooks to the focused switch, light, cover, vacuum, and API modules.
+ * hooks to the focused switch, light, fan, cover, vacuum, and API modules.
  *
  * Flow overview:
  * 1. The saved profile supplies the HA URL and access token.
@@ -47,7 +48,7 @@ export class HomeAssistantPlugin implements PluginDefinition {
   readonly id = "home-assistant";
   readonly name = "Home Assistant";
   readonly version = 2;
-  readonly description = "Select Home Assistant devices for toggle, color-light, cover-level, or vacuum controls.";
+  readonly description = "Select Home Assistant devices for toggle, fan, color-light, cover-level, or vacuum controls.";
   readonly capabilities = ["home-assistant", "favorite-toggle", "favorite-page", "home-tile"];
   readonly favoriteFlow = true;
   readonly homeTileTypeByEntityDomain = { light: "light", cover: "cover" } as const;
@@ -133,6 +134,7 @@ export class HomeAssistantPlugin implements PluginDefinition {
 
   private readonly switchControls = new HomeAssistantSwitchControls();
   private readonly lightControls = new HomeAssistantLightControls();
+  private readonly fanControls = new HomeAssistantFanControls();
   private readonly coverControls = new HomeAssistantCoverControls();
   private readonly vacuumControls: HomeAssistantVacuumControls;
 
@@ -283,6 +285,7 @@ export class HomeAssistantPlugin implements PluginDefinition {
     const domain = entityDomain(entityId);
     if (domain === "cover") return this.coverControls.toggle(instance, entityId, state);
     if (domain === "vacuum") return this.vacuumControls.handleFavoritePress(instance, binding, entityId);
+    if (domain === "fan") return this.fanControls.handleFavoritePress(instance, binding, entityId, state);
     if (domain === "light") return this.lightControls.toggle(instance, entityId, state);
     return this.switchControls.toggle(instance, entityId);
   }
@@ -328,22 +331,29 @@ export class HomeAssistantPlugin implements PluginDefinition {
     return this.coverControls.renderFavoritePanelState(panel, state);
   }
 
-  /** Renders the vacuum info page; other HA domains use their native panel page. */
+  /** Renders the fan or vacuum info pages; other HA domains use native panel pages. */
   renderScreen(instance: ResolvedPluginInstance, state: PluginState, screen: string, _context: PluginRuntimeContext): PluginScreen | undefined {
-    return entityDomain(instance.variables.entityId) === "vacuum"
-      ? this.vacuumControls.renderScreen(instance, state, screen)
-      : undefined;
+    const domain = entityDomain(instance.variables.entityId);
+    if (domain === "vacuum") return this.vacuumControls.renderScreen(instance, state, screen);
+    if (domain === "fan") return this.fanControls.renderScreen(instance, state, screen);
+    return undefined;
   }
 
-  /** Handles the vacuum info-page button actions. */
+  /** Handles the fan or vacuum info-page button actions. */
   handleAction(
     instance: ResolvedPluginInstance,
     state: PluginState,
     action: string,
     _context: PluginRuntimeContext
   ): Promise<PluginActionResult> {
-    if (entityDomain(instance.variables.entityId) !== "vacuum") return Promise.resolve({ screen: "exit" });
-    return this.vacuumControls.handleAction(instance, requiredEntityId(instance), state, action);
+    const domain = entityDomain(instance.variables.entityId);
+    if (domain === "vacuum") {
+      return this.vacuumControls.handleAction(instance, requiredEntityId(instance), state, action);
+    }
+    if (domain === "fan") {
+      return this.fanControls.handleAction(instance, requiredEntityId(instance), state, action);
+    }
+    return Promise.resolve({ screen: "exit" });
   }
 
   /** Dispatches home-tile events to the controller for the selected entity. */
