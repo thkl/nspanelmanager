@@ -13,6 +13,7 @@ import { Logger } from "./services/logger.js";
 import { createLogsRouter } from "./features/logs/logs.routes.js";
 import type { LogFileReader } from "./features/logs/log-file-reader.js";
 import { createBackupsRouter } from "./features/backups/backups.routes.js";
+import { createConfigHistoryRouter } from "./features/persistence/config-history.routes.js";
 import type { BackupArchiveService } from "./features/backups/backup-archive-service.js";
 import type { BackupScheduler } from "./features/backups/backup-scheduler.js";
 import { createHmiDownloadRouter, createHmiRouter } from "./features/hmi/hmi.routes.js";
@@ -56,6 +57,7 @@ export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRe
 
   app.use("/api/logs", createLogsRouter(logFileReader));
   app.use("/api/backups", createBackupsRouter(backupService, backupScheduler, store, logger));
+  app.use("/api/config-revisions", createConfigHistoryRouter(store, mqttRuntime, backupScheduler, logger));
   app.use("/api/hmi", createHmiRouter(hmiService, hmiUpdateService, firmwareUpdateService, store, mqttRuntime, logger));
   app.use("/api/firmware", createFirmwareRouter(firmwareService, firmwareUpdateService, hmiUpdateService, store, mqttRuntime, logger, coreDumpStore));
   app.get("/api/health", (_request, response) => response.json({ ok: true, mqtt: mqttRuntime.status() }));

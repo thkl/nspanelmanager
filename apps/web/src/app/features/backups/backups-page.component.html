@@ -34,6 +34,34 @@
     </div>
   </article>
 
+  <section class="settings-card history-card" aria-labelledby="config-history-title">
+    <div class="section-heading">
+      <div>
+        <h3 id="config-history-title">Configuration history</h3>
+        <p>Restore a full manager configuration snapshot. Restores are saved as new revisions.</p>
+      </div>
+      <button class="button secondary" type="button" (click)="loadRevisions()">Refresh history</button>
+    </div>
+
+    @if (revisions().length > 0) {
+      <div class="revision-list">
+        @for (revision of revisions(); track revision.id) {
+          <article class="revision-row">
+            <div class="revision-copy">
+              <strong>{{ revision.summary }}</strong>
+              <span>{{ revision.createdAt | date:'medium' }} · {{ revision.actor }}</span>
+            </div>
+            <button class="button secondary" type="button" [disabled]="restoringRevisionId() !== null" (click)="restoreRevision(revision)">
+              {{ restoringRevisionId() === revision.id ? 'Restoring…' : 'Restore' }}
+            </button>
+          </article>
+        }
+      </div>
+    } @else {
+      <p class="empty-history">No configuration revisions have been recorded yet.</p>
+    }
+  </section>
+
   <aside class="backup-notice" role="note">
     <h3>Keep the archive and secrets safe</h3>
     <p>The ZIP contains sensitive configuration and account data. Store it securely. The credential-encryption key and optional OIDC client secret are kept outside the data folder; back them up separately. Without the encryption key, saved MQTT credentials cannot be read.</p>

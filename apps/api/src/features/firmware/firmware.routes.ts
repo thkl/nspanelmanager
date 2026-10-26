@@ -30,7 +30,10 @@ export function createFirmwareRouter(
       return response.status(400).json({ error: "Enablement must be boolean and the canary stability period must be a whole number from 1 to 24 hours." });
     }
     const firmwareRollout = { enabled, stableHours };
-    await store.update((config) => { config.firmwareRollout = firmwareRollout; });
+    await store.update((config) => { config.firmwareRollout = firmwareRollout; }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: "Firmware rollout settings changed"
+    });
     if (!enabled) await firmwareUpdateService.cancelRollout("Automatic staged rollout disabled by the administrator.");
     response.json({ firmwareRollout });
   });

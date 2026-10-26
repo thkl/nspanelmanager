@@ -101,7 +101,10 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const startupError = await validateConfiguredScripts(config, {});
     if (startupError) return response.status(400).json({ error: startupError });
     const profile: PluginProfile = { id: randomUUID(), name, pluginId: definition.id, config };
-    await store.update((current) => { current.pluginProfiles.push(profile); });
+    await store.update((current) => { current.pluginProfiles.push(profile); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Plugin '${profile.name}' created`
+    });
     await runtime.refreshPluginInstances();
     response.status(201).json({ profile: presentPluginProfile(profile, registry) });
   });
@@ -126,6 +129,9 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     }
     await store.update((managerConfig) => {
       managerConfig.pluginProfiles = managerConfig.pluginProfiles.map((item) => item.id === profile.id ? profile : item);
+    }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Plugin '${profile.name}' updated`
     });
     await runtime.refreshPluginInstances();
     if (previousDefinition?.nativePanelSharedInstances || definition.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
@@ -138,7 +144,10 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     if (store.get().pluginInstances.some((item) => item.pluginProfileId === profileId)) {
       return response.status(409).json({ error: "Remove or reassign this plugin's instances before deleting it." });
     }
-    await store.update((config) => { config.pluginProfiles = config.pluginProfiles.filter((item) => item.id !== profileId); });
+    await store.update((config) => { config.pluginProfiles = config.pluginProfiles.filter((item) => item.id !== profileId); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Plugin '${store.get().pluginProfiles.find((item) => item.id === profileId)?.name ?? profileId}' deleted`
+    });
     response.status(204).end();
   });
 
@@ -156,7 +165,10 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     if (instanceError) return response.status(400).json({ error: instanceError });
     const identityError = validateSharedNativePageInstance(instance, definition, store.get().pluginInstances, store.get().pluginProfiles, registry);
     if (identityError) return response.status(400).json({ error: identityError });
-    await store.update((current) => { current.pluginInstances.push(instance); });
+    await store.update((current) => { current.pluginInstances.push(instance); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Plugin instance '${instance.name}' created`
+    });
     await runtime.refreshPluginInstances();
     if (definition?.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
     response.status(201).json({ instance });
@@ -185,7 +197,10 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     if (assignedToHardwareButton && (!instance.enabled || !definition?.capabilities.includes("favorite-toggle") || !definition.handleFavoritePress)) {
       return response.status(400).json({ error: "Remove this instance from the physical button assignments before disabling it or changing it to a plugin without toggle support." });
     }
-    await store.update((config) => { config.pluginInstances = config.pluginInstances.map((item) => item.id === instance.id ? instance : item); });
+    await store.update((config) => { config.pluginInstances = config.pluginInstances.map((item) => item.id === instance.id ? instance : item); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Plugin instance '${instance.name}' updated`
+    });
     await runtime.refreshPluginInstances();
     if (definition?.nativePanelSharedInstances) publishSharedNativePageSettings(store, runtime);
     response.json({ instance });
@@ -225,6 +240,9 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
         hardwareButtonPluginInstances: Object.fromEntries(Object.entries(panel.hardwareButtonPluginInstances ?? {}).filter(([, instanceId]) => instanceId !== id))
       }));
       current.pluginInstances = current.pluginInstances.filter((item) => item.id !== id);
+    }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Plugin instance '${removedInstance.name}' deleted`
     });
     await runtime.removePluginRuntimeState(id);
     for (const panel of updated.panels.filter((item) => panelsUsingInstance.has(item.id))) {
@@ -266,6 +284,9 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
       if (!target) return;
       target.settings.favorites.buttons[index] = { ...target.settings.favorites.buttons[index], label: name, mode: 0 };
       current.panelBindings.push(binding);
+    }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Favorite '${name}' assigned on panel '${panel.name}'`
     });
     const savedPanel = updated.panels.find((item) => item.id === panelId);
     if (savedPanel) runtime.publishPanelSettings(savedPanel);
@@ -282,6 +303,9 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     const updated = await store.update((current) => {
       current.panelBindings = current.panelBindings.filter((item) => item.id !== id);
       clearFavoriteBinding(current.panels, binding);
+    }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Favorite '${binding.name}' unassigned`
     });
     const panel = updated.panels.find((item) => item.id === binding.panelId);
     if (panel) runtime.publishPanelSettings(panel);

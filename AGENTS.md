@@ -13,7 +13,7 @@ This pnpm workspace has an Express/TypeScript API and MQTT runtime in `apps/api`
 - `pnpm firmware:compile` increments the unified firmware patch version, compiles `esphome/nspanel-unified.yaml`, and copies the OTA binary to `esphome/nspanel-unified.bin`.
 - `docker compose up --build` builds and runs the manager on port 3000; first create `secrets/manager_encryption_key` with the key-generation command.
 
-The first run needs an MQTT broker URL and credentials configured in the UI. Local manager data is written to `apps/api/data/manager.json`; Docker stores it in the `manager-data` volume. Keep the credential-encryption key in `secrets/`, outside the data volume, and back it up separately. Do not commit local secrets or manager data.
+The first run needs an MQTT broker URL and credentials configured in the UI. Local manager data is written to `apps/api/data/manager.sqlite`; Docker stores it in the `manager-data` volume. Existing JSON stores are imported once and retained as recovery copies. Keep the credential-encryption key in `secrets/`, outside the data volume, and back it up separately. Do not commit local secrets or manager data.
 
 ## Code Style
 

@@ -26,6 +26,9 @@ export function createBrokerRouter(store: ConfigStore, mqttRuntime: MqttRuntime,
         username: stringValue(input.username),
         password: typeof input.password === "string" && input.password ? input.password : previous.password
       };
+    }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: "MQTT broker settings changed"
     });
     await mqttRuntime.reconnect();
     response.json({ config: publicConfig(store.get(), pluginRegistry), mqtt: mqttRuntime.status() });

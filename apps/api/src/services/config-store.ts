@@ -1,9 +1,8 @@
-import { mkdir, readFile, writeFile, rename, chmod } from "node:fs/promises";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { defaultPanelSettings, type BackupSettings, type ManagerConfig, type Panel, type PluginConfigValue, type PluginProfile } from "../types.js";
 import { normalizePanelSettings } from "../domain/panel-settings.js";
 import { CredentialEncryption, type EncryptedCredential } from "../features/security/credential-encryption.js";
+import type { ConfigRevisionMetadata, ConfigRevisionSummary, SqliteStore } from "./sqlite-store.js";
 
 const HOME_ASSISTANT_SECRET_PURPOSE = "plugin:home-assistant:access-token";
 
@@ -20,37 +19,29 @@ type PersistedManagerConfig = Omit<ManagerConfig, "broker" | "pluginProfiles"> &
 type LoadedManagerConfig = Partial<ManagerConfig> & { credentialEncryptionVersion?: unknown };
 
 /**
- * Owns the durable JSON configuration used by the manager runtime.
- *
- * The store is intentionally file-backed for a single-container home setup:
- * it needs no database service and works with Docker's named-volume persistence.
- * Mutations are applied to a cloned snapshot, written to a mode-0600 temporary
- * file, and atomically renamed so a process interruption cannot leave a
- * partially written manager configuration. MQTT broker passwords and Home
- * Assistant access tokens are encrypted before persistence and decrypted only
- * into the server-side snapshot.
+ * Owns the durable manager configuration and its revision history. The active
+ * configuration remains a typed in-memory snapshot for current runtime callers,
+ * while SQLite transactions persist encrypted documents and revision records.
+ * MQTT broker passwords and Home Assistant access tokens are encrypted before
+ * persistence and decrypted only into the server-side snapshot.
  */
 export class ConfigStore {
   private config: ManagerConfig = structuredClone(emptyConfig);
-  private readonly filePath: string;
   private readonly credentialEncryption: CredentialEncryption;
 
-  /** Creates a store rooted at the data directory with its credential cipher. */
-  constructor(dataDir: string, credentialEncryption: CredentialEncryption) {
-    this.filePath = path.join(dataDir, "manager.json");
+  /** Creates the configuration store over the shared SQLite database and credential cipher. */
+  constructor(private readonly database: SqliteStore, credentialEncryption: CredentialEncryption) {
     this.credentialEncryption = credentialEncryption;
   }
 
   /**
    * Loads persisted state, or writes an empty initial configuration.
-   *
-   * The data directory receives owner-only permissions when first created.
-   * Malformed JSON is surfaced as a startup error instead of being overwritten.
+   * Malformed or unsupported saved data is surfaced as a startup error instead
+   * of being overwritten.
    */
   async load(): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-    try {
-      const raw = await readFile(this.filePath, "utf8");
+    const raw = this.database.readDocument("manager");
+    if (raw !== undefined) {
       const saved = JSON.parse(raw) as LoadedManagerConfig;
       if (saved.credentialEncryptionVersion !== undefined && saved.credentialEncryptionVersion !== 1) {
         throw new Error("The manager configuration uses an unsupported credential encryption version.");
@@ -91,10 +82,11 @@ export class ConfigStore {
         panelBindings: Array.isArray(saved.panelBindings) ? saved.panelBindings : []
       };
       if (pluginConfiguration.migrated || pluginProfiles.needsMigration || brokerPassword.needsMigration || credentialFormatNeedsMigration) await this.save();
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    } else {
+      this.config = structuredClone(emptyConfig);
       await this.save();
     }
+    this.database.ensureInitialConfigRevision(this.serializeForStorage());
   }
 
   /** Returns an isolated copy so callers cannot mutate persistent state by reference. */
@@ -106,24 +98,71 @@ export class ConfigStore {
    * Callers should keep the mutator synchronous and focused on one operation.
    * The resulting clone is returned for handlers that need the saved state.
    */
-  async update(mutator: (config: ManagerConfig) => void): Promise<ManagerConfig> {
+  async update(mutator: (config: ManagerConfig) => void, revision: ConfigRevisionMetadata = {
+    actor: "system",
+    summary: "Configuration updated"
+  }): Promise<ManagerConfig> {
     const next = this.get();
     mutator(next);
+    if (JSON.stringify(next) === JSON.stringify(this.config)) return this.get();
+    const previous = this.config;
     this.config = next;
-    await this.save();
+    try {
+      await this.save(revision);
+    } catch (error) {
+      this.config = previous;
+      throw error;
+    }
     return this.get();
   }
 
   /** Allocates a stable identifier and appends a new panel profile. */
-  async addPanel(input: Omit<Panel, "id">): Promise<Panel> {
+  async addPanel(input: Omit<Panel, "id">, revision: ConfigRevisionMetadata = {
+    actor: "system",
+    summary: `Panel '${input.name}' created`
+  }): Promise<Panel> {
     const panel = { ...input, id: randomUUID() };
-    await this.update((config) => { config.panels.push(panel); });
+    await this.update((config) => { config.panels.push(panel); }, revision);
     return panel;
   }
 
-  /** Atomically writes current configuration with private file permissions. */
-  async save(): Promise<void> {
-    const temp = `${this.filePath}.tmp`;
+  /** Atomically stores current configuration and, for user changes, a recoverable revision. */
+  async save(revision?: ConfigRevisionMetadata): Promise<void> {
+    const serialized = this.serializeForStorage();
+    if (revision) this.database.saveManagerConfig(serialized, revision);
+    else this.database.writeDocument("manager", 1, serialized);
+  }
+
+  /** Returns configuration history without returning encrypted configuration payloads. */
+  listRevisions(limit = 100): ConfigRevisionSummary[] {
+    return this.database.listConfigRevisions(limit);
+  }
+
+  /** Reads an encrypted historical configuration snapshot for a privileged restore operation. */
+  readRevision(id: number): string | undefined {
+    return this.database.readConfigRevision(id);
+  }
+
+  /** Restores one saved configuration snapshot and records that restore as a new revision. */
+  async restoreRevision(id: number, actor: string): Promise<ManagerConfig | undefined> {
+    const revision = this.readRevision(id);
+    if (revision === undefined) return undefined;
+    const previousConfig = this.config;
+    const previousDocument = this.serializeForStorage();
+    this.database.writeDocument("manager", 1, revision);
+    try {
+      await this.load();
+      await this.save({ actor, summary: `Restored configuration revision ${id}` });
+      return this.get();
+    } catch (error) {
+      this.config = previousConfig;
+      this.database.writeDocument("manager", 1, previousDocument);
+      throw error;
+    }
+  }
+
+  /** Produces the versioned, encrypted database representation for the current snapshot. */
+  private serializeForStorage(): string {
     const persistedConfig: PersistedManagerConfig = {
       ...this.config,
       credentialEncryptionVersion: 1,
@@ -144,9 +183,7 @@ export class ConfigStore {
         password: this.credentialEncryption.encrypt(this.config.broker.password)
       }
     };
-    await writeFile(temp, `${JSON.stringify(persistedConfig, null, 2)}\n`, { mode: 0o600 });
-    await chmod(temp, 0o600);
-    await rename(temp, this.filePath);
+    return JSON.stringify(persistedConfig);
   }
 }
 

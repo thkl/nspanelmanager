@@ -51,6 +51,14 @@ export interface BackupSettings {
   directory: string;
 }
 
+/** Metadata for an administrator-created or system-created configuration snapshot. */
+export interface ConfigRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  summary: string;
+}
+
 export type FirmwareRolloutStatus = "monitoring" | "updating" | "completed" | "failed" | "cancelled";
 
 export interface FirmwareRollout {

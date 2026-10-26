@@ -20,7 +20,10 @@ export function createMqttRouteRouter(store: ConfigStore, mqttRuntime: MqttRunti
     const error = validateRoute(route, store.get());
     if (error) return response.status(400).json({ error });
     route.id = randomUUID();
-    await store.update((config) => { config.routes.push(route); });
+    await store.update((config) => { config.routes.push(route); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `MQTT route '${route.sourceTopic}' created`
+    });
     mqttRuntime.syncSubscriptions();
     response.status(201).json({ route });
   });
@@ -31,7 +34,10 @@ export function createMqttRouteRouter(store: ConfigStore, mqttRuntime: MqttRunti
     const route: MqttRoute = normalizeRoute(request.body, id);
     const error = validateRoute(route, store.get());
     if (error) return response.status(400).json({ error });
-    await store.update((config) => { config.routes = config.routes.map((item) => item.id === id ? route : item); });
+    await store.update((config) => { config.routes = config.routes.map((item) => item.id === id ? route : item); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `MQTT route '${route.sourceTopic}' updated`
+    });
     mqttRuntime.syncSubscriptions();
     response.json({ route });
   });
@@ -39,7 +45,11 @@ export function createMqttRouteRouter(store: ConfigStore, mqttRuntime: MqttRunti
   router.delete("/:id", async (request, response) => {
     const id = request.params.id;
     if (!store.get().routes.some((route) => route.id === id)) return response.status(404).json({ error: "Route not found." });
-    await store.update((config) => { config.routes = config.routes.filter((route) => route.id !== id); });
+    const route = store.get().routes.find((item) => item.id === id);
+    await store.update((config) => { config.routes = config.routes.filter((route) => route.id !== id); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `MQTT route '${route?.sourceTopic ?? id}' deleted`
+    });
     mqttRuntime.syncSubscriptions();
     response.status(204).end();
   });

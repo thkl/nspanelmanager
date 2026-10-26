@@ -1,8 +1,7 @@
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import type { PluginState, PluginStorageScope } from "../plugins/plugin-contract.js";
 import type { FirmwareRollout, FirmwareUpdateJob, HmiUpdateJob, PanelResetReport } from "../../types.js";
 import type { Logger } from "../../services/logger.js";
+import type { SqliteStore } from "../../services/sqlite-store.js";
 
 const MIN_PERSIST_INTERVAL_MS = 1_000;
 const MAX_STORAGE_KEY_LENGTH = 256;
@@ -74,7 +73,6 @@ interface RuntimeSnapshot {
  * shutdown.
  */
 export class RuntimeStateStore {
-  private readonly filePath: string;
   private snapshot: RuntimeSnapshot = emptySnapshot();
   private readonly pluginStates: Record<string, PluginState> = {};
   private readonly warnedUnpersistedPluginStates = new Set<string>();
@@ -87,25 +85,19 @@ export class RuntimeStateStore {
   private lastWriteAttemptAt = 0;
   private writeFailureReported = false;
 
-  /** Creates the runtime store under the manager's durable data directory. */
-  constructor(dataDir: string, private readonly logger?: Logger) { this.filePath = path.join(dataDir, "runtime-state.json"); }
+  /** Creates the runtime store over the manager's shared SQLite database. */
+  constructor(private readonly database: SqliteStore, private readonly logger?: Logger) { }
 
   /** Loads durable flow, script values, and the bounded last-known device state snapshot. */
   async load(): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-    let serialized: string;
-    try {
-      serialized = await readFile(this.filePath, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        this.persist();
-        await this.flush();
-        return;
-      }
-      throw error;
+    const serialized = this.database.readDocument("runtime-state");
+    if (serialized === undefined) {
+      this.persist();
+      await this.flush();
+      return;
     }
     const value: unknown = JSON.parse(serialized);
-    if (!isRecord(value)) throw new Error("The runtime state file is invalid; refusing to replace it.");
+    if (!isRecord(value)) throw new Error("The saved runtime state is invalid; refusing to replace it.");
     const rawPluginStates = isRecord(value.pluginStates) ? value.pluginStates : {};
     const pluginStates = normalizePluginStates(rawPluginStates);
     const panelResetReports = normalizePanelResetReports(value.panelResetReports);
@@ -410,13 +402,8 @@ export class RuntimeStateStore {
     this.dirty = false;
     this.lastWriteAttemptAt = Date.now();
     const data = `${JSON.stringify(structuredClone(this.snapshot), null, 2)}\n`;
-    const write = async (): Promise<void> => {
-      const temporaryPath = `${this.filePath}.tmp`;
-      await writeFile(temporaryPath, data, { mode: 0o600 });
-      await chmod(temporaryPath, 0o600);
-      await rename(temporaryPath, this.filePath);
-    };
-    const activeWrite = write()
+    const activeWrite = Promise.resolve()
+      .then(() => this.database.writeDocument("runtime-state", 1, data))
       .then(() => {
         this.writeFailureReported = false;
       })

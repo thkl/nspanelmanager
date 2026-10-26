@@ -1,19 +1,22 @@
+import { CommonModule } from "@angular/common";
 import { Component, OnInit, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { ManagerStore } from "../../manager-store.service";
-import type { BackupSettings } from "../../models";
+import type { BackupSettings, ConfigRevision } from "../../models";
 
 /** Gives administrators a direct download for the manager's persistent data archive. */
 @Component({
   selector: "nspanel-backups-page",
   standalone: true,
-  imports: [FormsModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: "./backups-page.component.html",
   styleUrl: "./backups-page.component.css"
 })
 export class BackupsPageComponent implements OnInit {
   readonly draft = signal<BackupSettings>({ enabled: true, schedule: "0 3 * * *", retentionCount: 14, directory: "backups" });
   readonly saving = signal(false);
+  readonly revisions = signal<ConfigRevision[]>([]);
+  readonly restoringRevisionId = signal<number | null>(null);
 
   /** Receives the shared configuration and backup settings API. */
   constructor(readonly manager: ManagerStore) {}
@@ -24,6 +27,7 @@ export class BackupsPageComponent implements OnInit {
       next: ({ config }) => this.draft.set(structuredClone(config.backupSettings)),
       error: () => this.manager.inform("Could not load backup settings.", "error")
     });
+    this.loadRevisions();
   }
 
   /** Updates the schedule draft without saving it before the administrator applies changes. */
@@ -70,5 +74,40 @@ export class BackupsPageComponent implements OnInit {
     const settings = this.draft();
     return Boolean(settings.schedule.trim() && settings.directory.trim()) &&
       Number.isInteger(settings.retentionCount) && settings.retentionCount >= 1 && settings.retentionCount <= 365;
+  }
+
+  /** Loads revision metadata without exposing stored configuration snapshots to the browser. */
+  loadRevisions(): void {
+    this.manager.loadConfigRevisions().subscribe({
+      next: ({ revisions }) => this.revisions.set(revisions),
+      error: () => this.manager.inform("Could not load configuration history.", "error")
+    });
+  }
+
+  /** Restores a full saved manager configuration after explicit administrator confirmation. */
+  restoreRevision(revision: ConfigRevision): void {
+    if (this.restoringRevisionId() !== null) return;
+    const createdAt = new Date(revision.createdAt).toLocaleString();
+    if (!window.confirm(`Restore the complete manager configuration from ${createdAt}? This will create a new revision and reconnect the runtime.`)) return;
+    this.restoringRevisionId.set(revision.id);
+    this.manager.restoreConfigRevision(revision.id).subscribe({
+      next: () => this.manager.refresh().subscribe({
+        next: ({ config }) => {
+          this.draft.set(structuredClone(config.backupSettings));
+          this.loadRevisions();
+          this.restoringRevisionId.set(null);
+          this.manager.inform("Configuration restored and runtime reconnected.");
+        },
+        error: () => {
+          this.restoringRevisionId.set(null);
+          this.manager.inform("Configuration was restored, but the page could not refresh. Reload to see the current settings.", "error");
+        }
+      }),
+      error: (error: unknown) => {
+        this.restoringRevisionId.set(null);
+        const message = (error as { error?: { error?: string } })?.error?.error;
+        this.manager.inform(message || "Could not restore this configuration revision.", "error");
+      }
+    });
   }
 }

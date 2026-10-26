@@ -38,7 +38,10 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     if (store.get().panels.some((panel) => panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
     if (macAddress && store.get().panels.some((panel) => normalizeMacAddress(panel.macAddress) === macAddress)) return response.status(409).json({ error: "That device MAC address is already assigned to a panel." });
     const unifiedFirmware = Boolean(macAddress && /^nspanel-[a-f0-9]{6}$/i.test(nodeName));
-    const panel = await store.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}), ...(unifiedFirmware ? { unifiedFirmware: true } : {}), settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {}, hardwareButtonPluginInstances: {} });
+    const panel = await store.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}), ...(unifiedFirmware ? { unifiedFirmware: true } : {}), settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {}, hardwareButtonPluginInstances: {} }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Panel '${name}' created`
+    });
     mqttRuntime.syncSubscriptions();
     response.status(201).json({ panel });
   });
@@ -54,7 +57,10 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     }
     const discoveredUnifiedFirmware = macAddress && mqttRuntime.discoveredPanelStatuses().some((device) => device.macAddress === macAddress && /^nspanel-[a-f0-9]{6}$/i.test(device.name));
     const panel: Panel = { ...current, macAddress, unifiedFirmware: macAddress ? current.unifiedFirmware === true || Boolean(discoveredUnifiedFirmware) : false };
-    await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
+    await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Panel '${current.name}' device assignment changed`
+    });
     mqttRuntime.syncSubscriptions();
     response.json({ panel });
   });
@@ -69,7 +75,10 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       return response.status(409).json({ error: "Automatic firmware rollouts require a panel running compatible unified firmware." });
     }
     const panel: Panel = { ...current, autoUpdateFirmware: request.body.autoUpdateFirmware };
-    await store.update((config) => { config.panels = config.panels.map((item) => item.id === panel.id ? panel : item); });
+    await store.update((config) => { config.panels = config.panels.map((item) => item.id === panel.id ? panel : item); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Panel '${panel.name}' firmware rollout setting changed`
+    });
     response.json({ panel });
   });
 
@@ -142,7 +151,10 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       }
     }
     const panel: Panel = { ...current, name, nodeName, groupName, settings, nativePluginInstances, panelEventPluginInstances, hardwareButtonPluginInstances };
-    await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); });
+    await store.update((config) => { config.panels = config.panels.map((item) => item.id === current.id ? panel : item); }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Panel '${panel.name}' settings changed`
+    });
     mqttRuntime.syncSubscriptions();
     const settingsTopicRoot = current.nodeName !== nodeName
       ? current.unifiedFirmware
@@ -193,6 +205,9 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
         ...config.panelBindings.filter((binding) => binding.panelId !== target.id),
         ...copiedBindings
       ];
+    }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Settings copied from '${source.name}' to '${target.name}'`
     });
     mqttRuntime.syncSubscriptions();
     const published = mqttRuntime.publishPanelSettings(panel, true);
@@ -212,6 +227,9 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       config.panels = config.panels.filter((panel) => panel.id !== id);
       config.routes = config.routes.filter((route) => route.panelId !== id);
       config.panelBindings = config.panelBindings.filter((binding) => binding.panelId !== id);
+    }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Panel '${store.get().panels.find((panel) => panel.id === id)?.name ?? id}' deleted`
     });
     await mqttRuntime.removePanelRuntimeState(id);
     mqttRuntime.syncSubscriptions();

@@ -21,7 +21,10 @@ export function createBackupsRouter(backupService: BackupArchiveService, backupS
     }
 
     try {
-      await store.update((config) => { config.backupSettings = settings; });
+      await store.update((config) => { config.backupSettings = settings; }, {
+        actor: request.authUser?.email ?? "unknown",
+        summary: "Scheduled backup settings changed"
+      });
     } catch (error) {
       try {
         await backupScheduler.reconfigure(previousSettings);

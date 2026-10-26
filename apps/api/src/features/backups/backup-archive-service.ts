@@ -22,9 +22,10 @@ type BackupEntry =
  * of the data is written to disk. Only regular files and real directories are
  * traversed; nested symbolic links are skipped to prevent reading outside the
  * configured data directory. File and directory modes are retained for manual
- * restore. Runtime secrets mounted separately from `DATA_DIR` are outside this
- * service's scope. The caller supplies a runtime-state flush so cached script
- * writes are included.
+ * restore. The live SQLite file and WAL sidecars are replaced by a consistent
+ * database snapshot, and the caller supplies a runtime-state flush so cached
+ * script writes are included. Runtime secrets mounted separately from
+ * `DATA_DIR` are outside this service's scope.
  */
 export class BackupArchiveService {
   private readonly dataDirectory: string;
@@ -32,8 +33,13 @@ export class BackupArchiveService {
   private excludedBackupDirectory?: string;
   private initialization?: Promise<void>;
 
-  /** Binds backup creation to durable data, a private destination, and runtime-state flushing. */
-  constructor(dataDirectory: string, private readonly flushRuntimeState: () => Promise<void>, backupDirectory = "backups") {
+  /** Binds backup creation to durable data, runtime flushing, and a consistent SQLite snapshot. */
+  constructor(
+    dataDirectory: string,
+    private readonly flushRuntimeState: () => Promise<void>,
+    backupDirectory = "backups",
+    private readonly createSqliteSnapshot?: () => Promise<Buffer>
+  ) {
     this.dataDirectory = path.resolve(dataDirectory);
     this.backupDirectory = this.resolveBackupDirectory(backupDirectory);
   }
@@ -65,8 +71,13 @@ export class BackupArchiveService {
     archive.append(Buffer.alloc(0), { name: "data/", type: "directory", date: rootMetadata.mtime, mode: rootMetadata.mode });
     const archiveEntries = await this.listEntries(rootPath, this.excludedBackupDirectory);
     for (const entry of archiveEntries) {
+      if (entry.type === "file" && isLiveSqliteFile(rootPath, entry.absolutePath)) continue;
       if (entry.type === "directory") archive.append(Buffer.alloc(0), { name: entry.archivePath, type: "directory", date: entry.date, mode: entry.mode });
       else archive.file(entry.absolutePath, { name: entry.archivePath, date: entry.date, mode: entry.mode });
+    }
+    if (this.createSqliteSnapshot) {
+      const snapshot = await this.createSqliteSnapshot();
+      archive.append(snapshot, { name: "data/manager.sqlite", date: new Date(), mode: 0o600 });
     }
     return archive;
   }
@@ -159,4 +170,10 @@ export class BackupArchiveService {
 function isPathWithin(parentPath: string, candidatePath: string): boolean {
   const relativePath = path.relative(parentPath, candidatePath);
   return relativePath === "" || relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath);
+}
+
+/** Excludes the live database and SQLite sidecars so backups contain one consistent image. */
+function isLiveSqliteFile(rootPath: string, absolutePath: string): boolean {
+  if (path.dirname(absolutePath) !== rootPath) return false;
+  return ["manager.sqlite", "manager.sqlite-wal", "manager.sqlite-shm", "manager.sqlite-journal"].includes(path.basename(absolutePath));
 }

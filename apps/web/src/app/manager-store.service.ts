@@ -1,7 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -195,6 +195,16 @@ export class ManagerStore {
     return this.http.put<{ backupSettings: BackupSettings }>("/api/backups/settings", settings).pipe(tap(({ backupSettings }) => {
       this.config.update((config) => ({ ...config, backupSettings }));
     }));
+  }
+
+  /** Loads the newest encrypted-at-rest configuration revision metadata. */
+  loadConfigRevisions(): Observable<{ revisions: ConfigRevision[] }> {
+    return this.http.get<{ revisions: ConfigRevision[] }>("/api/config-revisions");
+  }
+
+  /** Restores a saved configuration snapshot and asks the API to reapply it to runtime services. */
+  restoreConfigRevision(id: number): Observable<{ restored: boolean; revisionId: number; revisions: ConfigRevision[] }> {
+    return this.http.post<{ restored: boolean; revisionId: number; revisions: ConfigRevision[] }>(`/api/config-revisions/${id}/restore`, {});
   }
 
   /** Adds or removes one unified panel from future automatic firmware rollouts. */

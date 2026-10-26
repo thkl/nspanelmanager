@@ -158,6 +158,61 @@
   opacity: .55;
 }
 
+.button.secondary {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.button.secondary:hover:not(:disabled) {
+  border-color: var(--green);
+}
+
+.button.secondary:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
+.revision-list {
+  display: grid;
+  gap: 9px;
+}
+
+.revision-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.revision-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.revision-copy strong {
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+
+.revision-copy span, .empty-history {
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+.empty-history {
+  margin: 0;
+}
+
 .backup-card, .backup-notice, .restore-note {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -227,6 +282,21 @@
 
 .backup-notice, .restore-note {
   padding: 17px 19px;
+}
+
+@media (max-width: 700px) {
+  .backup-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading, .settings-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .revision-row {
+    align-items: flex-start;
+  }
 }
 
 .backup-notice {

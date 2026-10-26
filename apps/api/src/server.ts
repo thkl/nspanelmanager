@@ -2,6 +2,7 @@ import path from "node:path";
 import { createServer, type Server } from "node:http";
 import { createApp } from "./app.js";
 import { ConfigStore } from "./services/config-store.js";
+import { SqliteStore } from "./services/sqlite-store.js";
 import { MqttRuntime } from "./services/mqtt-runtime.js";
 import { RuntimeStateStore } from "./features/runtime/runtime-state-store.js";
 import { createDefaultPluginRegistry } from "./features/plugins/default-plugin-registry.js";
@@ -41,12 +42,19 @@ async function startServer(): Promise<void> {
     process.env.APP_ENCRYPTION_KEY_FILE?.trim() ||
     "../../secrets/manager_encryption_key";
   const credentialEncryption = await CredentialEncryption.fromFile(encryptionKeyFile);
-  const store = new ConfigStore(dataDir, credentialEncryption);
+  const sqliteStore = new SqliteStore(dataDir);
+  await sqliteStore.initialize();
+  const store = new ConfigStore(sqliteStore, credentialEncryption);
   await store.load();
-  const runtimeState = new RuntimeStateStore(dataDir, logger);
+  const runtimeState = new RuntimeStateStore(sqliteStore, logger);
   await runtimeState.load();
   const backupSettings = store.get().backupSettings;
-  const backupService = new BackupArchiveService(dataDir, () => runtimeState.flush(), backupSettings.directory);
+  const backupService = new BackupArchiveService(
+    dataDir,
+    () => runtimeState.flush(),
+    backupSettings.directory,
+    () => sqliteStore.createBackupSnapshot()
+  );
   await backupService.initialize();
   const backupScheduler = new BackupScheduler(backupService, logger, backupSettings);
   const hmiPublicUrl = process.env.HMI_PUBLIC_URL?.trim() || process.env.APP_PUBLIC_URL?.trim() || "";
@@ -56,8 +64,7 @@ async function startServer(): Promise<void> {
   await firmwareService.load();
   const coreDumpStore = new CoreDumpStore(dataDir);
   await coreDumpStore.load();
-  const setUserStorePermissions = process.env.USER_STORE_SET_PERMISSIONS?.trim().toLowerCase() !== "false";
-  const userStore = new UserStore(dataDir, setUserStorePermissions);
+  const userStore = new UserStore(sqliteStore);
   await userStore.load();
   logger.debug("Checking OIDC environment configuration.", {
     component: "auth",
@@ -140,11 +147,11 @@ async function startServer(): Promise<void> {
   await mqttRuntime.reconnect();
   httpServer.listen(port, () => logger.info(`NSPanel Manager listening on port ${port}`, { component: "server" }));
   backupScheduler.start();
-  registerShutdownHandlers(httpServer, realtimeServer, hmiUpdateService, firmwareUpdateService, mqttRuntime, backupScheduler, runtimeState, logger);
+  registerShutdownHandlers(httpServer, realtimeServer, hmiUpdateService, firmwareUpdateService, mqttRuntime, backupScheduler, runtimeState, sqliteStore, logger);
 }
 
 /** Flushes the coalesced runtime snapshot after stopping new HTTP and MQTT work. */
-function registerShutdownHandlers(httpServer: Server, realtimeServer: RealtimeWebSocketServer, hmiUpdateService: HmiUpdateService, firmwareUpdateService: FirmwareUpdateService, mqttRuntime: MqttRuntime, backupScheduler: BackupScheduler, runtimeState: RuntimeStateStore, logger: Logger): void {
+function registerShutdownHandlers(httpServer: Server, realtimeServer: RealtimeWebSocketServer, hmiUpdateService: HmiUpdateService, firmwareUpdateService: FirmwareUpdateService, mqttRuntime: MqttRuntime, backupScheduler: BackupScheduler, runtimeState: RuntimeStateStore, sqliteStore: SqliteStore, logger: Logger): void {
   let shutdownStarted = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shutdownStarted) return;
@@ -160,6 +167,7 @@ function registerShutdownHandlers(httpServer: Server, realtimeServer: RealtimeWe
       });
       await mqttRuntime.close();
       await runtimeState.flush();
+      sqliteStore.close();
       logger.info("NSPanel Manager stopped cleanly.", { component: "server" });
       await logger.close();
       process.exit(0);

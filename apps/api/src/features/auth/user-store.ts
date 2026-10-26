@@ -1,7 +1,6 @@
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import path from "node:path";
 import type { PublicUser } from "./auth.types.js";
+import type { SqliteStore } from "../../services/sqlite-store.js";
 
 interface StoredUser {
   id: string;
@@ -25,52 +24,42 @@ interface UserStoreSnapshot {
   sessions: StoredSession[];
 }
 
-  /** Persists local accounts and revocable opaque sessions in one file with optional permission enforcement. */
+/** Persists local accounts and revocable opaque sessions in the shared SQLite database. */
 export class UserStore {
-  private readonly filePath: string;
   private snapshot: UserStoreSnapshot = { version: 1, users: [], sessions: [] };
   private writeQueue: Promise<void> = Promise.resolve();
 
-  /** Creates the local account store and optionally enforces private filesystem permissions. */
-  constructor(dataDir: string, private readonly setPermissions = true) { this.filePath = path.join(dataDir, "users.json"); }
+  /** Creates the account store over the manager's shared SQLite database. */
+  constructor(private readonly database: SqliteStore) { }
 
-  /** Loads accounts and sessions, creating an empty private store on first run. */
+  /** Loads accounts and sessions, creating an empty store on first run. */
   async load(): Promise<void> {
-    await mkdir(path.dirname(this.filePath), this.setPermissions ? { recursive: true, mode: 0o700 } : { recursive: true });
-    if (this.setPermissions) {
-      try {
-        await chmod(path.dirname(this.filePath), 0o700);
-      } catch {
-        // Some NAS filesystems do not support chmod; the operator can disable all permission changes below.
-      }
-    }
-    try {
-      const stored = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<UserStoreSnapshot>;
-      if (stored.version !== 1 || !Array.isArray(stored.users) || !Array.isArray(stored.sessions) ||
-        !stored.users.every(isStoredUser) || !stored.sessions.every(isStoredSession)) {
-        throw new Error("The local user store is invalid; refusing to discard or replace account data.");
-      }
-      const emailKeys = stored.users.map((user) => user.email);
-      const identityKeys = stored.users.flatMap((user) => user.oidcIdentity ? [`${user.oidcIdentity.issuer}\u0000${user.oidcIdentity.subject}`] : []);
-      if (new Set(emailKeys).size !== emailKeys.length || new Set(stored.users.map((user) => user.id)).size !== stored.users.length ||
-        new Set(identityKeys).size !== identityKeys.length) {
-        throw new Error("The local user store contains duplicate account identifiers; refusing to load ambiguous access data.");
-      }
-      const userIds = new Set(stored.users.map((user) => user.id));
-      if (stored.sessions.some((session) => session.userId && !userIds.has(session.userId))) {
-        throw new Error("The local user store contains a session for a missing account; refusing to load ambiguous access data.");
-      }
-      if (this.setPermissions) await chmod(this.filePath, 0o600);
-      this.snapshot = {
-        version: 1,
-        users: stored.users,
-        sessions: stored.sessions
-      };
-      await this.expireSessions();
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const serialized = this.database.readDocument("users");
+    if (serialized === undefined) {
       await this.persist();
+      return;
     }
+    const stored = JSON.parse(serialized) as Partial<UserStoreSnapshot>;
+    if (stored.version !== 1 || !Array.isArray(stored.users) || !Array.isArray(stored.sessions) ||
+      !stored.users.every(isStoredUser) || !stored.sessions.every(isStoredSession)) {
+      throw new Error("The local user store is invalid; refusing to discard or replace account data.");
+    }
+    const emailKeys = stored.users.map((user) => user.email);
+    const identityKeys = stored.users.flatMap((user) => user.oidcIdentity ? [`${user.oidcIdentity.issuer}\u0000${user.oidcIdentity.subject}`] : []);
+    if (new Set(emailKeys).size !== emailKeys.length || new Set(stored.users.map((user) => user.id)).size !== stored.users.length ||
+      new Set(identityKeys).size !== identityKeys.length) {
+      throw new Error("The local user store contains duplicate account identifiers; refusing to load ambiguous access data.");
+    }
+    const userIds = new Set(stored.users.map((user) => user.id));
+    if (stored.sessions.some((session) => session.userId && !userIds.has(session.userId))) {
+      throw new Error("The local user store contains a session for a missing account; refusing to load ambiguous access data.");
+    }
+    this.snapshot = {
+      version: 1,
+      users: stored.users,
+      sessions: stored.sessions
+    };
+    await this.expireSessions();
   }
 
   /** Returns all accounts without their password hashes. */
@@ -223,17 +212,8 @@ export class UserStore {
   }
 
   private persist(): Promise<void> {
-    const data = `${JSON.stringify(this.snapshot, null, 2)}\n`;
-    const write = async (): Promise<void> => {
-      const temporaryPath = `${this.filePath}.tmp`;
-      if (this.setPermissions) {
-        await writeFile(temporaryPath, data, { mode: 0o600 });
-        await chmod(temporaryPath, 0o600);
-      } else {
-        await writeFile(temporaryPath, data);
-      }
-      await rename(temporaryPath, this.filePath);
-    };
+    const data = JSON.stringify(this.snapshot);
+    const write = async (): Promise<void> => this.database.writeDocument("users", 1, data);
     this.writeQueue = this.writeQueue.then(write, write);
     return this.writeQueue;
   }

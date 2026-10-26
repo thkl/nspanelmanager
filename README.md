@@ -26,7 +26,7 @@ For local SSO with `pnpm start:debug`, use `APP_PUBLIC_URL=http://localhost:3000
 
 ## Sign in and accounts
 
-After setup, use **Users** to add, disable, remove, or reset local accounts. Each user is a manager administrator. Password hashes, linked OIDC issuer/subject identifiers, and hashed session tokens are stored in the private `users.json` file under the data directory. The MQTT broker password in `manager.json` is encrypted with AES-256-GCM; the key is kept in `secrets/manager_encryption_key`, outside the data directory. Existing plaintext broker passwords are encrypted automatically on the first startup after this update. An earlier prototype stored scrypt hashes; those accounts are upgraded to Argon2id after their next successful local sign-in. OIDC sign-in only links an identity when the provider returns a verified email matching an enabled local account; unknown SSO users are not added automatically. After linking, sign-in uses the stable issuer and subject pair.
+After setup, use **Users** to add, disable, remove, or reset local accounts. Each user is a manager administrator. Password hashes, linked OIDC issuer/subject identifiers, and hashed session tokens are stored in `manager.sqlite` under the data directory. The MQTT broker password and Home Assistant access tokens are encrypted with AES-256-GCM in that database; the key is kept in `secrets/manager_encryption_key`, outside the data directory. On first startup after upgrading, the manager imports `manager.json`, `runtime-state.json`, and `users.json` into SQLite and leaves those source files untouched as recovery copies. Back up the encryption key separately from the manager data. An earlier prototype stored scrypt hashes; those accounts are upgraded to Argon2id after their next successful local sign-in. OIDC sign-in only links an identity when the provider returns a verified email matching an enabled local account; unknown SSO users are not added automatically. After linking, sign-in uses the stable issuer and subject pair.
 
 To enable OIDC with Docker Compose, create `secrets/oidc_client_secret` with the provider's client secret and set these non-secret values in the ignored `.env` file. These values are the manager's SSO settings:
 
@@ -42,7 +42,7 @@ Register `https://manager.example.com/api/auth/sso/callback` with the identity p
 docker compose -f docker-compose.yml -f docker-compose.sso.yml up --build
 ```
 
-The issuer URL must expose OIDC discovery metadata. The client secret is mounted into the API container as a Compose secret and is never returned by the API. The manager URL and issuer must use HTTPS except for loopback development hosts. SSO settings are deployment configuration, not stored in `users.json`.
+The issuer URL must expose OIDC discovery metadata. The client secret is mounted into the API container as a Compose secret and is never returned by the API. The manager URL and issuer must use HTTPS except for loopback development hosts. SSO settings are deployment configuration, not stored in the account database.
 
 When running the API directly with `pnpm start:debug`, set `OIDC_CLIENT_SECRET_FILE=../../secrets/oidc_client_secret` in the repository-root `.env`. That path is relative to `apps/api`; Docker Compose mounts the host secret at `/run/secrets/oidc_client_secret` and sets the container path automatically.
 
@@ -74,7 +74,7 @@ Confirm the files are owned by the intended operator or deployment account and t
 
 Edit `APP_PUBLIC_URL` if the manager will be reached at a different origin. For SSO, uncomment and configure the OIDC values in `.env`, create `secrets/oidc_client_secret`, and use the SSO Compose override described above. Compose mounts the encryption key as a read-only secret at `/run/secrets/manager_encryption_key`; keep its source file outside the `manager-data` volume and back it up separately. Losing or replacing the key makes encrypted broker credentials unreadable.
 
-`USER_STORE_SET_PERMISSIONS` defaults to `true` and makes the API set private permissions on the user-store directory and file. If a NAS filesystem rejects `chmod`, set it to `false` in `.env`; then restrict access to `users.json` through the NAS or host filesystem configuration.
+The SQLite database is created with owner-only file permissions. Keep the persistent data volume accessible only to the manager and its administrators. The database uses SQLite WAL mode; use the manager's ZIP backup endpoint or scheduled backups for consistent snapshots instead of copying the live database file while it is running. A backup includes a consistent `manager.sqlite` image and the filesystem artifacts under the data directory. Restore the database and artifacts together, then restore the encryption key from its separate backup.
 
 When Traefik or another reverse proxy is the only browser-facing entry point, set `TRUST_PROXY` in `.env` to the proxy's exact IP address or trusted Docker subnet (for example, `172.20.0.0/16`). Login throttling uses Express's `request.ip`, which trusts forwarded addresses only according to this setting. It defaults to `false`; avoid `true` or a hop count unless the proxy path is fixed, forwarded headers are overwritten by the proxy, and direct access to port 3000 is blocked. See the [Express guide to running behind proxies](https://expressjs.com/en/5x/guide/behind-proxies/) for the trust rules.
 
