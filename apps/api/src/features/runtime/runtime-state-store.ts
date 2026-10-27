@@ -251,6 +251,14 @@ export class RuntimeStateStore {
     this.persist();
   }
 
+  /** Clears the saved reboot report so acknowledged historical failures stop raising alerts. */
+  async clearPanelResetReport(panelId: string): Promise<void> {
+    if (!this.snapshot.panelResetReports[panelId]) return;
+    delete this.snapshot.panelResetReports[panelId];
+    this.persist();
+    await this.flush();
+  }
+
   /** Returns the last temporary runtime settings received for a panel group. */
   getPanelGroupSettings(groupName: string): PanelGroupRuntimeSettings | undefined {
     const settings = this.snapshot.panelGroupSettings[groupName];

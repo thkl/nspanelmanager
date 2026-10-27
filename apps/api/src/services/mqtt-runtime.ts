@@ -205,6 +205,12 @@ export class MqttRuntime {
     });
   }
 
+  /** Clears one panel's saved reboot report and broadcasts the updated status. */
+  async clearPanelResetReport(panel: Panel): Promise<void> {
+    await this.runtimeState.clearPanelResetReport(panel.id);
+    this.notifyPanelConnectionsChanged();
+  }
+
   /**
    * Replaces the current broker client using the latest saved credentials.
    * MQTT.js handles transient reconnect attempts after the client is created;

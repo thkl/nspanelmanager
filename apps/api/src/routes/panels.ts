@@ -17,7 +17,8 @@ import { isValidPanelGroupName } from "../domain/panel-groups.js";
  * publishes changed settings, `PATCH /:id/health-notifications` controls health
  * alerts for a panel, `POST /:id/copy-settings`
  * copies a saved profile onto another panel while retaining its identity,
- * `POST /:id/reboot` requests a firmware reboot, `DELETE /:id` removes its
+ * `DELETE /:id/reset-report` clears a saved reboot report, `POST /:id/reboot`
+ * requests a firmware reboot, `DELETE /:id` removes its
  * associated routes, and `POST /:id/apply` manually resends the profile to
  * firmware. Broker setup and generic MQTT route editing live in separate routers.
  */
@@ -297,6 +298,15 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     if (!mqttRuntime.rebootPanel(panel)) return response.status(503).json({ error: "The MQTT broker disconnected before the reboot request could be sent." });
     const topic = `${panelTopicRoot(panel)}/cmnd/reboot`;
     response.json({ published: true, topic });
+  });
+
+  router.delete("/:id/reset-report", async (request, response) => {
+    const panel = store.get().panels.find((item) => item.id === request.params.id);
+    if (!panel) return response.status(404).json({ error: "Panel not found." });
+    await mqttRuntime.clearPanelResetReport(panel);
+    const status = mqttRuntime.panelConnectionStatuses().find((item) => item.panelId === panel.id);
+    if (!status) return response.status(404).json({ error: "Panel status not found." });
+    response.json({ panel: status });
   });
 
   return router;

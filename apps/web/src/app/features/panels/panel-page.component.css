@@ -60,7 +60,7 @@ nspanel-screen-preview {
 
 .health-alert-row {
   display: grid;
-  grid-template-columns: 8px minmax(90px, .3fr) minmax(0, 1fr) auto;
+  grid-template-columns: 8px minmax(90px, .3fr) minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 9px;
   width: 100%;
@@ -70,7 +70,6 @@ nspanel-screen-preview {
   background: var(--amber-soft);
   color: var(--amber-text);
   text-align: left;
-  cursor: pointer;
 }
 
 .health-alert-row.critical {
@@ -91,15 +90,32 @@ nspanel-screen-preview {
 }
 
 .health-alert-row b,
-.health-alert-row span,
-.health-alert-row small {
+.health-alert-row span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.health-alert-row small {
+.health-alert-open,
+.health-alert-clear {
+  padding: 4px 7px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
   font-size: 0.75rem;
   font-weight: 700;
+  cursor: pointer;
+}
+
+.health-alert-open:hover,
+.health-alert-clear:hover {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
+
+.health-alert-open:disabled,
+.health-alert-clear:disabled {
+  opacity: .6;
+  cursor: wait;
 }
 
 .card {
@@ -439,6 +455,40 @@ nspanel-screen-preview {
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--canvas-soft);
+}
+
+.panel-reset-report {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -8px 0 18px;
+  padding: 11px 12px;
+  border: 1px solid var(--red-line);
+  border-radius: 9px;
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.panel-reset-report > div {
+  min-width: 0;
+}
+
+.panel-reset-report b,
+.panel-reset-report small {
+  display: block;
+}
+
+.panel-reset-report b {
+  font-size: 0.8125rem;
+}
+
+.panel-reset-report small {
+  margin-top: 4px;
+  color: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .panel-crash-dump > div {
@@ -1050,10 +1100,17 @@ label input::placeholder {
     padding: 15px;
   }
   .health-alert-row {
-    grid-template-columns: 8px minmax(0, 1fr) auto;
+    grid-template-columns: 8px minmax(0, 1fr) auto auto;
   }
-  .health-alert-row>span:not(.health-alert-indicator) {
+  .health-alert-row > span:not(.health-alert-indicator) {
     grid-column: 2 / -1;
+  }
+  .health-alert-row > b {
+    grid-column: 2 / -1;
+  }
+  .panel-reset-report {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .editor-heading {
     align-items: flex-start;

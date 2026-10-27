@@ -11,6 +11,7 @@ interface PanelHealthAlert {
   panelName: string;
   severity: "critical" | "warning";
   message: string;
+  clearable?: boolean;
 }
 
 /**
@@ -47,6 +48,7 @@ export class PanelPageComponent implements OnInit {
   readonly copyingPanelSettings = signal(false);
   readonly saving = signal(false);
   readonly savingHealthPreferencePanelId = signal("");
+  readonly clearingResetReportPanelId = signal("");
   readonly rebootingPanelId = signal("");
   readonly coreDump = signal<CoreDumpRecord | null>(null);
   readonly coreDumpLoading = signal(false);
@@ -103,7 +105,7 @@ export class PanelPageComponent implements OnInit {
       }
       const rebootReason = connection?.lastResetReport?.reason.toLowerCase() ?? "";
       if (/(panic|watchdog|brownout|assert|abort|crash)/.test(rebootReason)) {
-        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "critical", message: `Last reboot reported ${connection?.lastResetReport?.reason}.` });
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "critical", message: `Last reboot reported ${connection?.lastResetReport?.reason}.`, clearable: true });
       }
       const freeHeapBytes = connection?.telemetry?.freeHeapBytes;
       const minimumHeapBytes = connection?.telemetry?.minFreeHeapBytes;
@@ -114,6 +116,23 @@ export class PanelPageComponent implements OnInit {
       }
     }
     return alerts;
+  }
+
+  /** Clears a panel's saved reboot report while preserving its current live status. */
+  clearResetReport(panelId: string): void {
+    if (this.clearingResetReportPanelId()) return;
+    this.clearingResetReportPanelId.set(panelId);
+    this.manager.clearPanelResetReport(panelId).subscribe({
+      next: ({ panel }) => {
+        this.clearingResetReportPanelId.set("");
+        const panelName = this.manager.config().panels.find((item) => item.id === panel.panelId)?.name ?? panel.nodeName;
+        this.manager.inform(`Cleared the saved reboot report for ${panelName}.`);
+      },
+      error: (error) => {
+        this.clearingResetReportPanelId.set("");
+        this.manager.inform(error.error?.error || "Could not clear the panel reboot report.", "error");
+      }
+    });
   }
 
   /** Saves a panel's health-alert preference without disturbing other unsaved panel edits. */

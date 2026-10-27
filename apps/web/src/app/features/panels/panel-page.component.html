@@ -7,10 +7,19 @@
     @if (healthAlerts().length > 0) {
       <div class="health-alert-list">
         @for (alert of healthAlerts(); track alert.panelId + alert.message) {
-          <button type="button" class="health-alert-row" [class.critical]="alert.severity === 'critical'" (click)="openPanelFromAlert(alert.panelId)">
+          <div class="health-alert-row" [class.critical]="alert.severity === 'critical'">
             <span class="health-alert-indicator" aria-hidden="true"></span>
-            <b>{{ alert.panelName }}</b><span>{{ alert.message }}</span><small>View panel</small>
-          </button>
+            <b>{{ alert.panelName }}</b><span>{{ alert.message }}</span>
+            <button type="button" class="health-alert-open" (click)="openPanelFromAlert(alert.panelId)">View panel</button>
+            @if (alert.clearable) {
+              <button
+                type="button"
+                class="health-alert-clear"
+                [disabled]="clearingResetReportPanelId() === alert.panelId"
+                (click)="clearResetReport(alert.panelId)"
+              >{{ clearingResetReportPanelId() === alert.panelId ? 'Clearing…' : 'Clear' }}</button>
+            }
+          </div>
         }
       </div>
     } @else {
@@ -36,8 +45,6 @@
                 }
                 · checked {{ report.reportedAt | date:'short' }}
               </small>
-            } @else {
-              <small class="panel-reset-reason">Reboot reason: no report yet</small>
             }
             @if (connection.ip; as ip) { <small class="panel-ip">IP {{ ip }}</small> }
             @if (connection.telemetry; as telemetry) {
@@ -178,6 +185,19 @@
             <button class="button ghost small" [disabled]="downloadingCoreDump()" (click)="downloadCoreDump()">{{ downloadingCoreDump() ? 'Downloading…' : 'Download dump' }}</button>
           }
         </section>
+        @if (manager.panelConnections()[panel.nodeName]?.lastResetReport; as resetReport) {
+          <section class="panel-reset-report" aria-label="Last reboot report">
+            <div>
+              <b>Last reboot report</b>
+              <small>{{ resetReport.reason }} · checked {{ resetReport.reportedAt | date:'short' }}</small>
+            </div>
+            <button
+              class="button ghost small"
+              [disabled]="clearingResetReportPanelId() === panel.id"
+              (click)="clearResetReport(panel.id)"
+            >{{ clearingResetReportPanelId() === panel.id ? 'Clearing…' : 'Clear report' }}</button>
+          </section>
+        }
         <nspanel-screen-preview [panel]="panel" [config]="manager.config()" [favoriteAssignments]="favoriteInstances()" />
         <div class="section-title"><span class="section-number">01</span><div><h3>Display settings</h3><p>Basic labels and appearance.</p></div></div>
         <div class="form-grid three-col">

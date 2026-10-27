@@ -226,6 +226,13 @@ export class ManagerStore {
     }));
   }
 
+  /** Clears one panel's stored reboot report and updates its live status. */
+  clearPanelResetReport(panelId: string): Observable<{ panel: PanelConnectionStatus }> {
+    return this.http.delete<{ panel: PanelConnectionStatus }>(`/api/panels/${encodeURIComponent(panelId)}/reset-report`).pipe(tap(({ panel }) => {
+      this.panelConnections.update((current) => ({ ...current, [panel.nodeName]: panel }));
+    }));
+  }
+
   /** Loads the most recent crash dump metadata for one configured panel. */
   loadPanelCoreDump(panelId: string): Observable<{ dump: CoreDumpRecord | null }> {
     return this.http.get<{ dump: CoreDumpRecord | null }>(`/api/firmware/panels/${encodeURIComponent(panelId)}/crash-dump`).pipe(tap(({ dump }) => {
