@@ -1,5 +1,6 @@
 import { ScriptedMqttPlugin } from "./scripted-mqtt.plugin.js";
 import { ScriptedMqttButtonPlugin } from "./scripted-mqtt-button.plugin.js";
+import { ScriptedGroupMqttPlugin } from "./scripted-group-mqtt.plugin.js";
 import { PluginRegistry } from "./plugin-registry.js";
 import { MqttThermostatPlugin } from "./mqtt-thermostat.plugin.js";
 import { OpenMeteoWeatherPlugin } from "./open-meteo-weather.plugin.js";
@@ -18,6 +19,7 @@ export function createDefaultPluginRegistry(logger?: Logger): PluginRegistry {
   const registry = new PluginRegistry();
   registry.register(new ScriptedMqttPlugin());
   registry.register(new ScriptedMqttButtonPlugin());
+  registry.register(new ScriptedGroupMqttPlugin());
   registry.register(new MqttThermostatPlugin());
   registry.register(new OpenMeteoWeatherPlugin());
   registry.register(new MqttLightPlugin());

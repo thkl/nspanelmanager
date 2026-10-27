@@ -14,7 +14,7 @@ Panels refer to instances in different ways: native page assignments in `panel.n
 
 ## Initialization and Subscriptions
 
-At server startup, `createDefaultPluginRegistry()` registers the built-in scripted MQTT, thermostat, weather, light, cover, favorites, Sonos, and screen dimmer plugins. The runtime resolves enabled instances and initializes each whose plugin type, version, configuration, or variables changed. An optional `initialize()` hook can set up startup behavior and return callback subscriptions. For example, scripted plugins use this to register `mqtt.subscribe(topic, callback)` handlers.
+At server startup, `createDefaultPluginRegistry()` registers the built-in scripted MQTT, scripted group MQTT, thermostat, weather, light, cover, favorites, Sonos, and screen dimmer plugins. The runtime resolves enabled instances and initializes each whose plugin type, version, configuration, or variables changed. An optional `initialize()` hook can set up startup behavior and return callback subscriptions. For example, scripted plugins use this to register `mqtt.subscribe(topic, callback)` handlers.
 
 The runtime combines and deduplicates panel event filters (`<nodeName>/event/#`), configured route sources, each plugin instance’s `subscriptions(instance)`, and startup callback filters. On broker connection or configuration changes it subscribes to additions and removes obsolete filters. Plugins receive the shared runtime context for publishing, scoped storage, and logging.
 
@@ -51,6 +51,32 @@ sequenceDiagram
 Normalized device state is cached by plugin instance and restored from a bounded last-known snapshot when the manager restarts. The snapshot is coalesced to at most one disk write per second and is capped at 64 KiB per instance, 512 instances, and 2 MiB total; oversized or evicted state remains available in memory until restart. `renderPanelState()` can publish assigned summary data, while `renderNativePanelState()` translates state for a firmware-owned page. Native page state is generally sent only while that page is open; integrations can opt into background updates when the firmware needs shared data, as Sonos does for its player list. Weather obtains state through `poll()` on its configured interval instead of an MQTT subscription.
 
 Panel actions follow the reverse path: the runtime decodes the firmware event, calls the relevant plugin handler, and publishes returned `PluginCommand`s. Script helpers such as `mqtt.send()` use the same runtime publisher. The runtime also handles firmware setup messages, including panel settings on boot, separately from plugin state rendering.
+
+## Scripted Group MQTT
+
+The Scripted group MQTT plugin handles the manager input topic
+`nspanelmanager/groups/<group>/cmnd/settings`. Create an instance with the
+matching panel group name. Its script receives the incoming parsed JSON as
+`payload` and `message.payload`, plus `group.name` and `group.panels`. Each
+panel entry includes its display name, ID, active MQTT topic root in
+`nodeName`, and a unique `requestId` for group-settings acknowledgements.
+Scripts call `mqtt.send(topic, payload)` for each output. The runtime rejects
+topics outside the configured group and publishes accepted commands with a
+100 ms gap. If no scripted instance matches a group, the existing built-in
+night and brightness behavior remains active. Valid night/brightness inputs
+continue to be saved and replayed after a panel reconnect; replay invokes the
+script for the reconnecting panel only.
+
+Example transform:
+
+```js
+for (const panel of group.panels) {
+  mqtt.send(panel.nodeName + "/cmnd/group/settings", {
+    ...payload,
+    request_id: panel.requestId
+  });
+}
+```
 
 Ordinary MQTT-derived plugin state is now written to the private runtime-state file as a bounded last-known snapshot. State is updated immediately in memory and coalesced to at most one write per second; a forced termination can lose updates since the last successful snapshot. Scripts can still explicitly persist additional values through global, plugin-instance, or panel storage; those writes share the same batched snapshot. Panel flow sessions are also persisted so an interactive flow can be restored.
 

@@ -99,6 +99,7 @@ export async function runScriptFunction(
     state,
     panel: context.panel,
     binding: context.binding,
+    group: context.group ?? null,
     variables: context.variables,
     namedFunctions: (options.namedFunctions ?? []).map((fn) => ({
       ...fn,
@@ -164,6 +165,7 @@ function createInvocation(source: string, input: {
   state: PluginState;
   panel: PluginRuntimeContext["panel"];
   binding: PluginRuntimeContext["binding"];
+  group: PluginRuntimeContext["group"] | null;
   storageValues: Record<PluginStorageScope, Record<string, unknown>>;
   panels: PanelStorageSnapshot[];
   namedFunctions: Array<{ id: string; parameters: string[]; code: string }>;
@@ -331,6 +333,7 @@ function createInvocation(source: string, input: {
     const context = {
       panel: input.panel,
       binding: input.binding,
+      group: input.group,
       publish(topic, payload) {
         if (!input.permissions.publish) throw new Error("MQTT publishing is only available to button functions.");
         if (typeof topic !== "string" || !topic.trim() || /[+#\\u0000]/.test(topic)) throw new Error("Publish topic must be a concrete MQTT topic.");
@@ -365,8 +368,25 @@ function createInvocation(source: string, input: {
     };
     const payload = input.message ? input.message.payload : "";
     const variables = input.variables;
+    const group = input.group;
     const fnct = Object.create(null);
-    const scope = { message: input.message, payload, state: input.state, context, debug, mqtt, global: globalStore, plugin: pluginStore, panel: panelStore, variables, gotopage, reloadpage, isEqual, fnct };
+    const scope = {
+      message: input.message,
+      payload,
+      state: input.state,
+      context,
+      group,
+      debug,
+      mqtt,
+      global: globalStore,
+      plugin: pluginStore,
+      panel: panelStore,
+      variables,
+      gotopage,
+      reloadpage,
+      isEqual,
+      fnct
+    };
     for (const definition of input.namedFunctions) {
       // A helper with no configured parameter names receives its first
       // argument under the standard message name, matching render scripts.

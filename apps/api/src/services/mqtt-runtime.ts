@@ -4,7 +4,7 @@ import type { ConfigStore } from "./config-store.js";
 import type { DiscoveredPanel, ManagerConfig, MqttRoute, Panel, PanelBinding, PanelConnectionStatus, PanelGroupSettingsStatus, PanelTelemetry, PluginInstanceActivity, ResolvedPluginInstance } from "../types.js";
 import { PanelProtocolAdapter, type PanelInputEvent } from "../features/panels/panel-protocol-adapter.js";
 import type { PanelFlowSession, PanelGroupRuntimeSettings, RuntimeStateStore } from "../features/runtime/runtime-state-store.js";
-import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
+import type { MqttMessageEnvelope, PanelStorageSnapshot, PluginDefinition, PluginGroupRuntimeContext, PluginMqttSubscription, PluginNativePanelInstanceState, PluginPageNavigation, PluginRuntimeContext, PluginState, PluginStorageScope } from "../features/plugins/plugin-contract.js";
 import type { PluginRegistry } from "../features/plugins/plugin-registry.js";
 import { interpolatePluginTemplate } from "../features/plugins/plugin-variables.js";
 import { panelBootstrapTopicRoot, panelTopicRoot, panelTopicRootForMessage, panelTopicRoots } from "../domain/panel-topics.js";
@@ -23,6 +23,7 @@ export class MqttRuntime {
   private static readonly DISCOVERED_PANEL_LIMIT = 64;
   private static readonly PANEL_GROUP_COMMAND_INTERVAL_MS = 100;
   private static readonly PANEL_GROUP_ACK_TIMEOUT_MS = 10_000;
+  private static readonly MAX_PANEL_GROUP_SCRIPT_COMMANDS = 256;
   private static readonly PANEL_STATE_REPLAY_INTERVAL_MS = 100;
   private client?: MqttClient;
   private connected = false;
@@ -487,13 +488,27 @@ export class MqttRuntime {
     if (!panel.groupName) return;
     const settings = this.runtimeState.getPanelGroupSettings(panel.groupName);
     if (!settings) return;
-    void this.queuePanelGroupSettings([panel], settings).catch((error: unknown) => {
+    void this.replayPanelGroupSettings(panel, settings).catch((error: unknown) => {
       this.logger.error("Could not replay panel group settings.", {
         component: "mqtt",
         panel: panel.name,
         detail: error instanceof Error ? error.message : String(error)
       });
     });
+  }
+
+  /** Replays saved group input through a matching script, falling back to built-in delivery. */
+  private async replayPanelGroupSettings(panel: Panel, settings: PanelGroupRuntimeSettings): Promise<void> {
+    if (!panel.groupName) return;
+    const message: MqttMessageEnvelope = {
+      topic: panelGroupSettingsTopic(panel.groupName),
+      payload: JSON.stringify(settings),
+      qos: 0,
+      retain: false,
+      receivedAt: Date.now()
+    };
+    const handled = await this.dispatchPanelGroupScripts(panel.groupName, [panel], message);
+    if (handled === 0) await this.queuePanelGroupSettings([panel], settings);
   }
 
   /** Publishes a batch of group commands in order with a short gap between packets. */
@@ -909,7 +924,7 @@ export class MqttRuntime {
       return;
     }
     if (message.topic.startsWith("nspanelmanager/groups/")) {
-      await this.handlePanelGroupSettingsMessage(message.topic, message.payload);
+      await this.handlePanelGroupSettingsMessage(message);
       return;
     }
     let config = this.store.get();
@@ -1178,8 +1193,9 @@ export class MqttRuntime {
     }
   }
 
-  /** Validates and persists a group runtime update before publishing it to the member panels. */
-  private async handlePanelGroupSettingsMessage(topic: string, payload: string): Promise<void> {
+  /** Runs an assigned group script or applies the built-in runtime settings behavior. */
+  private async handlePanelGroupSettingsMessage(message: MqttMessageEnvelope): Promise<void> {
+    const { topic, payload } = message;
     const match = /^nspanelmanager\/groups\/([A-Za-z0-9_-]{1,40})\/cmnd\/settings$/.exec(topic);
     if (!match) return;
     const groupName = match[1];
@@ -1187,6 +1203,31 @@ export class MqttRuntime {
     const panels = config.panels.filter((panel) => panel.groupName === groupName);
     if (panels.length === 0) return;
     const patch = parsePanelGroupRuntimeSettings(payload);
+    const previous = this.runtimeState.getPanelGroupSettings(groupName) ?? {};
+    const settings = patch ? { ...previous, ...patch } : previous;
+    if (patch) {
+      await this.runtimeState.setPanelGroupSettings(groupName, settings);
+      try {
+        await this.runtimeState.flush();
+      } catch (error) {
+        this.logger.error("Panel group settings could not be confirmed on durable storage; applying them to online panels anyway.", {
+          component: "mqtt",
+          group: groupName,
+          detail: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    const scriptedHandlers = await this.dispatchPanelGroupScripts(groupName, panels, message);
+    if (scriptedHandlers > 0) {
+      this.logger.info("Applied a panel group input through its scripted MQTT handler.", {
+        component: "mqtt",
+        group: groupName,
+        handlerCount: String(scriptedHandlers),
+        panelCount: String(panels.length)
+      });
+      return;
+    }
     if (!patch) {
       this.logger.warn("Ignored an invalid panel group settings message.", {
         component: "mqtt",
@@ -1195,18 +1236,7 @@ export class MqttRuntime {
       });
       return;
     }
-    const previous = this.runtimeState.getPanelGroupSettings(groupName) ?? {};
-    const settings = { ...previous, ...patch };
-    await this.runtimeState.setPanelGroupSettings(groupName, settings);
-    try {
-      await this.runtimeState.flush();
-    } catch (error) {
-      this.logger.error("Panel group settings could not be confirmed on durable storage; applying them to online panels anyway.", {
-        component: "mqtt",
-        group: groupName,
-        detail: error instanceof Error ? error.message : String(error)
-      });
-    }
+
     const publishedPanels = await this.queuePanelGroupSettings(panels, settings);
     this.logger.info("Applied and saved panel group runtime settings.", {
       component: "mqtt",
@@ -1216,6 +1246,177 @@ export class MqttRuntime {
       night: settings.night === undefined ? "unchanged" : String(settings.night),
       brightness: settings.brightness === undefined ? "unchanged" : String(settings.brightness)
     });
+  }
+
+  /** Runs all enabled plugin handlers assigned to one group input topic. */
+  private async dispatchPanelGroupScripts(
+    groupName: string,
+    panels: Panel[],
+    message: MqttMessageEnvelope
+  ): Promise<number> {
+    const instances = this.resolvePluginInstances();
+    const group: PluginGroupRuntimeContext = {
+      name: groupName,
+      panels: panels.map((panel) => ({
+        id: panel.id,
+        name: panel.name,
+        nodeName: panelTopicRoot(panel),
+        requestId: randomUUID()
+      }))
+    };
+    const commands: Array<{ topic: string; payload: string }> = [];
+    let handlerCount = 0;
+
+    for (const instance of instances) {
+      if (!instance.enabled) continue;
+      const definition = this.plugins.get(instance.pluginId);
+      if (!definition?.groupMessageTopic || !definition.handleGroupMessage) continue;
+      if (definition.groupMessageTopic(instance) !== message.topic) continue;
+      handlerCount++;
+      const context = this.createPluginLifecycleContext(instance, "panel group command", group);
+
+      try {
+        const result = await definition.handleGroupMessage(
+          instance,
+          message,
+          this.runtimeState.getPluginState(instance.id),
+          context
+        );
+        if (result?.statePatch) {
+          const state = { ...this.runtimeState.getPluginState(instance.id), ...result.statePatch };
+          await this.setPluginState(instance, state);
+        }
+        commands.push(...(result?.commands ?? []));
+        this.recordPluginActivity(instance.id, message.receivedAt);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.recordPluginActivity(instance.id, undefined, detail);
+        this.lastError = detail;
+        this.logger.error("Panel group script failed.", {
+          component: "plugin",
+          instance: instance.name,
+          group: groupName,
+          phase: "group command",
+          topic: message.topic,
+          detail
+        });
+      }
+    }
+
+    if (handlerCount > 0) {
+      await this.queuePanelGroupScriptCommands(groupName, panels, group, commands);
+    }
+    return handlerCount;
+  }
+
+  /** Sends script-generated commands only to group members, with the normal inter-panel delay. */
+  private queuePanelGroupScriptCommands(
+    groupName: string,
+    panels: Panel[],
+    group: PluginGroupRuntimeContext,
+    commands: Array<{ topic: string; payload: string }>
+  ): Promise<number> {
+    const publishBatch = this.panelGroupPublishQueue.then(async () => {
+      if (commands.length > MqttRuntime.MAX_PANEL_GROUP_SCRIPT_COMMANDS) {
+        this.logger.error("Rejected an oversized scripted panel group command batch.", {
+          component: "mqtt",
+          group: groupName,
+          commandCount: String(commands.length),
+          maximum: String(MqttRuntime.MAX_PANEL_GROUP_SCRIPT_COMMANDS)
+        });
+        return 0;
+      }
+
+      const targets = group.panels.map((target) => ({
+        panel: panels.find((candidate) => candidate.id === target.id),
+        target,
+        commands: [] as Array<{ topic: string; payload: string }>,
+        failed: false,
+        requestId: undefined as string | undefined
+      })).filter((target) => target.panel !== undefined);
+      const addressedCommands: Array<{ topic: string; payload: string; target: typeof targets[number] }> = [];
+
+      for (const command of commands) {
+        if (!isPublishableTopic(command.topic)) continue;
+        const target = targets.find((candidate) => command.topic.startsWith(`${candidate.target.nodeName}/`));
+        if (!target) {
+          this.logger.warn("Rejected a scripted group command addressed outside its panel group.", {
+            component: "mqtt",
+            group: groupName,
+            topic: command.topic
+          });
+          continue;
+        }
+        target.commands.push(command);
+        addressedCommands.push({ ...command, target });
+      }
+
+      if (addressedCommands.length === 0) return 0;
+      const requestedAt = Date.now();
+      for (const target of targets) {
+        if (!target.commands.length || !target.panel) continue;
+        const supportsAcknowledgement = this.supportsPanelGroupAcknowledgement(target.panel);
+        const acknowledgementCommand = target.commands.find((command) => {
+          if (command.topic !== `${target.target.nodeName}/cmnd/group/settings`) return false;
+          return readPayloadRecord(command.payload)?.["request_id"] === target.target.requestId;
+        });
+        target.requestId = supportsAcknowledgement && acknowledgementCommand ? target.target.requestId : undefined;
+        const acknowledgement = acknowledgementCommand
+          ? readPayloadRecord(acknowledgementCommand.payload)
+          : undefined;
+        const delivery: PanelGroupSettingsStatus = {
+          groupName,
+          ...(target.requestId && (acknowledgement?.["night"] === 0 || acknowledgement?.["night"] === 1)
+            ? { night: acknowledgement["night"] }
+            : {}),
+          ...(target.requestId && typeof acknowledgement?.["brightness"] === "number"
+            && Number.isInteger(acknowledgement["brightness"])
+            && acknowledgement["brightness"] >= 0
+            && acknowledgement["brightness"] <= 100
+            ? { brightness: acknowledgement["brightness"] }
+            : {}),
+          delivery: target.requestId ? "pending" : "unconfirmed",
+          ...(target.requestId ? { requestId: target.requestId } : {}),
+          requestedAt
+        };
+        this.clearPanelGroupAckTimeout(target.panel.id);
+        this.panelGroupStatuses.set(target.panel.id, delivery);
+      }
+      this.notifyPanelConnectionsChanged();
+
+      let commandCount = 0;
+      for (const command of addressedCommands) {
+        if (commandCount > 0) await wait(MqttRuntime.PANEL_GROUP_COMMAND_INTERVAL_MS);
+        commandCount++;
+        if (!this.publish(command.topic, command.payload)) command.target.failed = true;
+      }
+
+      let publishedPanels = 0;
+      for (const target of targets) {
+        if (!target.panel || !target.commands.length) continue;
+        const current = this.panelGroupStatuses.get(target.panel.id);
+        if (target.failed && current) {
+          this.panelGroupStatuses.set(target.panel.id, { ...current, delivery: "publish_failed" });
+        } else {
+          publishedPanels++;
+          if (target.requestId && current?.requestId === target.requestId && current.delivery === "pending") {
+            this.schedulePanelGroupAckTimeout(target.panel.id, target.requestId);
+          } else if (!target.requestId && current) {
+            this.panelGroupStatuses.set(target.panel.id, { ...current, delivery: "unconfirmed" });
+          }
+        }
+      }
+      this.notifyPanelConnectionsChanged();
+      this.logger.info("Published scripted panel group commands.", {
+        component: "mqtt",
+        group: groupName,
+        commandCount: String(addressedCommands.length),
+        publishedPanels: String(publishedPanels)
+      });
+      return publishedPanels;
+    });
+    this.panelGroupPublishQueue = publishBatch.then(() => undefined, () => undefined);
+    return publishBatch;
   }
 
   /** Applies panel LWT status and ping packets to the in-memory connection view. */
@@ -2438,7 +2639,11 @@ export class MqttRuntime {
   }
 
   /** Creates the panel-independent context used by plugin startup and MQTT callbacks. */
-  private createPluginLifecycleContext(instance: ResolvedPluginInstance, phase: string): PluginRuntimeContext {
+  private createPluginLifecycleContext(
+    instance: ResolvedPluginInstance,
+    phase: string,
+    group?: PluginGroupRuntimeContext
+  ): PluginRuntimeContext {
     const resolvePanelId = (panelNameOrId: string): string => {
       const matches = this.store.get().panels.filter((candidate) => candidate.id === panelNameOrId || candidate.name === panelNameOrId);
       if (matches.length !== 1) throw new Error(matches.length ? `Panel name '${panelNameOrId}' is ambiguous.` : `Panel '${panelNameOrId}' was not found.`);
@@ -2447,6 +2652,7 @@ export class MqttRuntime {
     const ownerId = (scope: PluginStorageScope): string => scope === "global" ? "" : scope === "plugin" ? instance.id : "";
     return {
       panel: { id: "", name: instance.name, nodeName: "" },
+      ...(group ? { group } : {}),
       binding: {
         id: "", name: "Plugin startup", panelId: "", pluginInstanceId: instance.id,
         trigger: { type: "favorite", index: 0 }

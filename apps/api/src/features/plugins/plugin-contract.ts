@@ -189,6 +189,8 @@ export interface PanelStorageSnapshot {
 export interface PluginRuntimeContext {
   panel: Pick<Panel, "id" | "name" | "nodeName">;
   binding: Pick<PanelBinding, "id" | "name" | "panelId" | "pluginInstanceId" | "trigger">;
+  /** Member panels and per-request IDs available while handling a group command. */
+  group?: PluginGroupRuntimeContext;
   /** Per-instance values configured for reusable plugin scripts and templates. */
   variables: PluginVariables;
   storage: {
@@ -207,6 +209,22 @@ export interface PluginRuntimeContext {
   publish(topic: string, payload: string): boolean;
   /** Writes a script diagnostic to the manager log or the preview response. */
   debug: { log(message: string): void };
+}
+
+/** One panel target exposed to a script handling an input for its group. */
+export interface PluginGroupPanel {
+  id: string;
+  name: string;
+  /** Active MQTT topic root, including MAC-based roots for unified firmware. */
+  nodeName: string;
+  /** Request ID the panel can echo when acknowledging group settings. */
+  requestId: string;
+}
+
+/** Safe group metadata supplied to a plugin for one inbound group message. */
+export interface PluginGroupRuntimeContext {
+  name: string;
+  panels: PluginGroupPanel[];
 }
 
 /**
@@ -260,6 +278,10 @@ export interface PluginDefinition {
   validateInstance?(instance: ResolvedPluginInstance): string | undefined;
   /** Lists incoming MQTT filters for the configured instance. */
   subscriptions(instance: ResolvedPluginInstance): readonly string[];
+  /** Returns the manager-owned group input topic this instance handles, if any. */
+  groupMessageTopic?(instance: ResolvedPluginInstance): string | undefined;
+  /** Transforms a manager-owned panel-group input into commands for that group. */
+  handleGroupMessage?(instance: ResolvedPluginInstance, message: MqttMessageEnvelope, state: PluginState, context: PluginRuntimeContext): Promise<PluginSubscriptionResult | void>;
   /** Runs once per broker connection with all enabled instances of this plugin. */
   onMqttConnected?(instances: readonly ResolvedPluginInstance[], publish: (topic: string, payload: string) => boolean): void | Promise<void>;
   /** Selects the configured instance or instances that should receive a shared native-page event. */
