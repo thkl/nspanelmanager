@@ -1,5 +1,6 @@
 import { HttpErrorResponse } from "@angular/common/http";
 import { Component, ElementRef, OnInit, signal, viewChild } from "@angular/core";
+import { TranslatePipe } from "@ngx-translate/core";
 import { ManagerStore } from "../../manager-store.service";
 import type { FirmwareArtifact, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiUpdateJob, Panel } from "../../models";
 
@@ -9,6 +10,7 @@ type UpdateTab = "firmware" | "hmi";
 @Component({
   selector: "nspanel-hmi-page",
   standalone: true,
+  imports: [TranslatePipe],
   templateUrl: "./hmi-page.component.html",
   styleUrl: "./hmi-page.component.css"
 })
@@ -76,7 +78,7 @@ export class HmiPageComponent implements OnInit {
         this.rolloutEnabled.set(config.firmwareRollout.enabled);
         this.rolloutStableHours.set(config.firmwareRollout.stableHours);
       },
-      error: () => this.manager.inform("Could not load firmware rollout settings.", "error")
+      error: () => this.manager.inform("HMI.ERROR_LOAD_ROLLOUT_SETTINGS", "error")
     });
     this.loading.set(true);
     this.manager.loadHmiArtifact().subscribe({
@@ -125,7 +127,7 @@ export class HmiPageComponent implements OnInit {
     this.manager.saveFirmwareRolloutSettings(settings).subscribe({
       next: () => {
         this.savingRolloutSettings.set(false);
-        this.manager.inform(settings.enabled ? "Staged firmware rollout settings saved." : "Automatic firmware rollout disabled.");
+        this.manager.inform(settings.enabled ? "HMI.NOTICE_ROLLOUT_SETTINGS_SAVED" : "HMI.NOTICE_ROLLOUT_DISABLED");
       },
       error: (error: unknown) => {
         this.savingRolloutSettings.set(false);
@@ -154,7 +156,7 @@ export class HmiPageComponent implements OnInit {
     this.manager.cancelFirmwareRollout().subscribe({
       next: () => {
         this.cancellingRollout.set(false);
-        this.manager.inform("Staged rollout cancelled. You can upload a newer firmware package now.");
+        this.manager.inform("HMI.NOTICE_ROLLOUT_CANCELLED");
       },
       error: (error: unknown) => {
         this.cancellingRollout.set(false);
@@ -171,7 +173,7 @@ export class HmiPageComponent implements OnInit {
     this.manager.setPanelAutoUpdateFirmware(panel.id, target.checked).subscribe({
       next: () => {
         this.savingAutoUpdatePanelId.set("");
-        this.manager.inform(target.checked ? `${panel.name} will join automatic firmware rollouts.` : `${panel.name} was removed from automatic firmware rollouts.`);
+        this.manager.inform(target.checked ? "HMI.NOTICE_PANEL_AUTO_ENABLED" : "HMI.NOTICE_PANEL_AUTO_DISABLED", "success", { name: panel.name });
       },
       error: (error: unknown) => {
         this.savingAutoUpdatePanelId.set("");
@@ -187,7 +189,7 @@ export class HmiPageComponent implements OnInit {
     this.manager.stageFirmwareRollout(panel.id).subscribe({
       next: ({ rollout }) => {
         this.stagingFirmwarePanelId.set("");
-        this.manager.inform(`${rollout.firmwareVersion} is staged from ${panel.name}. The opted-in panels will update after ${rollout.stableHours} stable hours.`);
+        this.manager.inform("HMI.NOTICE_ROLLOUT_STAGED", "success", { version: rollout.firmwareVersion, name: panel.name, hours: rollout.stableHours });
       },
       error: (error: unknown) => {
         this.stagingFirmwarePanelId.set("");
@@ -217,12 +219,12 @@ export class HmiPageComponent implements OnInit {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".tft")) {
       this.clearFileSelection();
-      this.manager.inform("Choose a file with the .tft extension.", "error");
+      this.manager.inform("HMI.ERROR_CHOOSE_TFT", "error");
       return;
     }
     if (file.size === 0 || file.size > this.maxUploadBytes()) {
       this.clearFileSelection();
-      this.manager.inform(`Choose a non-empty TFT file smaller than ${this.formatSize(this.maxUploadBytes())}.`, "error");
+      this.manager.inform("HMI.ERROR_TFT_FILE_SIZE", "error", { size: this.formatSize(this.maxUploadBytes()) });
       return;
     }
     this.selectedFile.set(file);
@@ -238,7 +240,7 @@ export class HmiPageComponent implements OnInit {
         this.artifact.set(artifact);
         this.uploading.set(false);
         this.clearFileSelection();
-        this.manager.inform(`${artifact.filename} uploaded. Select a panel to send the update prompt.`);
+        this.manager.inform("HMI.NOTICE_HMI_UPLOADED", "success", { filename: artifact.filename });
       },
       error: (error: unknown) => {
         this.uploading.set(false);
@@ -254,12 +256,12 @@ export class HmiPageComponent implements OnInit {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".zip")) {
       this.clearFirmwareFileSelection();
-      this.manager.inform("Choose the versioned unified firmware .zip package.", "error");
+      this.manager.inform("HMI.ERROR_CHOOSE_FIRMWARE_PACKAGE", "error");
       return;
     }
     if (file.size === 0 || file.size > this.maxFirmwareUploadBytes()) {
       this.clearFirmwareFileSelection();
-      this.manager.inform(`Choose a non-empty firmware package smaller than ${this.formatSize(this.maxFirmwareUploadBytes())}.`, "error");
+      this.manager.inform("HMI.ERROR_FIRMWARE_FILE_SIZE", "error", { size: this.formatSize(this.maxFirmwareUploadBytes()) });
       return;
     }
     this.selectedFirmwareFile.set(file);
@@ -275,7 +277,7 @@ export class HmiPageComponent implements OnInit {
         this.firmwareArtifact.set(artifact);
         this.uploadingFirmware.set(false);
         this.clearFirmwareFileSelection();
-        this.manager.inform(`${artifact.filename} (${artifact.version}) uploaded. Select a panel to send the firmware update.`);
+        this.manager.inform("HMI.NOTICE_FIRMWARE_UPLOADED", "success", { filename: artifact.filename, version: artifact.version });
       },
       error: (error: unknown) => {
         this.uploadingFirmware.set(false);
@@ -292,9 +294,11 @@ export class HmiPageComponent implements OnInit {
     this.manager.requestFirmwareUpdate(panel.id, force).subscribe({
       next: ({ expiresAt, firmwareVersion }) => {
         this.updatingFirmwarePanelId.set("");
-        this.manager.inform(force
-          ? `Forced firmware update ${firmwareVersion} started on ${panel.name}.`
-          : `Firmware update ${firmwareVersion} prompt sent to ${panel.name}; confirm on the panel before ${this.formatTimestamp(expiresAt)}.`);
+        this.manager.inform(force ? "HMI.NOTICE_FW_FORCE_STARTED" : "HMI.NOTICE_FW_PROMPT_SENT", "success", {
+          version: firmwareVersion,
+          name: panel.name,
+          expiresAt: this.formatTimestamp(expiresAt)
+        });
       },
       error: (error: unknown) => {
         this.updatingFirmwarePanelId.set("");
@@ -317,9 +321,9 @@ export class HmiPageComponent implements OnInit {
   /** Compares a panel's reported firmware version with the currently uploaded binary. */
   firmwareVersionLabel(panel: Panel): string {
     const reported = this.manager.panelConnections()[panel.nodeName]?.telemetry?.firmwareVersion;
-    if (!reported) return "Installed firmware version not reported yet";
-    if (reported === this.firmwareArtifact()?.version) return `Installed firmware ${reported} · current`;
-    return `Installed firmware ${reported} · differs from uploaded file`;
+    if (!reported) return this.manager.translateText("HMI.FW_VERSION_UNKNOWN");
+    if (reported === this.firmwareArtifact()?.version) return this.manager.translateText("HMI.FW_VERSION_CURRENT", { version: reported });
+    return this.manager.translateText("HMI.FW_VERSION_DIFFERS", { version: reported });
   }
 
   /** Returns whether the panel's ping reports the uploaded firmware version. */
@@ -340,15 +344,17 @@ export class HmiPageComponent implements OnInit {
   /** Provides concise wording for a firmware update lifecycle state. */
   firmwareUpdateStatusLabel(job: FirmwareUpdateJob): string {
     switch (job.status) {
-      case "sending": return "Sending request";
-      case "sent": return "Waiting for panel";
-      case "awaiting_confirmation": return "Awaiting confirmation";
-      case "uploading": return job.progress === undefined ? "Downloading firmware" : `Downloading firmware · ${job.progress}%`;
-      case "rebooting": return "Restarting panel";
-      case "succeeded": return "Installed successfully";
-      case "failed": return "Failed";
-      case "cancelled": return "Cancelled";
-      case "timed_out": return "Timed out";
+      case "sending": return this.manager.translateText("HMI.STATUS_SENDING_REQUEST");
+      case "sent": return this.manager.translateText("HMI.STATUS_WAITING_PANEL");
+      case "awaiting_confirmation": return this.manager.translateText("HMI.STATUS_AWAITING_CONFIRMATION");
+      case "uploading": return job.progress === undefined
+        ? this.manager.translateText("HMI.STATUS_DOWNLOADING_FIRMWARE")
+        : this.manager.translateText("HMI.STATUS_DOWNLOADING_PROGRESS", { progress: job.progress });
+      case "rebooting": return this.manager.translateText("HMI.STATUS_RESTARTING_PANEL");
+      case "succeeded": return this.manager.translateText("HMI.STATUS_INSTALLED");
+      case "failed": return this.manager.translateText("HMI.STATUS_FAILED");
+      case "cancelled": return this.manager.translateText("HMI.STATUS_CANCELLED");
+      case "timed_out": return this.manager.translateText("HMI.STATUS_TIMED_OUT");
     }
   }
 
@@ -361,9 +367,11 @@ export class HmiPageComponent implements OnInit {
       next: ({ expiresAt, hmiVersion }) => {
         this.updatingPanelId.set("");
         const shortVersion = hmiVersion.slice(0, 12);
-        this.manager.inform(force
-          ? `Forced HMI update ${shortVersion} started on ${panel.name}; the panel will not ask for confirmation.`
-          : `HMI update ${shortVersion} prompt sent to ${panel.name}. Press UPDATE on the panel to begin; its download link expires at ${this.formatTimestamp(expiresAt)}.`);
+        this.manager.inform(force ? "HMI.NOTICE_HMI_FORCE_STARTED" : "HMI.NOTICE_HMI_PROMPT_SENT", "success", {
+          version: shortVersion,
+          name: panel.name,
+          expiresAt: this.formatTimestamp(expiresAt)
+        });
       },
       error: (error: unknown) => {
         this.updatingPanelId.set("");
@@ -375,9 +383,9 @@ export class HmiPageComponent implements OnInit {
   /** Compares a panel's reported HMI artifact hash with the currently uploaded TFT. */
   hmiVersionLabel(panel: Panel): string {
     const reported = this.manager.panelConnections()[panel.nodeName]?.telemetry?.hmiVersion;
-    if (!reported) return "Installed HMI version not reported yet";
-    if (reported === this.artifact()?.sha256) return `Installed HMI ${reported.slice(0, 12)} · current`;
-    return `Installed HMI ${reported.slice(0, 12)} · differs from uploaded file`;
+    if (!reported) return this.manager.translateText("HMI.HMI_VERSION_UNKNOWN");
+    if (reported === this.artifact()?.sha256) return this.manager.translateText("HMI.HMI_VERSION_CURRENT", { version: reported.slice(0, 12) });
+    return this.manager.translateText("HMI.HMI_VERSION_DIFFERS", { version: reported.slice(0, 12) });
   }
 
   /** Returns whether the panel has reported the current artifact's exact content hash. */
@@ -400,21 +408,21 @@ export class HmiPageComponent implements OnInit {
   /** Provides concise wording for the lifecycle state shown beside each panel. */
   updateStatusLabel(job: HmiUpdateJob): string {
     switch (job.status) {
-      case "sending": return "Sending request";
-      case "sent": return "Waiting for panel";
-      case "awaiting_confirmation": return "Awaiting confirmation";
-      case "uploading": return "Updating display";
-      case "succeeded": return "Installed successfully";
-      case "failed": return "Failed";
-      case "cancelled": return "Cancelled";
-      case "timed_out": return "Timed out";
+      case "sending": return this.manager.translateText("HMI.STATUS_SENDING_REQUEST");
+      case "sent": return this.manager.translateText("HMI.STATUS_WAITING_PANEL");
+      case "awaiting_confirmation": return this.manager.translateText("HMI.STATUS_AWAITING_CONFIRMATION");
+      case "uploading": return this.manager.translateText("HMI.STATUS_UPDATING_DISPLAY");
+      case "succeeded": return this.manager.translateText("HMI.STATUS_INSTALLED");
+      case "failed": return this.manager.translateText("HMI.STATUS_FAILED");
+      case "cancelled": return this.manager.translateText("HMI.STATUS_CANCELLED");
+      case "timed_out": return this.manager.translateText("HMI.STATUS_TIMED_OUT");
     }
   }
 
   /** Formats the manager's recorded job time using the browser's local timezone. */
   formatJobTime(value: number): string {
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? "Unknown time" : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? this.manager.translateText("HMI.UNKNOWN_TIME") : date.toLocaleString();
   }
 
   /** Updates whether the next panel request should bypass the on-panel confirmation. */
@@ -461,8 +469,10 @@ export class HmiPageComponent implements OnInit {
     if (error instanceof HttpErrorResponse) {
       const body = error.error as { error?: unknown } | null;
       if (typeof body?.error === "string") return body.error;
-      return error.status ? `The HMI request failed (${error.status}).` : "The manager API is unavailable.";
+      return error.status
+        ? this.manager.translateText("HMI.ERROR_REQUEST_STATUS", { status: error.status })
+        : this.manager.translateText("HMI.ERROR_API_UNAVAILABLE");
     }
-    return "The HMI request could not be completed.";
+    return this.manager.translateText("HMI.ERROR_REQUEST_FAILED");
   }
 }

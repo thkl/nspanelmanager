@@ -1,5 +1,6 @@
 import { AfterViewInit, Component, ElementRef, OnDestroy, forwardRef, input, viewChild } from "@angular/core";
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from "@angular/forms";
+import { TranslatePipe } from "@ngx-translate/core";
 import { EditorView, minimalSetup } from "codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { HighlightStyle, bracketMatching, indentOnInput, indentRange, indentUnit, syntaxHighlighting } from "@codemirror/language";
@@ -30,6 +31,7 @@ const scriptHighlightStyle = HighlightStyle.define([
 @Component({
   selector: "nspanel-script-editor",
   standalone: true,
+  imports: [TranslatePipe],
   templateUrl: "./script-editor.component.html",
   styleUrl: "./script-editor.component.css",
   providers: [{ provide: NG_VALUE_ACCESSOR, useExisting: forwardRef(() => ScriptEditorComponent), multi: true }]

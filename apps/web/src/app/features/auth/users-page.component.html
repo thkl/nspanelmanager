@@ -1,35 +1,35 @@
 <section class="users-layout">
   <article class="card users-editor">
-    <div class="card-heading"><div><h2>Local administrator accounts</h2><p>Local accounts control access. Optional SSO can sign in only to an existing account with the same verified email.</p></div><span class="users-mark">♙</span></div>
+    <div class="card-heading"><div><h2>{{ 'USERS.TITLE' | translate }}</h2><p>{{ 'USERS.DESCRIPTION' | translate }}</p></div><span class="users-mark">♙</span></div>
 
     <form class="add-user-form" (ngSubmit)="createUser()">
-      <div class="section-heading"><span class="section-number">01</span><div><h3>Add an account</h3><p>Use a unique email and a password with at least 12 characters.</p></div></div>
+      <div class="section-heading"><span class="section-number">01</span><div><h3>{{ 'USERS.ADD_ACCOUNT' | translate }}</h3><p>{{ 'USERS.ADD_HELP' | translate }}</p></div></div>
       <div class="add-user-fields">
-        <label>Email address<input name="email" type="email" required autocomplete="off" [ngModel]="email()" (ngModelChange)="email.set($event)" placeholder="person@example.com"></label>
-        <label>Initial password<input name="password" type="password" required minlength="12" autocomplete="new-password" [ngModel]="password()" (ngModelChange)="password.set($event)" placeholder="12 characters minimum"></label>
-        <button class="button primary" type="submit" [disabled]="!email().trim() || password().length < 12">Add account</button>
+        <label>{{ 'USERS.EMAIL' | translate }}<input name="email" type="email" required autocomplete="off" [ngModel]="email()" (ngModelChange)="email.set($event)" placeholder="person@example.com"></label>
+        <label>{{ 'USERS.INITIAL_PASSWORD' | translate }}<input name="password" type="password" required minlength="12" autocomplete="new-password" [ngModel]="password()" (ngModelChange)="password.set($event)" [placeholder]="'USERS.PASSWORD_HELP' | translate"></label>
+        <button class="button primary" type="submit" [disabled]="!email().trim() || password().length < 12">{{ 'USERS.ADD_ACCOUNT' | translate }}</button>
       </div>
     </form>
 
-    <div class="section-heading account-list-heading"><span class="section-number">02</span><div><h3>Accounts</h3><p>{{ users().length }} local account{{ users().length === 1 ? '' : 's' }}</p></div><button class="button secondary" type="button" [disabled]="loading()" (click)="refresh()">Refresh</button></div>
-    @if (loading()) { <div class="empty-state">Loading accounts…</div> }
-    @else if (users().length === 0) { <div class="empty-state">No local accounts are configured.</div> }
+    <div class="section-heading account-list-heading"><span class="section-number">02</span><div><h3>{{ 'USERS.ACCOUNTS' | translate }}</h3><p>{{ 'USERS.ACCOUNT_COUNT' | translate:{ count: users().length } }}</p></div><button class="button secondary" type="button" [disabled]="loading()" (click)="refresh()">{{ 'COMMON.REFRESH' | translate }}</button></div>
+    @if (loading()) { <div class="empty-state">{{ 'USERS.LOADING' | translate }}</div> }
+    @else if (users().length === 0) { <div class="empty-state">{{ 'USERS.EMPTY' | translate }}</div> }
     @else {
       <div class="account-list">
         @for (user of users(); track user.id) {
           <article class="account-row">
-            <div class="account-identity"><span class="avatar">{{ user.email.slice(0, 1).toUpperCase() }}</span><div><b>{{ user.email }}</b><small>Added {{ user.createdAt | date:'mediumDate' }}</small></div></div>
-            <div class="account-state"><span class="account-status" [class.disabled]="!user.enabled">{{ user.enabled ? 'Enabled' : 'Disabled' }}</span><span class="sso-status" [class.linked]="user.ssoLinked">{{ user.ssoLinked ? 'SSO linked' : 'Password login' }}</span></div>
+            <div class="account-identity"><span class="avatar">{{ user.email.slice(0, 1).toUpperCase() }}</span><div><b>{{ user.email }}</b><small>{{ 'USERS.ADDED' | translate }} {{ user.createdAt | date:'mediumDate' }}</small></div></div>
+            <div class="account-state"><span class="account-status" [class.disabled]="!user.enabled">{{ (user.enabled ? 'USERS.ENABLED' : 'USERS.DISABLED') | translate }}</span><span class="sso-status" [class.linked]="user.ssoLinked">{{ (user.ssoLinked ? 'USERS.SSO_LINKED' : 'USERS.PASSWORD_LOGIN') | translate }}</span></div>
             <div class="account-controls">
-              <label class="reset-field">New password<input [name]="'reset-' + user.id" type="password" autocomplete="new-password" minlength="12" [ngModel]="resetPasswords()[user.id] ?? ''" (ngModelChange)="setResetPassword(user.id, $event)" placeholder="12 characters minimum"></label>
-              <button class="text-action" type="button" [disabled]="(resetPasswords()[user.id] ?? '').length < 12" (click)="resetPassword(user)">Reset</button>
-              <button class="text-action" type="button" (click)="toggleUser(user)">{{ user.enabled ? 'Disable' : 'Enable' }}</button>
-              <button class="text-danger" type="button" (click)="removeUser(user)">Remove</button>
+              <label class="reset-field">{{ 'USERS.NEW_PASSWORD' | translate }}<input [name]="'reset-' + user.id" type="password" autocomplete="new-password" minlength="12" [ngModel]="resetPasswords()[user.id] ?? ''" (ngModelChange)="setResetPassword(user.id, $event)" [placeholder]="'USERS.PASSWORD_HELP' | translate"></label>
+              <button class="text-action" type="button" [disabled]="(resetPasswords()[user.id] ?? '').length < 12" (click)="resetPassword(user)">{{ 'USERS.RESET' | translate }}</button>
+              <button class="text-action" type="button" (click)="toggleUser(user)">{{ (user.enabled ? 'USERS.DISABLE' : 'USERS.ENABLE') | translate }}</button>
+              <button class="text-danger" type="button" (click)="removeUser(user)">{{ 'COMMON.REMOVE' | translate }}</button>
             </div>
           </article>
         }
       </div>
     }
-    @if (error()) { <p class="error-line" role="alert">{{ error() }}</p> }
+    @if (error()) { <p class="error-line" role="alert">{{ error() | translate }}</p> }
   </article>
 </section>

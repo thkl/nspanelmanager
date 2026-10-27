@@ -10,4 +10,4 @@ The web client uses ngx-translate with its HTTP loader. Translation resources ar
 
 English is the fallback language. Missing keys in another language use the matching English translation. The selected language is saved in browser local storage and is independent for each browser.
 
-The app shell and sign-in/setup screens are the first migrated views. Feature pages, validation messages, confirmations, empty states, and contextual help still need translation keys and resources; track that remaining coverage in `docs/MVP-PLAN.md`.
+The app shell, sign-in/setup flow, and feature pages use the English and German resources, including form guidance, confirmations, empty states, and operation notices. Plugin names, schema labels/help, user-authored text, and raw errors returned by integrations are supplied dynamically and remain in their source language. When adding static UI copy, add matching keys to both language files and use `TranslatePipe` in templates or `ManagerStore.translateText()` in component logic.

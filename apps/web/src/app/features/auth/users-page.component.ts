@@ -1,6 +1,7 @@
 import { Component, OnInit, signal } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
+import { TranslatePipe } from "@ngx-translate/core";
 import type { AuthUser } from "../../models";
 import { ManagerStore } from "../../manager-store.service";
 
@@ -8,7 +9,7 @@ import { ManagerStore } from "../../manager-store.service";
 @Component({
   selector: "nspanel-users-page",
   standalone: true,
-  imports: [DatePipe, FormsModule],
+  imports: [DatePipe, FormsModule, TranslatePipe],
   templateUrl: "./users-page.component.html",
   styleUrl: "./users-page.component.css"
 })
@@ -31,7 +32,7 @@ export class UsersPageComponent implements OnInit {
     this.loading.set(true);
     this.manager.loadUsers().subscribe({
       next: ({ users }) => { this.users.set(users); this.loading.set(false); },
-      error: () => { this.error.set("Could not load local accounts."); this.loading.set(false); }
+      error: () => { this.error.set("USERS.ERROR_LOAD"); this.loading.set(false); }
     });
   }
 
@@ -43,9 +44,9 @@ export class UsersPageComponent implements OnInit {
         this.users.update((users) => [...users, user]);
         this.email.set("");
         this.password.set("");
-        this.manager.inform(`Local account created for ${user.email}.`);
+        this.manager.inform("USERS.NOTICE_CREATED", "success", { email: user.email });
       },
-      error: (error) => this.error.set(error.error?.error || "Could not create the account.")
+      error: (error) => this.error.set(error.error?.error || "USERS.ERROR_CREATE")
     });
   }
 
@@ -54,7 +55,7 @@ export class UsersPageComponent implements OnInit {
     this.error.set("");
     this.manager.updateUser(user.id, { enabled: !user.enabled }).subscribe({
       next: ({ user: updated }) => this.replaceUser(updated),
-      error: (error) => this.error.set(error.error?.error || "Could not update the account.")
+      error: (error) => this.error.set(error.error?.error || "USERS.ERROR_UPDATE")
     });
   }
 
@@ -66,22 +67,22 @@ export class UsersPageComponent implements OnInit {
       next: ({ user: updated }) => {
         this.replaceUser(updated);
         this.resetPasswords.update((passwords) => ({ ...passwords, [user.id]: "" }));
-        this.manager.inform(`Password reset for ${user.email}.`);
+        this.manager.inform("USERS.NOTICE_PASSWORD_RESET", "success", { email: user.email });
       },
-      error: (error) => this.error.set(error.error?.error || "Could not reset the password.")
+      error: (error) => this.error.set(error.error?.error || "USERS.ERROR_RESET_PASSWORD")
     });
   }
 
   /** Removes a local account after confirmation; the final enabled administrator is protected by the API. */
   removeUser(user: AuthUser): void {
-    if (!confirm(`Remove the local account for ${user.email}?`)) return;
+    if (!this.manager.confirm("USERS.CONFIRM_REMOVE", { email: user.email })) return;
     this.error.set("");
     this.manager.removeUser(user.id).subscribe({
       next: () => {
         this.users.update((users) => users.filter((item) => item.id !== user.id));
-        this.manager.inform(`Local account removed for ${user.email}.`);
+        this.manager.inform("USERS.NOTICE_REMOVED", "success", { email: user.email });
       },
-      error: (error) => this.error.set(error.error?.error || "Could not remove the account.")
+      error: (error) => this.error.set(error.error?.error || "USERS.ERROR_REMOVE")
     });
   }
 

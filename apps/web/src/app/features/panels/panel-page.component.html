@@ -1,45 +1,45 @@
 <div class="content-grid" [class.mobile-detail-open]="mobileDetailsOpen()">
   <section class="health-alerts-card card" aria-labelledby="panel-health-heading" aria-live="polite">
     <div class="health-alerts-heading">
-      <div><h2 id="panel-health-heading">Panel health</h2><p>Live warnings from connectivity, reboot reports, and memory telemetry.</p></div>
-      <span class="health-alert-count" [class.has-alerts]="healthAlerts().length > 0">{{ healthAlerts().length }} {{ healthAlerts().length === 1 ? 'alert' : 'alerts' }}</span>
+      <div><h2 id="panel-health-heading">{{ 'PANEL.HEALTH_TITLE' | translate }}</h2><p>{{ 'PANEL.HEALTH_DESCRIPTION' | translate }}</p></div>
+      <span class="health-alert-count" [class.has-alerts]="healthAlerts().length > 0">{{ healthAlerts().length }} {{ (healthAlerts().length === 1 ? 'PANEL.ALERT' : 'PANEL.ALERTS') | translate }}</span>
     </div>
     @if (healthAlerts().length > 0) {
       <div class="health-alert-list">
         @for (alert of healthAlerts(); track alert.panelId + alert.message) {
           <div class="health-alert-row" [class.critical]="alert.severity === 'critical'">
             <span class="health-alert-indicator" aria-hidden="true"></span>
-            <b>{{ alert.panelName }}</b><span>{{ alert.message }}</span>
-            <button type="button" class="health-alert-open" (click)="openPanelFromAlert(alert.panelId)">View panel</button>
+            <b>{{ alert.panelName }}</b><span>{{ alert.message | translate:alert.params }}</span>
+            <button type="button" class="health-alert-open" (click)="openPanelFromAlert(alert.panelId)">{{ 'PANEL.VIEW_PANEL' | translate }}</button>
             @if (alert.clearable) {
               <button
                 type="button"
                 class="health-alert-clear"
                 [disabled]="clearingResetReportPanelId() === alert.panelId"
                 (click)="clearResetReport(alert.panelId)"
-              >{{ clearingResetReportPanelId() === alert.panelId ? 'Clearing…' : 'Clear' }}</button>
+              >{{ (clearingResetReportPanelId() === alert.panelId ? 'PANEL.CLEARING' : 'PANEL.CLEAR') | translate }}</button>
             }
           </div>
         }
       </div>
     } @else {
-      <p class="health-clear">No current panel health alerts.</p>
+      <p class="health-clear">{{ 'PANEL.NO_HEALTH_ALERTS' | translate }}</p>
     }
   </section>
   <section class="panel-list-card card">
-    <div class="card-heading"><div><h2>Your panels</h2><p>Manage screens and settings for each room.</p></div><span class="count-badge">{{ manager.config().panels.length }}</span></div>
+    <div class="card-heading"><div><h2>{{ 'PANEL.YOUR_PANELS' | translate }}</h2><p>{{ 'PANEL.LIST_DESCRIPTION' | translate }}</p></div><span class="count-badge">{{ manager.config().panels.length }}</span></div>
     @if (manager.config().panels.length === 0) {
-      <div class="empty-state"><span class="empty-icon">▣</span><b>No panels yet</b><p>Discover a device or add a panel using its MQTT node name.</p></div>
+      <div class="empty-state"><span class="empty-icon">▣</span><b>{{ 'PANEL.EMPTY_TITLE' | translate }}</b><p>{{ 'PANEL.EMPTY_DESCRIPTION' | translate }}</p></div>
     }
     @for (panel of manager.config().panels; track panel.id) {
       <button class="panel-row" [class.selected]="selectedPanelId() === panel.id" [attr.aria-pressed]="selectedPanelId() === panel.id" (click)="selectPanel(panel)">
         <span class="panel-icon">▣</span><span class="panel-row-copy"><b>{{ panel.name }}</b><small>{{ panel.nodeName }}</small>
           @if (panel.macAddress) { <small>MAC {{ panel.macAddress }}</small> }
-          @if (panel.groupName) { <small>Group {{ panel.groupName }}</small> }
-          @if (panel.healthNotificationsEnabled === false) { <small class="panel-health-muted">Health alerts muted</small> }
+          @if (panel.groupName) { <small>{{ 'PANEL.GROUP' | translate }} {{ panel.groupName }}</small> }
+          @if (panel.healthNotificationsEnabled === false) { <small class="panel-health-muted">{{ 'PANEL.HEALTH_MUTED' | translate }}</small> }
           @if (manager.panelConnections()[panel.nodeName]; as connection) {
             @if (connection.lastResetReport; as report) {
-              <small class="panel-reset-reason">Reboot reason: {{ report.reason }}
+              <small class="panel-reset-reason">{{ 'PANEL.REBOOT_REASON' | translate }}: {{ report.reason }}
                 @if (connection.telemetry; as telemetry) {
                   @if (approximateBootTime(telemetry); as bootTime) { · booted ~{{ bootTime | date:'short' }} }
                 }
@@ -52,31 +52,31 @@
             }
             @if (connection.groupSettings; as groupSettings) {
               <small class="panel-group-status">{{ formatGroupSettings(groupSettings) }}
-                @if (groupSettings.acknowledgedAt; as acknowledgedAt) { · confirmed {{ acknowledgedAt | date:'shortTime' }} }
-                @else if (groupSettings.requestedAt; as requestedAt) { · sent {{ requestedAt | date:'shortTime' }} }
+                @if (groupSettings.acknowledgedAt; as acknowledgedAt) { · {{ 'PANEL.CONFIRMED' | translate }} {{ acknowledgedAt | date:'shortTime' }} }
+                @else if (groupSettings.requestedAt; as requestedAt) { · {{ 'PANEL.SENT' | translate }} {{ requestedAt | date:'shortTime' }} }
               </small>
             }
           }
         </span>
         <span class="connection-status" [class.online]="manager.panelConnections()[panel.nodeName]?.status === 'online'" [class.offline]="manager.panelConnections()[panel.nodeName]?.status !== 'online'" [attr.aria-label]="manager.panelConnections()[panel.nodeName]?.status === 'online' ? 'Online' : 'Offline'">
-          <span class="connection-dot"></span>{{ manager.panelConnections()[panel.nodeName]?.status === 'online' ? 'Online' : 'Offline' }}
+          <span class="connection-dot"></span>{{ (manager.panelConnections()[panel.nodeName]?.status === 'online' ? 'PANEL.ONLINE' : 'PANEL.OFFLINE') | translate }}
         </span><span class="row-arrow">›</span>
       </button>
     }
     @if (addingPanel()) {
       <div class="add-panel-box">
-        <label>Panel name<input [ngModel]="newName()" (ngModelChange)="newName.set($event)" placeholder="Kitchen"></label>
-        <label>MQTT node name<input [ngModel]="newNodeName()" (ngModelChange)="newNodeName.set($event)" placeholder="nsp-kitchen"></label>
-        <label>Device MAC address <span class="unit">optional</span><input [ngModel]="newMacAddress()" (ngModelChange)="newMacAddress.set($event)" placeholder="4417937c0e70"></label>
-        <div class="inline-actions"><button class="button ghost small" (click)="addingPanel.set(false)">Cancel</button><button class="button primary small" (click)="addPanel()">Add panel</button></div>
+        <label>{{ 'PANEL.NAME' | translate }}<input [ngModel]="newName()" (ngModelChange)="newName.set($event)" [placeholder]="'PANEL.EXAMPLE_KITCHEN' | translate"></label>
+        <label>{{ 'PANEL.MQTT_NODE' | translate }}<input [ngModel]="newNodeName()" (ngModelChange)="newNodeName.set($event)" placeholder="nsp-kitchen"></label>
+        <label>{{ 'PANEL.MAC_ADDRESS' | translate }} <span class="unit">{{ 'COMMON.OPTIONAL' | translate }}</span><input [ngModel]="newMacAddress()" (ngModelChange)="newMacAddress.set($event)" placeholder="4417937c0e70"></label>
+        <div class="inline-actions"><button class="button ghost small" (click)="addingPanel.set(false)">{{ 'COMMON.CANCEL' | translate }}</button><button class="button primary small" (click)="addPanel()">{{ 'PANEL.ADD_PANEL' | translate }}</button></div>
       </div>
     } @else {
-      <button class="add-panel-button" (click)="addingPanel.set(true)"><span>＋</span> Add a panel</button>
+      <button class="add-panel-button" (click)="addingPanel.set(true)"><span>＋</span> {{ 'PANEL.ADD_PANEL' | translate }}</button>
     }
     <section class="discovery-box">
-      <div class="discovery-heading"><div><b>Discovered NSPanels</b><small class="discovery-scope"><span aria-hidden="true">ⓘ</span> Shows MAC-suffixed NSPanel firmware devices and panels already assigned in the manager. Other ESPHome devices are filtered out.</small></div><button class="button ghost small" [disabled]="!manager.mqtt().connected" (click)="discoverPanels()">Scan</button></div>
+      <div class="discovery-heading"><div><b>{{ 'PANEL.DISCOVERED_TITLE' | translate }}</b><small class="discovery-scope"><span aria-hidden="true">ⓘ</span> {{ 'PANEL.DISCOVERED_HELP' | translate }}</small></div><button class="button ghost small" [disabled]="!manager.mqtt().connected" (click)="discoverPanels()">{{ 'PANEL.SCAN' | translate }}</button></div>
       @if (manager.discoveredPanels().length === 0) {
-        <p class="discovery-empty">No devices discovered yet.</p>
+        <p class="discovery-empty">{{ 'PANEL.NO_DEVICES' | translate }}</p>
       }
       @for (device of manager.discoveredPanels(); track device.macAddress) {
         <div class="discovery-device">
@@ -85,69 +85,69 @@
           @if (device.ip) { <small>{{ device.ip }}</small> }
           @if (device.version) { <small>ESPHome {{ device.version }}</small> }
           @if (assignedPanel(device); as assigned) {
-            <div class="discovery-assigned"><span>Assigned to {{ assigned.name }}</span><button class="button ghost small" (click)="clearPanelMacAddress(assigned)">Unassign</button></div>
+            <div class="discovery-assigned"><span>{{ 'PANEL.ASSIGNED_TO' | translate:{ name: assigned.name } }}</span><button class="button ghost small" (click)="clearPanelMacAddress(assigned)">{{ 'PANEL.UNASSIGN' | translate }}</button></div>
           } @else {
             @if (manager.config().panels.length > 0) {
               <div class="discovery-assign">
                 <select [ngModel]="discoveryAssignmentTargets()[device.macAddress] || ''" (ngModelChange)="setDiscoveryAssignment(device.macAddress, $event)">
-                  <option value="">Choose a panel</option>
+                  <option value="">{{ 'PANEL.CHOOSE_PANEL' | translate }}</option>
                   @for (panel of availableAssignmentPanels(device); track panel.id) { <option [value]="panel.id">{{ panel.name }}</option> }
                 </select>
-                <button class="button primary small" [disabled]="!discoveryAssignmentTargets()[device.macAddress]" (click)="assignDiscoveredPanel(device)">Assign</button>
+                <button class="button primary small" [disabled]="!discoveryAssignmentTargets()[device.macAddress]" (click)="assignDiscoveredPanel(device)">{{ 'PANEL.ASSIGN' | translate }}</button>
               </div>
             }
-            <button class="button ghost small discovery-new" (click)="createPanelFromDiscovery(device)">Create panel from device</button>
+            <button class="button ghost small discovery-new" (click)="createPanelFromDiscovery(device)">{{ 'PANEL.CREATE_FROM_DEVICE' | translate }}</button>
           }
         </div>
       }
     </section>
-    <div class="info-tip"><span>ⓘ</span><p>Panels must use this broker. Assign the discovered MAC before upgrading to unified firmware. The manager uses the MAC topic to identify the panel at startup, then normal traffic uses its configured MQTT node name.</p></div>
+    <div class="info-tip"><span>ⓘ</span><p>{{ 'PANEL.BROKER_AND_IDENTITY_HELP' | translate }}</p></div>
   </section>
 
   @if (draft(); as panel) {
     <section class="editor-card card">
     <div class="editor-heading">
-      <button type="button" class="button ghost mobile-back" (click)="showPanelList()">← Panel list</button>
+      <button type="button" class="button ghost mobile-back" (click)="showPanelList()">← {{ 'PANEL.PANEL_LIST' | translate }}</button>
       <div class="device-title">
         <span class="device-icon">▣</span>
         <div>
           <h2>{{ panel.name }}</h2>
-          <p><code>{{ panel.nodeName }}</code> <span class="dot-sep">·</span> {{ panel.unifiedFirmware ? 'Unified firmware' : 'NSPanel firmware' }}</p>
+          <p><code>{{ panel.nodeName }}</code> <span class="dot-sep">·</span> {{ (panel.unifiedFirmware ? 'PANEL.UNIFIED_FIRMWARE' : 'PANEL.NSPANEL_FIRMWARE') | translate }}</p>
         </div>
       </div>
       <div class="editor-actions">
-        <button class="button ghost" [disabled]="manager.config().panels.length < 2 || copyingPanelSettings()" (click)="showCopySettings() ? cancelCopySettings() : showCopySettings.set(true)">Copy settings to…</button>
-        <button class="button ghost" [disabled]="!manager.mqtt().connected || manager.panelConnections()[panel.nodeName]?.status !== 'online' || rebootingPanelId() !== ''" (click)="rebootPanel(panel)">{{ rebootingPanelId() === panel.id ? 'Sending…' : 'Reboot panel' }}</button>
-        <button class="button ghost" (click)="removePanel()">Remove</button>
-        <button class="button primary" [disabled]="saving() || !favoritesValid(panel)" (click)="savePanel()">{{ saving() ? 'Saving…' : 'Save changes' }}</button>
+        <button class="button ghost" [disabled]="manager.config().panels.length < 2 || copyingPanelSettings()" (click)="showCopySettings() ? cancelCopySettings() : showCopySettings.set(true)">{{ 'PANEL.COPY_SETTINGS_TO' | translate }}</button>
+        <button class="button ghost" [disabled]="!manager.mqtt().connected || manager.panelConnections()[panel.nodeName]?.status !== 'online' || rebootingPanelId() !== ''" (click)="rebootPanel(panel)">{{ (rebootingPanelId() === panel.id ? 'PANEL.SENDING' : 'PANEL.REBOOT') | translate }}</button>
+        <button class="button ghost" (click)="removePanel()">{{ 'COMMON.REMOVE' | translate }}</button>
+        <button class="button primary" [disabled]="saving() || !favoritesValid(panel)" (click)="savePanel()">{{ (saving() ? 'COMMON.SAVING' : 'PANEL.SAVE_CHANGES') | translate }}</button>
       </div>
     </div>
       @if (showCopySettings()) {
         <div class="copy-settings-panel">
           <div>
-            <b>Copy saved settings to another panel</b>
-            <small>Uses this panel's saved display settings, buttons, music, and plugin assignments. The destination's name, display title, MQTT node, and device assignment stay unchanged. MQTT routes are not copied.</small>
+            <b>{{ 'PANEL.COPY_SETTINGS_TITLE' | translate }}</b>
+            <small>{{ 'PANEL.COPY_SETTINGS_DESCRIPTION' | translate }}</small>
           </div>
-          <label>Destination panel
+          <label>{{ 'PANEL.DESTINATION_PANEL' | translate }}
             <select [ngModel]="copyTargetPanelId()" (ngModelChange)="copyTargetPanelId.set($event)">
-              <option value="">Choose a panel</option>
+              <option value="">{{ 'PANEL.CHOOSE_PANEL' | translate }}</option>
               @for (target of copyTargets(panel); track target.id) {
                 <option [value]="target.id">{{ target.name }} · {{ target.nodeName }}</option>
               }
             </select>
           </label>
           <div class="inline-actions">
-            <button class="button ghost small" [disabled]="copyingPanelSettings()" (click)="cancelCopySettings()">Cancel</button>
-            <button class="button primary small" [disabled]="!copyTargetPanelId() || copyingPanelSettings()" (click)="copySettingsToPanel()">{{ copyingPanelSettings() ? 'Copying…' : 'Copy settings' }}</button>
+            <button class="button ghost small" [disabled]="copyingPanelSettings()" (click)="cancelCopySettings()">{{ 'COMMON.CANCEL' | translate }}</button>
+            <button class="button primary small" [disabled]="!copyTargetPanelId() || copyingPanelSettings()" (click)="copySettingsToPanel()">{{ (copyingPanelSettings() ? 'PANEL.COPYING' : 'PANEL.COPY_SETTINGS') | translate }}</button>
           </div>
         </div>
       }
       <div class="settings-scroll">
-        <div class="panel-identity"><div><b>Hardware identity</b><small>{{ panel.macAddress || 'No device assigned' }}</small></div>@if (panel.macAddress) { <button class="button ghost small" (click)="clearPanelMacAddress(panel)">Unassign device</button> }</div>
+        <div class="panel-identity"><div><b>{{ 'PANEL.HARDWARE_IDENTITY' | translate }}</b><small>{{ panel.macAddress || ('PANEL.NO_DEVICE_ASSIGNED' | translate) }}</small></div>@if (panel.macAddress) { <button class="button ghost small" (click)="clearPanelMacAddress(panel)">{{ 'PANEL.UNASSIGN_DEVICE' | translate }}</button> }</div>
         <label class="toggle-row health-notification-toggle">
           <span>
-            <b>Health alerts</b>
-            <small>Show offline, reboot, and low-memory alerts for this panel. Status and diagnostics stay visible when alerts are off.</small>
+            <b>{{ 'PANEL.HEALTH_ALERTS' | translate }}</b>
+            <small>{{ 'PANEL.HEALTH_ALERTS_HELP' | translate }}</small>
           </span>
           <input
             type="checkbox"
@@ -157,124 +157,124 @@
           >
         </label>
         <div class="panel-group-settings form-grid two-col">
-          <label>Panel group<input [(ngModel)]="panel.groupName" placeholder="downstairs" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}"></label>
+          <label>{{ 'PANEL.PANEL_GROUP' | translate }}<input [(ngModel)]="panel.groupName" placeholder="downstairs" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}"></label>
           <div class="panel-group-help">
             @if (panel.groupName) {
-              <small>Shared runtime settings topic</small>
+              <small>{{ 'PANEL.SHARED_SETTINGS_TOPIC' | translate }}</small>
               <code>nspanelmanager/groups/{{ panel.groupName }}/cmnd/settings</code>
-              <small>Send partial JSON, such as &#123;"night":1,"brightness":1&#125; at night and &#123;"night":0,"brightness":100&#125; by day. The manager saves the latest values and reapplies them after the display reconnects.</small>
+              <small>{{ 'PANEL.GROUP_SETTINGS_HELP' | translate }}</small>
             } @else {
-              <small>Assign panels to the same group to share runtime night and brightness settings.</small>
+              <small>{{ 'PANEL.GROUP_HELP' | translate }}</small>
             }
           </div>
         </div>
-        <section class="panel-crash-dump" aria-label="Panel crash dump">
+        <section class="panel-crash-dump" [attr.aria-label]="'PANEL.CRASH_DUMP' | translate">
           <div>
-            <b>Crash dump</b>
+            <b>{{ 'PANEL.CRASH_DUMP' | translate }}</b>
             @if (coreDumpLoading()) {
-              <small>Checking manager storage…</small>
+              <small>{{ 'PANEL.CHECKING_STORAGE' | translate }}</small>
             } @else if (coreDumpForSelectedPanel(); as dump) {
-              <small>Captured {{ dump.capturedAt | date:'short' }} · FW {{ dump.firmwareVersion }} · {{ (dump.sizeBytes / 1024).toFixed(1) }} KB</small>
-              @if (dump.panicReason) { <small>Reason: {{ dump.panicReason }}</small> }
+              <small>{{ 'PANEL.DUMP_CAPTURED' | translate:{ date: (dump.capturedAt | date:'short'), version: dump.firmwareVersion, size: (dump.sizeBytes / 1024).toFixed(1) } }}</small>
+              @if (dump.panicReason) { <small>{{ 'PANEL.REASON' | translate }}: {{ dump.panicReason }}</small> }
               <small>SHA-256 {{ dump.sha256 }}</small>
             } @else {
-              <small>No crash dump has been captured for this panel.</small>
+              <small>{{ 'PANEL.NO_CRASH_DUMP' | translate }}</small>
             }
           </div>
           @if (coreDumpForSelectedPanel(); as dump) {
-            <button class="button ghost small" [disabled]="downloadingCoreDump()" (click)="downloadCoreDump()">{{ downloadingCoreDump() ? 'Downloading…' : 'Download dump' }}</button>
+            <button class="button ghost small" [disabled]="downloadingCoreDump()" (click)="downloadCoreDump()">{{ (downloadingCoreDump() ? 'PANEL.DOWNLOADING' : 'PANEL.DOWNLOAD_DUMP') | translate }}</button>
           }
         </section>
         @if (manager.panelConnections()[panel.nodeName]?.lastResetReport; as resetReport) {
-          <section class="panel-reset-report" aria-label="Last reboot report">
+          <section class="panel-reset-report" [attr.aria-label]="'PANEL.LAST_REBOOT_REPORT' | translate">
             <div>
-              <b>Last reboot report</b>
-              <small>{{ resetReport.reason }} · checked {{ resetReport.reportedAt | date:'short' }}</small>
+              <b>{{ 'PANEL.LAST_REBOOT_REPORT' | translate }}</b>
+              <small>{{ resetReport.reason }} · {{ 'PANEL.CHECKED' | translate }} {{ resetReport.reportedAt | date:'short' }}</small>
             </div>
             <button
               class="button ghost small"
               [disabled]="clearingResetReportPanelId() === panel.id"
               (click)="clearResetReport(panel.id)"
-            >{{ clearingResetReportPanelId() === panel.id ? 'Clearing…' : 'Clear report' }}</button>
+            >{{ (clearingResetReportPanelId() === panel.id ? 'PANEL.CLEARING' : 'PANEL.CLEAR_REPORT') | translate }}</button>
           </section>
         }
         <nspanel-screen-preview [panel]="panel" [config]="manager.config()" [favoriteAssignments]="favoriteInstances()" />
-        <div class="section-title"><span class="section-number">01</span><div><h3>Display settings</h3><p>Basic labels and appearance.</p></div></div>
+        <div class="section-title"><span class="section-number">01</span><div><h3>{{ 'PANEL.DISPLAY_SETTINGS' | translate }}</h3><p>{{ 'PANEL.DISPLAY_SETTINGS_HELP' | translate }}</p></div></div>
         <div class="form-grid three-col">
-          <label>Display title<input [(ngModel)]="panel.settings.panelname" placeholder="Kitchen"></label>
-          <label>Brightness <span class="unit">%</span><input type="number" min="0" max="100" [(ngModel)]="panel.settings.brightness"></label>
-          <label>Current temperature <span class="unit">°C</span><input type="number" step="0.1" [(ngModel)]="panel.settings.currenttemperature" placeholder="Optional"></label>
-          <label class="toggle-row"><span><b>Screensaver</b><small>Show the screen saver</small></span><input type="checkbox" [ngModel]="panel.settings.screensaver === 1" (ngModelChange)="panel.settings.screensaver = $event ? 1 : 0"></label>
-          <label class="toggle-row"><span><b>Night mode</b><small>Dim nighttime display</small></span><input type="checkbox" [ngModel]="panel.settings.nightmode === 1" (ngModelChange)="panel.settings.nightmode = $event ? 1 : 0"></label>
-          <label class="toggle-row"><span><b>Touch click</b><small>Play a short sound when the screen is pressed</small></span><input type="checkbox" [ngModel]="panel.settings.touchClick === true" (ngModelChange)="panel.settings.touchClick = $event"></label>
+          <label>{{ 'PANEL.DISPLAY_TITLE' | translate }}<input [(ngModel)]="panel.settings.panelname" [placeholder]="'PANEL.EXAMPLE_KITCHEN' | translate"></label>
+          <label>{{ 'PANEL.BRIGHTNESS' | translate }} <span class="unit">%</span><input type="number" min="0" max="100" [(ngModel)]="panel.settings.brightness"></label>
+          <label>{{ 'PANEL.CURRENT_TEMPERATURE' | translate }} <span class="unit">°C</span><input type="number" step="0.1" [(ngModel)]="panel.settings.currenttemperature" [placeholder]="'COMMON.OPTIONAL' | translate"></label>
+          <label class="toggle-row"><span><b>{{ 'PANEL.SCREENSAVER' | translate }}</b><small>{{ 'PANEL.SCREENSAVER_HELP' | translate }}</small></span><input type="checkbox" [ngModel]="panel.settings.screensaver === 1" (ngModelChange)="panel.settings.screensaver = $event ? 1 : 0"></label>
+          <label class="toggle-row"><span><b>{{ 'PANEL.NIGHT_MODE' | translate }}</b><small>{{ 'PANEL.NIGHT_MODE_HELP' | translate }}</small></span><input type="checkbox" [ngModel]="panel.settings.nightmode === 1" (ngModelChange)="panel.settings.nightmode = $event ? 1 : 0"></label>
+          <label class="toggle-row"><span><b>{{ 'PANEL.TOUCH_CLICK' | translate }}</b><small>{{ 'PANEL.TOUCH_CLICK_HELP' | translate }}</small></span><input type="checkbox" [ngModel]="panel.settings.touchClick === true" (ngModelChange)="panel.settings.touchClick = $event"></label>
         </div>
 
-        <div class="section-title section-spaced"><span class="section-number">02</span><div><h3>Main screen buttons</h3><p>Configure each tile's icon and mode, then assign a light or cover. The device state supplies the displayed value label. Long-press a light tile for color and brightness controls.</p></div></div>
+        <div class="section-title section-spaced"><span class="section-number">02</span><div><h3>{{ 'PANEL.HOME_BUTTONS' | translate }}</h3><p>{{ 'PANEL.HOME_BUTTONS_HELP' | translate }}</p></div></div>
         @for (button of panel.settings.buttons; track $index; let i = $index) {
           <div class="button-config">
             <span class="button-index">0{{ i + 1 }}</span>
-            <label>Label<input [(ngModel)]="button.label" placeholder="Living room lights"></label>
-            <label>Icon<select [(ngModel)]="button.image">
-              <option value="0">Blind</option>
-              <option value="1">Downlight</option>
-              <option value="2">Desk lamp</option>
-              <option value="3">Wall mnt lamp</option>
-              <option value="4">Standing lamp</option>
-              <option value="5">Lamp 2</option>
-              <option value="6">Fan</option>
+            <label>{{ 'PANEL.LABEL' | translate }}<input [(ngModel)]="button.label" [placeholder]="'PANEL.EXAMPLE_LIGHTS' | translate"></label>
+            <label>{{ 'PANEL.ICON' | translate }}<select [(ngModel)]="button.image">
+              <option value="0">{{ 'PANEL.ICON_BLIND' | translate }}</option>
+              <option value="1">{{ 'PANEL.ICON_DOWNLIGHT' | translate }}</option>
+              <option value="2">{{ 'PANEL.ICON_DESK_LAMP' | translate }}</option>
+              <option value="3">{{ 'PANEL.ICON_WALL_LAMP' | translate }}</option>
+              <option value="4">{{ 'PANEL.ICON_STANDING_LAMP' | translate }}</option>
+              <option value="5">{{ 'PANEL.ICON_LAMP_TWO' | translate }}</option>
+              <option value="6">{{ 'PANEL.ICON_FAN' | translate }}</option>
             </select></label>
-            <label>Mode<select [(ngModel)]="button.mode"><option [ngValue]="0">Up/down + toggle</option><option [ngValue]="1" [disabled]="!supportsHomeTileLevelPage(button.pluginInstanceId)">Open level page</option><option [ngValue]="2">Toggle only</option></select></label>
+            <label>{{ 'PANEL.MODE' | translate }}<select [(ngModel)]="button.mode"><option [ngValue]="0">{{ 'PANEL.MODE_UP_DOWN_TOGGLE' | translate }}</option><option [ngValue]="1" [disabled]="!supportsHomeTileLevelPage(button.pluginInstanceId)">{{ 'PANEL.MODE_OPEN_LEVEL' | translate }}</option><option [ngValue]="2">{{ 'PANEL.MODE_TOGGLE_ONLY' | translate }}</option></select></label>
             <span></span> <!-- Dummy do not remove -->
-            <label>Plugin instance<select [ngModel]="button.pluginInstanceId || ''" (ngModelChange)="setHomeTileInstance(i, $event)"><option value="">No plugin instance</option>@for (instance of homeTileInstances(); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }</select></label>
+            <label>{{ 'PANEL.PLUGIN_INSTANCE' | translate }}<select [ngModel]="button.pluginInstanceId || ''" (ngModelChange)="setHomeTileInstance(i, $event)"><option value="">{{ 'PANEL.NO_PLUGIN_INSTANCE' | translate }}</option>@for (instance of homeTileInstances(); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }</select></label>
           </div>
         }
 
-        <div class="section-title section-spaced"><span class="section-number">03</span><div><h3>Built-in panel pages</h3><p>Assign plugin instances to firmware-owned screens.</p></div></div>
+        <div class="section-title section-spaced"><span class="section-number">03</span><div><h3>{{ 'PANEL.BUILT_IN_PAGES' | translate }}</h3><p>{{ 'PANEL.BUILT_IN_PAGES_HELP' | translate }}</p></div></div>
         <div class="form-grid two-col hardware-grid">
           @for (plugin of nativePanelPlugins(); track plugin.id) {
             @if (plugin.nativePanelPage; as pageId) {
               <label>{{ nativePageLabel(pageId) }} instance
                 <select [ngModel]="nativePageInstance(pageId)" (ngModelChange)="setNativePageInstance(pageId, $event)">
-                  <option value="">No instance assigned</option>
+                  <option value="">{{ 'PANEL.NO_INSTANCE_ASSIGNED' | translate }}</option>
                   @for (instance of nativePageInstances(pageId); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }
                 </select>
               </label>
               @if (plugin.nativePanelSharedInstances) {
-                <p class="field-help">All {{ plugin.name }} instances share this page. Their player names and IDs are sent to the panel from the instance settings.</p>
+                <p class="field-help">{{ 'PANEL.SHARED_PLUGIN_PAGE_HELP' | translate:{ plugin: plugin.name } }}</p>
               }
               @if (nativePageInstances(pageId).length === 0) {
-                <p class="field-help">Create a {{ plugin.name }} profile and instance in Plugins first.</p>
+                <p class="field-help">{{ 'PANEL.CREATE_PLUGIN_FIRST' | translate:{ plugin: plugin.name } }}</p>
               }
             }
           }
         </div>
 
-        <div class="section-title section-spaced"><span class="section-number">04</span><div><h3>Page event handlers</h3><p>Create page IDs and brightness rules in Plugins, then assign the Screen dimmer instance here.</p></div></div>
+        <div class="section-title section-spaced"><span class="section-number">04</span><div><h3>{{ 'PANEL.PAGE_EVENT_HANDLERS' | translate }}</h3><p>{{ 'PANEL.PAGE_EVENT_HANDLERS_HELP' | translate }}</p></div></div>
         <div class="form-grid two-col hardware-grid">
           @for (plugin of panelEventObserverPlugins(); track plugin.id) {
             <label>{{ plugin.name }} instance
               <select [ngModel]="panelEventInstance(plugin.id)" (ngModelChange)="setPanelEventInstance(plugin.id, $event)">
-                <option value="">No instance assigned</option>
+                <option value="">{{ 'PANEL.NO_INSTANCE_ASSIGNED' | translate }}</option>
                 @for (instance of panelEventInstances(plugin.id); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }
               </select>
             </label>
             @if (panelEventInstances(plugin.id).length === 0) {
-              <p class="field-help">Create a {{ plugin.name }} profile and instance in Plugins first.</p>
+              <p class="field-help">{{ 'PANEL.CREATE_PLUGIN_FIRST' | translate:{ plugin: plugin.name } }}</p>
             }
           }
         </div>
 
-        <div class="section-title section-spaced"><span class="section-number">05</span><div><h3>Favorites page</h3><p>Name the panel’s 12 favorite shortcuts and optionally assign a plugin instance.</p></div></div>
-        <div class="form-grid two-col favorite-heading"><label>Page title<input [(ngModel)]="panel.settings.favorites.name" placeholder="Favorites"></label></div>
+        <div class="section-title section-spaced"><span class="section-number">05</span><div><h3>{{ 'PANEL.FAVORITES_PAGE' | translate }}</h3><p>{{ 'PANEL.FAVORITES_PAGE_HELP' | translate }}</p></div></div>
+        <div class="form-grid two-col favorite-heading"><label>{{ 'PANEL.PAGE_TITLE' | translate }}<input [(ngModel)]="panel.settings.favorites.name" [placeholder]="'PREVIEW.FAVORITES' | translate"></label></div>
         <div class="favorite-grid">
           @for (favorite of panel.settings.favorites.buttons; track $index; let i = $index) {
             <div class="favorite-item">
               <span class="favorite-index">{{ (i + 1).toString().padStart(2, '0') }}</span>
               <div class="favorite-item-fields">
-                <label>Favorite name<input [(ngModel)]="favorite.label" [placeholder]="'Favorite ' + (i + 1)"></label>
-                <label>Plugin instance
+                <label>{{ 'PANEL.FAVORITE_NAME' | translate }}<input [(ngModel)]="favorite.label" [placeholder]="'PANEL.FAVORITE_NUMBER' | translate:{ number: i + 1 }"></label>
+                <label>{{ 'PANEL.PLUGIN_INSTANCE' | translate }}
                   <select [ngModel]="favoriteInstance(i)" (ngModelChange)="setFavoriteInstance(i, $event)">
-                    <option value="">No plugin assigned</option>
+                    <option value="">{{ 'PANEL.NO_PLUGIN_ASSIGNED' | translate }}</option>
                     @for (instance of favoritePluginInstances(); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }
                   </select>
                 </label>
@@ -282,30 +282,30 @@
             </div>
           }
         </div>
-        @if (!favoritesValid(panel)) { <p class="favorite-validation" role="alert">Add a favorite name for each slot assigned to a plugin instance.</p> }
+        @if (!favoritesValid(panel)) { <p class="favorite-validation" role="alert">{{ 'PANEL.FAVORITES_VALIDATION' | translate }}</p> }
 
-        <div class="section-title section-spaced"><span class="section-number">06</span><div><h3>Physical buttons</h3><p>Choose a local relay action, publish an event, or assign a toggle-capable plugin instance.</p></div></div>
+        <div class="section-title section-spaced"><span class="section-number">06</span><div><h3>{{ 'PANEL.PHYSICAL_BUTTONS' | translate }}</h3><p>{{ 'PANEL.PHYSICAL_BUTTONS_HELP' | translate }}</p></div></div>
         <div class="form-grid two-col hardware-grid">
-          <label>Left hardware button
+          <label>{{ 'PANEL.LEFT_HARDWARE_BUTTON' | translate }}
             <select [ngModel]="hardwareButtonAction('0')" (ngModelChange)="setHardwareButtonAction('0', $event)">
-              <option value="relay">Toggle relay locally</option><option value="event">Publish event only</option>
-              <optgroup label="Toggle plugin instance">@for (instance of hardwareToggleInstances(); track instance.id) { <option [value]="'plugin:' + instance.id">{{ instance.name }}</option> }</optgroup>
-              @if (unavailableHardwareButtonPlugin('0')) { <option [value]="'plugin:' + unavailableHardwareButtonPlugin('0')">Unavailable: {{ unavailableHardwareButtonPlugin('0') }}</option> }
+              <option value="relay">{{ 'PANEL.TOGGLE_RELAY' | translate }}</option><option value="event">{{ 'PANEL.PUBLISH_EVENT_ONLY' | translate }}</option>
+              <optgroup [label]="'PANEL.TOGGLE_PLUGIN_INSTANCE' | translate">@for (instance of hardwareToggleInstances(); track instance.id) { <option [value]="'plugin:' + instance.id">{{ instance.name }}</option> }</optgroup>
+              @if (unavailableHardwareButtonPlugin('0')) { <option [value]="'plugin:' + unavailableHardwareButtonPlugin('0')">{{ 'PANEL.UNAVAILABLE' | translate }}: {{ unavailableHardwareButtonPlugin('0') }}</option> }
             </select>
           </label>
-          <label>Right hardware button
+          <label>{{ 'PANEL.RIGHT_HARDWARE_BUTTON' | translate }}
             <select [ngModel]="hardwareButtonAction('1')" (ngModelChange)="setHardwareButtonAction('1', $event)">
-              <option value="relay">Toggle relay locally</option><option value="event">Publish event only</option>
-              <optgroup label="Toggle plugin instance">@for (instance of hardwareToggleInstances(); track instance.id) { <option [value]="'plugin:' + instance.id">{{ instance.name }}</option> }</optgroup>
-              @if (unavailableHardwareButtonPlugin('1')) { <option [value]="'plugin:' + unavailableHardwareButtonPlugin('1')">Unavailable: {{ unavailableHardwareButtonPlugin('1') }}</option> }
+              <option value="relay">{{ 'PANEL.TOGGLE_RELAY' | translate }}</option><option value="event">{{ 'PANEL.PUBLISH_EVENT_ONLY' | translate }}</option>
+              <optgroup [label]="'PANEL.TOGGLE_PLUGIN_INSTANCE' | translate">@for (instance of hardwareToggleInstances(); track instance.id) { <option [value]="'plugin:' + instance.id">{{ instance.name }}</option> }</optgroup>
+              @if (unavailableHardwareButtonPlugin('1')) { <option [value]="'plugin:' + unavailableHardwareButtonPlugin('1')">{{ 'PANEL.UNAVAILABLE' | translate }}: {{ unavailableHardwareButtonPlugin('1') }}</option> }
             </select>
           </label>
         </div>
 
-        <div class="save-bottom"><span>Apply saves your current edits and sends the full settings profile to the panel.</span><button class="button primary" [disabled]="saving() || !manager.mqtt().connected" (click)="applyPanel()">Apply to panel <span>↗</span></button></div>
+        <div class="save-bottom"><span>{{ 'PANEL.APPLY_HELP' | translate }}</span><button class="button primary" [disabled]="saving() || !manager.mqtt().connected" (click)="applyPanel()">{{ 'PANEL.APPLY_TO_PANEL' | translate }} <span>↗</span></button></div>
       </div>
     </section>
   } @else {
-    <section class="editor-card card blank-editor"><div class="empty-icon">▣</div><h2>Select a panel</h2><p>Choose a panel from the list to edit its display settings, or add your first one.</p></section>
+    <section class="editor-card card blank-editor"><div class="empty-icon">▣</div><h2>{{ 'PANEL.SELECT_PANEL' | translate }}</h2><p>{{ 'PANEL.SELECT_PANEL_HELP' | translate }}</p></section>
   }
 </div>

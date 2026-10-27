@@ -1,12 +1,12 @@
-<section class="screen-preview" aria-label="NSPanel screen preview">
+<section class="screen-preview" [attr.aria-label]="'PREVIEW.ARIA_LABEL' | translate">
   @if (!pagePreview()) {
     <div class="preview-heading">
-      <div><h3>Interactive screen preview</h3><p>Tap the screen to try the current panel configuration.</p></div>
+      <div><h3>{{ 'PREVIEW.TITLE' | translate }}</h3><p>{{ 'PREVIEW.DESCRIPTION' | translate }}</p></div>
       <span class="preview-badge">455 × 320</span>
     </div>
-    <div class="screen-picker" role="group" aria-label="Preview screen">
+    <div class="screen-picker" role="group" [attr.aria-label]="'PREVIEW.SCREEN_PICKER' | translate">
       @for (screen of screens; track screen.id) {
-        <button type="button" [class.active]="activeScreen() === screen.id" [attr.aria-pressed]="activeScreen() === screen.id" (click)="selectScreen(screen.id)">{{ screen.label }}</button>
+        <button type="button" [class.active]="activeScreen() === screen.id" [attr.aria-pressed]="activeScreen() === screen.id" (click)="selectScreen(screen.id)">{{ screen.label | translate }}</button>
       }
     </div>
   }
@@ -24,32 +24,32 @@
         @case ('light') { <img class="background" src="/panel-preview/light.png" alt="" aria-hidden="true"> }
       }
       @if (activeScreen() !== 'home' && (!pagePreview() || showBack())) {
-        <button type="button" class="screen-back" aria-label="Back to main screen" (click)="pagePreview() ? pageBack.emit() : goBack()">‹</button>
+        <button type="button" class="screen-back" [attr.aria-label]="'PREVIEW.BACK_HOME' | translate" (click)="pagePreview() ? pageBack.emit() : goBack()">‹</button>
       }
       @switch (activeScreen()) {
         @case ('home') {
-          <div class="top-title">{{ panel()?.settings?.panelname || panel()?.name || 'Home' }}</div>
+          <div class="top-title">{{ panel()?.settings?.panelname || panel()?.name || ('PREVIEW.HOME' | translate) }}</div>
           <div class="top-temperature">{{ roomTemperature() }}</div>
           <div class="home-tiles">
             @for (button of panel()?.settings?.buttons || []; track $index; let i = $index) {
               <div class="home-tile" [class.active]="deviceActive(button.pluginInstanceId)">
-                <button type="button" class="tile-main" [attr.aria-label]="(button.mode === 1 ? 'Open level page for ' : 'Toggle ') + button.label" (click)="pressHomeTile(i)">
+                <button type="button" class="tile-main" [attr.aria-label]="(button.mode === 1 ? 'PREVIEW.OPEN_LEVEL_FOR' : 'PREVIEW.TOGGLE_FOR') | translate:{ label: button.label }" (click)="pressHomeTile(i)">
                   <span class="tile-icon" aria-hidden="true">{{ button.mode === 1 ? '▤' : '◉' }}</span>
-                  <span class="tile-name">{{ button.label || 'Button ' + (i + 1) }}</span>
+                  <span class="tile-name">{{ button.label || ('PREVIEW.BUTTON_NUMBER' | translate:{ number: i + 1 }) }}</span>
                 </button>
                 @if (button.mode === 0) {
-                  <div class="tile-steps"><button type="button" [attr.aria-label]="'Increase ' + button.label" (click)="pressHomeStep(i, 1)">▲</button><button type="button" [attr.aria-label]="'Decrease ' + button.label" (click)="pressHomeStep(i, -1)">▼</button></div>
+                  <div class="tile-steps"><button type="button" [attr.aria-label]="'PREVIEW.INCREASE' | translate:{ label: button.label }" (click)="pressHomeStep(i, 1)">▲</button><button type="button" [attr.aria-label]="'PREVIEW.DECREASE' | translate:{ label: button.label }" (click)="pressHomeStep(i, -1)">▼</button></div>
                 }
                 @if (instanceContext(button.pluginInstanceId)?.profile?.pluginId === 'mqtt-light') {
-                  <button type="button" class="tile-detail" [attr.aria-label]="'Long press ' + button.label + ' for light controls'" (click)="pressHomeLong(i)">Hold</button>
+                  <button type="button" class="tile-detail" [attr.aria-label]="'PREVIEW.LONG_PRESS_LIGHT' | translate:{ label: button.label }" (click)="pressHomeLong(i)">{{ 'PREVIEW.HOLD' | translate }}</button>
                 }
                 <span class="tile-value">{{ tileValue(button.pluginInstanceId) }}</span>
               </div>
             }
           </div>
           <div class="home-bottom-buttons">
-            <button type="button" aria-label="Open favorites menu" (click)="openScreen('favorites')">Favorites</button>
-            <button type="button" aria-label="Open music screen" (click)="openScreen('music')">Music</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.OPEN_FAVORITES' | translate" (click)="openScreen('favorites')">{{ 'PREVIEW.FAVORITES' | translate }}</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.OPEN_MUSIC' | translate" (click)="openScreen('music')">{{ 'PREVIEW.MUSIC' | translate }}</button>
           </div>
         }
         @case ('favorites') {
@@ -62,7 +62,7 @@
         }
         @case ('info') {
           <div class="page-title">{{ messageTitle() }}</div>
-          <div class="message-body">{{ pagePreview()?.message || (location().instanceId ? 'Render this script with a sample MQTT message in Plugins to see its live text.' : 'Rendered page text appears here.') }}</div>
+          <div class="message-body">{{ pagePreview()?.message || (location().instanceId ? ('PREVIEW.SCRIPT_MESSAGE_HELP' | translate) : ('PREVIEW.RENDERED_TEXT' | translate)) }}</div>
           <div class="message-buttons">
             @for (label of messageButtons(); track $index; let i = $index) {
               <button type="button" [disabled]="!label" (click)="pressMessageButton(i)">{{ label }}</button>
@@ -70,9 +70,9 @@
           </div>
         }
         @case ('level') {
-          <div class="page-title">{{ location().title || instanceContext(location().instanceId)?.instance?.name || 'Level' }}</div>
+          <div class="page-title">{{ location().title || instanceContext(location().instanceId)?.instance?.name || ('PREVIEW.LEVEL' | translate) }}</div>
           <div class="level-value">{{ currentLevel() === undefined ? '—' : currentLevel() + ' %' }}</div>
-          <div class="level-slider"><input type="range" [min]="levelMinimum()" [max]="levelMaximum()" [value]="currentLevel() ?? levelMinimum()" aria-label="Simulated level" (input)="setCurrentLevel(+$any($event.target).value)"></div>
+          <div class="level-slider"><input type="range" [min]="levelMinimum()" [max]="levelMaximum()" [value]="currentLevel() ?? levelMinimum()" [attr.aria-label]="'PREVIEW.SIMULATED_LEVEL' | translate" (input)="setCurrentLevel(+$any($event.target).value)"></div>
           <div class="level-presets">
             @for (preset of levelPresets(); track $index) {
               <button type="button" (click)="setCurrentLevel(preset.value)">{{ preset.label }}</button>
@@ -80,16 +80,16 @@
           </div>
         }
         @case ('light') {
-          <div class="page-title">{{ location().title || 'Light controls' }}</div>
+          <div class="page-title">{{ location().title || ('PREVIEW.LIGHT_CONTROLS' | translate) }}</div>
           <div class="light-side-buttons light-side-left">
-            <button type="button" (click)="setLightBrightness(0)">Off</button>
-            <button type="button" (click)="setLightBrightness(100)">On</button>
+            <button type="button" (click)="setLightBrightness(0)">{{ 'PREVIEW.OFF' | translate }}</button>
+            <button type="button" (click)="setLightBrightness(100)">{{ 'PREVIEW.ON' | translate }}</button>
           </div>
           <div class="light-side-buttons light-side-right">
             <button type="button" (click)="setLightBrightness(30)">30%</button>
             <button type="button" (click)="setLightBrightness(60)">60%</button>
           </div>
-          <button type="button" class="color-wheel" aria-label="Choose light color" (pointerdown)="pickLightColor($event)" (pointermove)="moveLightColor($event)">
+          <button type="button" class="color-wheel" [attr.aria-label]="'PREVIEW.CHOOSE_LIGHT_COLOR' | translate" (pointerdown)="pickLightColor($event)" (pointermove)="moveLightColor($event)">
             <img src="/panel-preview/color-wheel.png" alt="" aria-hidden="true">
             @if (wheelSelection(); as selection) {
               @if (selection.instanceId === location().instanceId) {
@@ -105,45 +105,45 @@
           </div>
         }
         @case ('music') {
-          <div class="page-title">{{ musicPlayers()[selectedMusicPlayer()]?.name || 'Music' }}</div>
+          <div class="page-title">{{ musicPlayers()[selectedMusicPlayer()]?.name || ('PREVIEW.MUSIC' | translate) }}</div>
           @if (musicPlayers().length > 1) {
-            <select class="music-player-picker" aria-label="Music player" [value]="selectedMusicPlayer()" (change)="selectedMusicPlayer.set(+$any($event.target).value)">
+            <select class="music-player-picker" [attr.aria-label]="'PREVIEW.MUSIC_PLAYER' | translate" [value]="selectedMusicPlayer()" (change)="selectedMusicPlayer.set(+$any($event.target).value)">
               @for (player of musicPlayers(); track player.id; let i = $index) { <option [value]="i">{{ player.name }}</option> }
             </select>
           }
-          <div class="music-song">{{ musicPlayers()[selectedMusicPlayer()]?.currentSong || 'No current track' }}</div>
+          <div class="music-song">{{ musicPlayers()[selectedMusicPlayer()]?.currentSong || ('PREVIEW.NO_CURRENT_TRACK' | translate) }}</div>
           <div class="music-main-controls">
-            <button type="button" aria-label="Play or pause" (click)="pressMusicPlayPause()">Play/Pause</button>
-            <button type="button" aria-label="Stop playback" (click)="pressMusic('group.stop')">Stop</button>
-            <button type="button" aria-label="Join or leave a group" (click)="pressMusicGroup()">Join/Leave</button>
-            <button type="button" aria-label="Music favorites" (click)="pressMusicFavorite()">Favorites</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.PLAY_PAUSE' | translate" (click)="pressMusicPlayPause()">{{ 'PREVIEW.PLAY_PAUSE' | translate }}</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.STOP_PLAYBACK' | translate" (click)="pressMusic('group.stop')">{{ 'PREVIEW.STOP' | translate }}</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.JOIN_LEAVE_GROUP' | translate" (click)="pressMusicGroup()">{{ 'PREVIEW.JOIN_LEAVE' | translate }}</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.MUSIC_FAVORITES' | translate" (click)="pressMusicFavorite()">{{ 'PREVIEW.FAVORITES' | translate }}</button>
           </div>
           <div class="music-bottom-controls">
-            <button type="button" aria-label="Previous track" (click)="pressMusic('group.previous.track')">Previous</button>
-            <button type="button" aria-label="Next track" (click)="pressMusic('group.next.track')">Next</button>
-            <button type="button" aria-label="Volume down" (click)="pressMusic('group.adjust.volume', '-1')">Vol dn</button>
-            <button type="button" aria-label="Volume up" (click)="pressMusic('group.adjust.volume', '+1')">Vol up</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.PREVIOUS_TRACK' | translate" (click)="pressMusic('group.previous.track')">{{ 'PREVIEW.PREVIOUS' | translate }}</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.NEXT_TRACK' | translate" (click)="pressMusic('group.next.track')">{{ 'PREVIEW.NEXT' | translate }}</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.VOLUME_DOWN' | translate" (click)="pressMusic('group.adjust.volume', '-1')">{{ 'PREVIEW.VOL_DOWN' | translate }}</button>
+            <button type="button" [attr.aria-label]="'PREVIEW.VOLUME_UP' | translate" (click)="pressMusic('group.adjust.volume', '+1')">{{ 'PREVIEW.VOL_UP' | translate }}</button>
           </div>
         }
         @case ('thermostat') {
-          <div class="page-title">Thermostat</div>
+          <div class="page-title">{{ 'PREVIEW.THERMOSTAT' | translate }}</div>
           <div class="thermostat-value">{{ roomTemperature() }}</div>
-          <div class="thermostat-controls"><button type="button" aria-label="Decrease target" (click)="changeThermostat(-1)">−</button><span>Target {{ thermostatTarget() }} °C</span><button type="button" aria-label="Increase target" (click)="changeThermostat(1)">+</button></div>
-          <div class="thermostat-modes"><button type="button" (click)="setThermostatMode('auto')">Auto</button><button type="button" (click)="setThermostatMode('boost')">Boost</button></div>
+          <div class="thermostat-controls"><button type="button" [attr.aria-label]="'PREVIEW.DECREASE_TARGET' | translate" (click)="changeThermostat(-1)">−</button><span>{{ 'PREVIEW.TARGET' | translate }} {{ thermostatTarget() }} °C</span><button type="button" [attr.aria-label]="'PREVIEW.INCREASE_TARGET' | translate" (click)="changeThermostat(1)">+</button></div>
+          <div class="thermostat-modes"><button type="button" (click)="setThermostatMode('auto')">{{ 'PREVIEW.AUTO' | translate }}</button><button type="button" (click)="setThermostatMode('boost')">{{ 'PREVIEW.BOOST' | translate }}</button></div>
         }
         @case ('weather') {
-          <div class="weather-title">Weather</div>
+          <div class="weather-title">{{ 'PREVIEW.WEATHER' | translate }}</div>
           <div class="weather-value">-- °C</div>
-          <div class="weather-forecast">Forecast data appears here when the weather plugin publishes it.</div>
-          <button type="button" class="weather-wake" aria-label="Wake the panel" (click)="openScreen('home')"></button>
+          <div class="weather-forecast">{{ 'PREVIEW.WEATHER_HELP' | translate }}</div>
+          <button type="button" class="weather-wake" [attr.aria-label]="'PREVIEW.WAKE_PANEL' | translate" (click)="openScreen('home')"></button>
         }
       }
     </div>
   </div>
   @if (actionNotice()) { <p class="action-notice" role="status">{{ actionNotice() }}</p> }
   @if (!pagePreview()) {
-    <p class="preview-note">Simulation only. Touches do not publish MQTT. Live values, icons, and exact HMI fonts are approximated.</p>
+    <p class="preview-note">{{ 'PREVIEW.SIMULATION_NOTE' | translate }}</p>
   } @else {
-    <p class="preview-note">Layout is approximate; the actual Nextion fonts and button graphics are stored in the HMI file.</p>
+    <p class="preview-note">{{ 'PREVIEW.APPROXIMATION_NOTE' | translate }}</p>
   }
 </section>

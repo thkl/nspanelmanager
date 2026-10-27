@@ -1,6 +1,7 @@
 import { Component, OnInit, computed, input, output, signal } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
+import { TranslatePipe } from "@ngx-translate/core";
 import { concatMap, from, of, switchMap, toArray, type Observable } from "rxjs";
 import { ManagerStore } from "../../manager-store.service";
 import type { CoreDumpRecord, DiscoveredPanel, Panel, PanelBinding, PanelGroupSettingsDelivery, PanelGroupSettingsStatus, PanelTelemetry, PluginDefinition } from "../../models";
@@ -11,6 +12,7 @@ interface PanelHealthAlert {
   panelName: string;
   severity: "critical" | "warning";
   message: string;
+  params?: Record<string, string | number>;
   clearable?: boolean;
 }
 
@@ -26,7 +28,7 @@ interface PanelHealthAlert {
 @Component({
   selector: "nspanel-panel-page",
   standalone: true,
-  imports: [DatePipe, FormsModule, PanelScreenPreviewComponent],
+  imports: [DatePipe, FormsModule, PanelScreenPreviewComponent, TranslatePipe],
   templateUrl: "./panel-page.component.html",
   styleUrl: "./panel-page.component.css"
 })
@@ -61,35 +63,38 @@ export class PanelPageComponent implements OnInit {
   /** Formats the latest firmware metrics for compact display in the panel list. */
   formatTelemetry(telemetry: PanelTelemetry): string {
     const parts: string[] = [];
-    if (telemetry.firmwareVersion) parts.push(`FW ${telemetry.firmwareVersion}`);
-    if (telemetry.hmiVersion) parts.push(`HMI ${telemetry.hmiVersion.slice(0, 12)}`);
-    if (Number.isFinite(telemetry.uptimeSeconds)) parts.push(`Up ${formatUptime(telemetry.uptimeSeconds!)}`);
-    if (Number.isFinite(telemetry.freeHeapBytes)) parts.push(`Free ${formatKilobytes(telemetry.freeHeapBytes!)} KB`);
-    if (Number.isFinite(telemetry.minFreeHeapBytes)) parts.push(`Min ${formatKilobytes(telemetry.minFreeHeapBytes!)} KB`);
-    if (Number.isFinite(telemetry.largestFreeBlockBytes)) parts.push(`Largest ${formatKilobytes(telemetry.largestFreeBlockBytes!)} KB`);
-    if (Number.isFinite(telemetry.loopTimeMs)) parts.push(`Loop ${Math.round(telemetry.loopTimeMs!)} ms`);
-    if (Number.isFinite(telemetry.chipTemperatureC)) parts.push(`Chip ${telemetry.chipTemperatureC!.toFixed(1)}°C`);
+    if (telemetry.firmwareVersion) parts.push(this.manager.translateText("PANEL.TELEMETRY_FW", { version: telemetry.firmwareVersion }));
+    if (telemetry.hmiVersion) parts.push(this.manager.translateText("PANEL.TELEMETRY_HMI", { version: telemetry.hmiVersion.slice(0, 12) }));
+    if (Number.isFinite(telemetry.uptimeSeconds)) parts.push(this.manager.translateText("PANEL.TELEMETRY_UPTIME", { uptime: formatUptime(telemetry.uptimeSeconds!) }));
+    if (Number.isFinite(telemetry.freeHeapBytes)) parts.push(this.manager.translateText("PANEL.TELEMETRY_FREE", { size: formatKilobytes(telemetry.freeHeapBytes!) }));
+    if (Number.isFinite(telemetry.minFreeHeapBytes)) parts.push(this.manager.translateText("PANEL.TELEMETRY_MIN", { size: formatKilobytes(telemetry.minFreeHeapBytes!) }));
+    if (Number.isFinite(telemetry.largestFreeBlockBytes)) parts.push(this.manager.translateText("PANEL.TELEMETRY_LARGEST", { size: formatKilobytes(telemetry.largestFreeBlockBytes!) }));
+    if (Number.isFinite(telemetry.loopTimeMs)) parts.push(this.manager.translateText("PANEL.TELEMETRY_LOOP", { ms: Math.round(telemetry.loopTimeMs!) }));
+    if (Number.isFinite(telemetry.chipTemperatureC)) parts.push(this.manager.translateText("PANEL.TELEMETRY_CHIP", { temperature: telemetry.chipTemperatureC!.toFixed(1) }));
     return parts.join(" · ");
   }
 
   /** Formats the manager's latest requested group values for one panel. */
   formatGroupSettings(status: PanelGroupSettingsStatus): string {
-    const parts = [`Group ${status.groupName}`, this.groupSettingsDeliveryLabel(status.delivery)];
-    if (status.night !== undefined) parts.push(status.night === 1 ? "Night on" : "Night off");
-    if (status.brightness !== undefined) parts.push(`Brightness ${status.brightness}%`);
+    const parts = [
+      this.manager.translateText("PANEL.GROUP_STATUS_GROUP", { name: status.groupName }),
+      this.groupSettingsDeliveryLabel(status.delivery)
+    ];
+    if (status.night !== undefined) parts.push(this.manager.translateText(status.night === 1 ? "PANEL.NIGHT_ON" : "PANEL.NIGHT_OFF"));
+    if (status.brightness !== undefined) parts.push(this.manager.translateText("PANEL.GROUP_STATUS_BRIGHTNESS", { value: status.brightness }));
     return parts.join(" · ");
   }
 
   /** Converts delivery states into short panel-list labels. */
   groupSettingsDeliveryLabel(delivery: PanelGroupSettingsDelivery): string {
     switch (delivery) {
-      case "not_sent": return "not sent";
-      case "pending": return "awaiting firmware acknowledgement";
-      case "applied": return "firmware acknowledged";
-      case "timed_out": return "no firmware acknowledgement";
-      case "unconfirmed": return "sent; firmware has no acknowledgement";
-      case "publish_failed": return "could not publish";
-      case "failed": return "panel rejected or applied different values";
+      case "not_sent": return this.manager.translateText("PANEL.DELIVERY_NOT_SENT");
+      case "pending": return this.manager.translateText("PANEL.DELIVERY_PENDING");
+      case "applied": return this.manager.translateText("PANEL.DELIVERY_APPLIED");
+      case "timed_out": return this.manager.translateText("PANEL.DELIVERY_TIMED_OUT");
+      case "unconfirmed": return this.manager.translateText("PANEL.DELIVERY_UNCONFIRMED");
+      case "publish_failed": return this.manager.translateText("PANEL.DELIVERY_PUBLISH_FAILED");
+      case "failed": return this.manager.translateText("PANEL.DELIVERY_FAILED");
     }
   }
 
@@ -101,18 +106,18 @@ export class PanelPageComponent implements OnInit {
       if (panel.healthNotificationsEnabled === false) continue;
       const connection = connections[panel.nodeName];
       if (connection?.status !== "online") {
-        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: "Panel is offline." });
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: "PANEL.ALERT_OFFLINE" });
       }
       const rebootReason = connection?.lastResetReport?.reason.toLowerCase() ?? "";
       if (/(panic|watchdog|brownout|assert|abort|crash)/.test(rebootReason)) {
-        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "critical", message: `Last reboot reported ${connection?.lastResetReport?.reason}.`, clearable: true });
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "critical", message: "PANEL.ALERT_REBOOT", params: { reason: connection?.lastResetReport?.reason ?? "unknown" }, clearable: true });
       }
       const freeHeapBytes = connection?.telemetry?.freeHeapBytes;
       const minimumHeapBytes = connection?.telemetry?.minFreeHeapBytes;
       if (freeHeapBytes !== undefined && freeHeapBytes < 32 * 1024) {
-        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: `Free heap is low (${Math.round(freeHeapBytes / 1024)} KB).` });
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: "PANEL.ALERT_FREE_HEAP", params: { kb: Math.round(freeHeapBytes / 1024) } });
       } else if (minimumHeapBytes !== undefined && minimumHeapBytes < 20 * 1024) {
-        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: `Minimum heap since boot is low (${Math.round(minimumHeapBytes / 1024)} KB).` });
+        alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: "PANEL.ALERT_MIN_FREE_HEAP", params: { kb: Math.round(minimumHeapBytes / 1024) } });
       }
     }
     return alerts;
@@ -126,11 +131,11 @@ export class PanelPageComponent implements OnInit {
       next: ({ panel }) => {
         this.clearingResetReportPanelId.set("");
         const panelName = this.manager.config().panels.find((item) => item.id === panel.panelId)?.name ?? panel.nodeName;
-        this.manager.inform(`Cleared the saved reboot report for ${panelName}.`);
+        this.manager.inform("PANEL.NOTICE_REPORT_CLEARED", "success", { name: panelName });
       },
       error: (error) => {
         this.clearingResetReportPanelId.set("");
-        this.manager.inform(error.error?.error || "Could not clear the panel reboot report.", "error");
+        this.manager.inform(error.error?.error || "PANEL.ERROR_CLEAR_REPORT", "error");
       }
     });
   }
@@ -145,13 +150,11 @@ export class PanelPageComponent implements OnInit {
         this.draft.update((current) => current?.id === saved.id
           ? { ...current, healthNotificationsEnabled: saved.healthNotificationsEnabled }
           : current);
-        this.manager.inform(enabled
-          ? `Health alerts enabled for ${saved.name}.`
-          : `Health alerts muted for ${saved.name}; status and diagnostics remain visible.`);
+        this.manager.inform(enabled ? "PANEL.NOTICE_HEALTH_ENABLED" : "PANEL.NOTICE_HEALTH_MUTED", "success", { name: saved.name });
       },
       error: (error) => {
         this.savingHealthPreferencePanelId.set("");
-        this.manager.inform(error.error?.error || "Could not save the panel health-alert preference.", "error");
+        this.manager.inform(error.error?.error || "PANEL.ERROR_HEALTH_PREFERENCE", "error");
       }
     });
   }
@@ -188,7 +191,7 @@ export class PanelPageComponent implements OnInit {
         const next = config.panels.find((panel) => panel.id === previousId) ?? config.panels[0] ?? null;
         this.setDraft(next);
       },
-      error: () => this.manager.inform("Could not load panel configuration.", "error")
+      error: () => this.manager.inform("PANEL.ERROR_LOAD", "error")
     });
   }
 
@@ -216,9 +219,9 @@ export class PanelPageComponent implements OnInit {
         this.newNodeName.set("");
         this.newMacAddress.set("");
         this.addingPanel.set(false);
-        this.manager.inform("Panel added. Save its settings, then apply them when the panel is online.");
+        this.manager.inform("PANEL.NOTICE_ADDED", "success");
       },
-      error: (error) => this.manager.inform(error.error?.error || "Could not add panel.", "error")
+      error: (error) => this.manager.inform(error.error?.error || "PANEL.ERROR_ADD", "error")
     });
   }
 
@@ -232,9 +235,7 @@ export class PanelPageComponent implements OnInit {
     const source = this.draft();
     const target = this.manager.config().panels.find((panel) => panel.id === this.copyTargetPanelId());
     if (!source || !target || this.copyingPanelSettings()) return;
-    const confirmation = "Replace " + target.name + "'s saved settings and plugin assignments with those from " +
-      source.name + "? The destination name, display title, MQTT node, and device assignment will stay unchanged.";
-    if (!confirm(confirmation)) return;
+    if (!this.manager.confirm("PANEL.CONFIRM_COPY_SETTINGS", { target: target.name, source: source.name })) return;
 
     this.copyingPanelSettings.set(true);
     this.manager.copyPanelSettings(source.id, target.id).subscribe({
@@ -242,13 +243,11 @@ export class PanelPageComponent implements OnInit {
         this.copyingPanelSettings.set(false);
         this.showCopySettings.set(false);
         this.copyTargetPanelId.set("");
-        this.manager.inform(published
-          ? "Copied settings to " + target.name + " and sent them to " + topic + "."
-          : "Copied settings to " + target.name + "; they will be sent when MQTT reconnects.");
+        this.manager.inform(published ? "PANEL.NOTICE_COPIED_SENT" : "PANEL.NOTICE_COPIED_QUEUED", "success", { name: target.name, topic });
       },
       error: (error) => {
         this.copyingPanelSettings.set(false);
-        this.manager.inform(error.error?.error || "Could not copy panel settings.", "error");
+        this.manager.inform(error.error?.error || "PANEL.ERROR_COPY_SETTINGS", "error");
       }
     });
   }
@@ -262,8 +261,8 @@ export class PanelPageComponent implements OnInit {
   /** Requests a fresh discovery broadcast from ESPHome devices on the connected broker. */
   discoverPanels(): void {
     this.manager.requestPanelDiscovery().subscribe({
-      next: () => this.manager.inform("Discovery requested. Devices will appear here when they respond."),
-      error: (error) => this.manager.inform(error.error?.error || "Could not request device discovery.", "error")
+      next: () => this.manager.inform("PANEL.NOTICE_DISCOVERY_REQUESTED"),
+      error: (error) => this.manager.inform(error.error?.error || "PANEL.ERROR_DISCOVERY", "error")
     });
   }
 
@@ -290,21 +289,19 @@ export class PanelPageComponent implements OnInit {
       next: ({ panel, published, command, topic }) => {
         this.discoveryAssignmentTargets.update((targets) => ({ ...targets, [device.macAddress]: "" }));
         if (this.draft()?.id === panel.id) this.setDraft(panel);
-        let confirmation: string;
         if (command === "identity" && published) {
-          confirmation = `${device.macAddress} assigned to ${panel.name}; identity sent to ${topic}. The panel will receive settings after it confirms the new name.`;
+          this.manager.inform("PANEL.NOTICE_IDENTITY_SENT", "success", { mac: device.macAddress, name: panel.name, topic: topic ?? "" });
         } else if (command === "identity") {
-          confirmation = `${device.macAddress} assigned to ${panel.name}; identity and settings are queued until MQTT reconnects.`;
+          this.manager.inform("PANEL.NOTICE_IDENTITY_QUEUED", "success", { mac: device.macAddress, name: panel.name });
         } else if (command === "settings" && published) {
-          confirmation = `${device.macAddress} assigned to ${panel.name}; settings sent to ${topic}.`;
+          this.manager.inform("PANEL.NOTICE_ASSIGNMENT_SENT", "success", { mac: device.macAddress, name: panel.name, topic: topic ?? "" });
         } else if (command === "settings") {
-          confirmation = `${device.macAddress} assigned to ${panel.name}; settings will sync when MQTT reconnects.`;
+          this.manager.inform("PANEL.NOTICE_ASSIGNMENT_QUEUED", "success", { mac: device.macAddress, name: panel.name });
         } else {
-          confirmation = `Device assignment cleared for ${panel.name}.`;
+          this.manager.inform("PANEL.NOTICE_DEVICE_CLEARED", "success", { name: panel.name });
         }
-        this.manager.inform(confirmation);
       },
-      error: (error) => this.manager.inform(error.error?.error || "Could not assign the device to this panel.", "error")
+      error: (error) => this.manager.inform(error.error?.error || "PANEL.ERROR_ASSIGN_DEVICE", "error")
     });
   }
 
@@ -313,9 +310,9 @@ export class PanelPageComponent implements OnInit {
     this.manager.setPanelMacAddress(panel.id, null).subscribe({
       next: ({ panel: saved }) => {
         if (this.draft()?.id === saved.id) this.setDraft(saved);
-        this.manager.inform(`Device assignment cleared for ${saved.name}.`);
+        this.manager.inform("PANEL.NOTICE_DEVICE_CLEARED", "success", { name: saved.name });
       },
-      error: (error) => this.manager.inform(error.error?.error || "Could not clear the device assignment.", "error")
+      error: (error) => this.manager.inform(error.error?.error || "PANEL.ERROR_CLEAR_DEVICE", "error")
     });
   }
 
@@ -336,9 +333,9 @@ export class PanelPageComponent implements OnInit {
       next: ({ panel: saved, published, topic }) => {
         this.setDraft(saved);
         this.saving.set(false);
-        this.manager.inform(published ? `Panel settings saved and sent to ${topic}.` : "Panel settings saved; they will be sent when MQTT reconnects.");
+        this.manager.inform(published ? "PANEL.NOTICE_SETTINGS_SAVED_SENT" : "PANEL.NOTICE_SETTINGS_SAVED_QUEUED", "success", { topic });
       },
-      error: (error) => { this.saving.set(false); this.manager.inform(error.error?.error || "Could not save panel settings or favorite bindings.", "error"); }
+      error: (error) => { this.saving.set(false); this.manager.inform(error.error?.error || "PANEL.ERROR_SAVE_SETTINGS", "error"); }
     });
   }
 
@@ -462,10 +459,10 @@ export class PanelPageComponent implements OnInit {
 
   /** Provides a friendly page label for the firmware-native integration selector. */
   nativePageLabel(pageId: string): string {
-    if (pageId === "thermostat") return "Thermostat page";
-    if (pageId === "weather") return "Weather screen";
-    if (pageId === "music") return "Music page";
-    return `${pageId} page`;
+    if (pageId === "thermostat") return this.manager.translateText("PANEL.NATIVE_PAGE_THERMOSTAT");
+    if (pageId === "weather") return this.manager.translateText("PANEL.NATIVE_PAGE_WEATHER");
+    if (pageId === "music") return this.manager.translateText("PANEL.NATIVE_PAGE_MUSIC");
+    return this.manager.translateText("PANEL.NATIVE_PAGE_GENERIC", { page: pageId });
   }
 
   /** Lists enabled or saved instances whose plugin can drive a main-screen tile. */
@@ -531,11 +528,11 @@ export class PanelPageComponent implements OnInit {
     ).subscribe({
       next: ({ topic }) => {
         this.saving.set(false);
-        this.manager.inform(`Settings sent to ${topic}.`);
+        this.manager.inform("PANEL.NOTICE_SETTINGS_SENT", "success", { topic });
       },
       error: (error) => {
         this.saving.set(false);
-        this.manager.inform(error.error?.error || "Could not apply panel settings.", "error");
+        this.manager.inform(error.error?.error || "PANEL.ERROR_APPLY_SETTINGS", "error");
       }
     });
   }
@@ -544,16 +541,16 @@ export class PanelPageComponent implements OnInit {
   rebootPanel(panel: Panel): void {
     if (this.rebootingPanelId() || !this.manager.mqtt().connected
       || this.manager.panelConnections()[panel.nodeName]?.status !== "online") return;
-    if (!confirm(`Reboot ${panel.name}? The panel will briefly go offline.`)) return;
+    if (!this.manager.confirm("PANEL.CONFIRM_REBOOT", { name: panel.name })) return;
     this.rebootingPanelId.set(panel.id);
     this.manager.rebootPanel(panel.id).subscribe({
       next: ({ topic }) => {
         this.rebootingPanelId.set("");
-        this.manager.inform(`Reboot command sent to ${panel.name} on ${topic}.`);
+        this.manager.inform("PANEL.NOTICE_REBOOT_SENT", "success", { name: panel.name, topic });
       },
       error: (error) => {
         this.rebootingPanelId.set("");
-        this.manager.inform(error.error?.error || "Could not send the reboot command.", "error");
+        this.manager.inform(error.error?.error || "PANEL.ERROR_REBOOT", "error");
       }
     });
   }
@@ -561,14 +558,14 @@ export class PanelPageComponent implements OnInit {
   /** Removes a panel after confirmation and resets the selected editor. */
   removePanel(): void {
     const panel = this.draft();
-    if (!panel || !confirm(`Remove ${panel.name} and its associated routes?`)) return;
+    if (!panel || !this.manager.confirm("PANEL.CONFIRM_REMOVE", { name: panel.name })) return;
     this.manager.removePanel(panel).subscribe({
       next: () => {
         const next = this.manager.config().panels[0] ?? null;
         this.setDraft(next);
-        this.manager.inform("Panel removed.");
+        this.manager.inform("PANEL.NOTICE_REMOVED");
       },
-      error: () => this.manager.inform("Could not remove panel.", "error")
+      error: () => this.manager.inform("PANEL.ERROR_REMOVE", "error")
     });
   }
 
@@ -592,7 +589,7 @@ export class PanelPageComponent implements OnInit {
       },
       error: () => {
         this.downloadingCoreDump.set(false);
-        this.manager.inform("Could not download the panel crash dump.", "error");
+        this.manager.inform("PANEL.ERROR_DOWNLOAD_DUMP", "error");
       }
     });
   }

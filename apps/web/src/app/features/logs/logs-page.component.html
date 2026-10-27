@@ -1,60 +1,60 @@
-<section class="logs-page" aria-label="Manager logs">
+<section class="logs-page" [attr.aria-label]="'LOGS.ARIA_LABEL' | translate">
   <div class="logs-heading">
     <div>
-      <p class="eyebrow">SYSTEM ACTIVITY</p>
-      <h2>Application logs</h2>
-      <p class="logs-description">Recent records from the manager's rotating log files. Log details may contain data written by configured scripts.</p>
+      <p class="eyebrow">{{ 'LOGS.EYEBROW' | translate }}</p>
+      <h2>{{ 'LOGS.TITLE' | translate }}</h2>
+      <p class="logs-description">{{ 'LOGS.DESCRIPTION' | translate }}</p>
     </div>
     <button class="refresh-button" type="button" (click)="refresh()" [disabled]="loading()">
-      <span aria-hidden="true">↻</span> {{ loading() ? 'Refreshing…' : 'Refresh logs' }}
+      <span aria-hidden="true">↻</span> {{ (loading() ? 'LOGS.REFRESHING' : 'LOGS.REFRESH') | translate }}
     </button>
   </div>
 
   <div class="logs-toolbar">
     <label>
-      <span>Category</span>
+      <span>{{ 'LOGS.CATEGORY' | translate }}</span>
       <select [value]="category()" (change)="selectCategory($event)">
-        <option value="">All categories</option>
+        <option value="">{{ 'LOGS.ALL_CATEGORIES' | translate }}</option>
         @for (categoryOption of categories(); track categoryOption) {
           <option [value]="categoryOption">{{ categoryOption }}</option>
         }
       </select>
     </label>
     <label>
-      <span>Severity</span>
+      <span>{{ 'LOGS.SEVERITY' | translate }}</span>
       <select [value]="level()" (change)="selectLevel($event)">
-        <option value="all">All levels</option>
-        <option value="error">Error</option>
-        <option value="warn">Warning</option>
-        <option value="info">Info</option>
-        <option value="debug">Debug</option>
+        <option value="all">{{ 'LOGS.ALL_LEVELS' | translate }}</option>
+        <option value="error">{{ 'LOGS.ERROR' | translate }}</option>
+        <option value="warn">{{ 'LOGS.WARNING' | translate }}</option>
+        <option value="info">{{ 'LOGS.INFO' | translate }}</option>
+        <option value="debug">{{ 'LOGS.DEBUG' | translate }}</option>
       </select>
     </label>
     <label>
-      <span>Entries per page</span>
+      <span>{{ 'LOGS.ENTRIES_PER_PAGE' | translate }}</span>
       <select [value]="pageSize()" (change)="selectPageSize($event)">
         <option value="50">50</option>
         <option value="100">100</option>
         <option value="200">200</option>
       </select>
     </label>
-    <span class="record-count">{{ logs().length }} entries · Page {{ pageIndex() + 1 }}</span>
+    <span class="record-count">{{ 'LOGS.RECORD_COUNT' | translate:{ count: logs().length, page: pageIndex() + 1 } }}</span>
   </div>
 
   @if (error()) {
-    <div class="logs-state error-state" role="alert">{{ error() }}</div>
+    <div class="logs-state error-state" role="alert">{{ error() | translate }}</div>
   } @else if (loading() && logs().length === 0) {
-    <div class="logs-state" aria-live="polite">Loading log files…</div>
+    <div class="logs-state" aria-live="polite">{{ 'LOGS.LOADING' | translate }}</div>
   } @else if (logs().length === 0) {
-    <div class="logs-state empty-state">No log entries match these filters.</div>
+    <div class="logs-state empty-state">{{ 'LOGS.EMPTY' | translate }}</div>
   } @else {
     @if (scanLimitReached()) {
-      <p class="scan-note">Showing the latest matching records from a bounded scan. Refine the filters if older entries are needed.</p>
+      <p class="scan-note">{{ 'LOGS.SCAN_LIMIT' | translate }}</p>
     }
     <div class="logs-table-wrap">
       <table class="logs-table">
         <thead>
-          <tr><th scope="col">Time</th><th scope="col">Level</th><th scope="col">Category</th><th scope="col">Message</th><th scope="col">Context</th></tr>
+          <tr><th scope="col">{{ 'LOGS.TIME' | translate }}</th><th scope="col">{{ 'LOGS.LEVEL' | translate }}</th><th scope="col">{{ 'LOGS.CATEGORY' | translate }}</th><th scope="col">{{ 'LOGS.MESSAGE' | translate }}</th><th scope="col">{{ 'LOGS.CONTEXT' | translate }}</th></tr>
         </thead>
         <tbody>
           @for (entry of logs(); track $index) {
@@ -66,7 +66,7 @@
               <td class="context-cell">
                 @if (hasContext(entry.context)) {
                   <details>
-                    <summary>Details</summary>
+                    <summary>{{ 'LOGS.DETAILS' | translate }}</summary>
                     <pre>{{ formatContext(entry.context) }}</pre>
                   </details>
                 } @else { <span class="muted">—</span> }
@@ -80,9 +80,9 @@
 </section>
 
 @if (!error() && !loading()) {
-  <nav class="logs-pagination" aria-label="Log pages">
-    <button type="button" (click)="previousPage()" [disabled]="pageIndex() === 0">← Previous</button>
-    <span>Page {{ pageIndex() + 1 }}</span>
-    <button type="button" (click)="nextPage()" [disabled]="!hasMore()">Next →</button>
+  <nav class="logs-pagination" [attr.aria-label]="'LOGS.PAGES' | translate">
+    <button type="button" (click)="previousPage()" [disabled]="pageIndex() === 0">← {{ 'COMMON.PREVIOUS' | translate }}</button>
+    <span>{{ 'LOGS.PAGE' | translate:{ page: pageIndex() + 1 } }}</span>
+    <button type="button" (click)="nextPage()" [disabled]="!hasMore()">{{ 'COMMON.NEXT' | translate }} →</button>
   </nav>
 }

@@ -1,46 +1,46 @@
-<section class="backups-page" aria-label="Data backup">
+<section class="backups-page" [attr.aria-label]="'BACKUPS.TITLE' | translate">
   <div class="backup-heading">
     <div>
-      <p class="eyebrow">SYSTEM RECOVERY</p>
-      <h2>Data backup</h2>
-      <p class="backup-description">Download a ZIP containing the manager's complete persistent data folder.</p>
+      <p class="eyebrow">{{ 'BACKUPS.EYEBROW' | translate }}</p>
+      <h2>{{ 'BACKUPS.TITLE' | translate }}</h2>
+      <p class="backup-description">{{ 'BACKUPS.DESCRIPTION' | translate }}</p>
     </div>
   </div>
 
   <section class="settings-card" aria-labelledby="scheduled-backup-title">
     <div class="section-heading">
       <div>
-        <h3 id="scheduled-backup-title">Scheduled ZIP backups</h3>
-        <p>Choose when the manager writes a ZIP and how many recent archives to keep.</p>
+        <h3 id="scheduled-backup-title">{{ 'BACKUPS.SCHEDULED_TITLE' | translate }}</h3>
+        <p>{{ 'BACKUPS.SCHEDULED_DESCRIPTION' | translate }}</p>
       </div>
-      <label class="enable-setting"><input type="checkbox" [checked]="draft().enabled" (change)="setEnabled($event)"> Enable scheduled backups</label>
+      <label class="enable-setting"><input type="checkbox" [checked]="draft().enabled" (change)="setEnabled($event)"> {{ 'BACKUPS.ENABLE_SCHEDULED' | translate }}</label>
     </div>
 
     <div class="backup-settings-grid">
-      <label>Schedule (cron)<input [ngModel]="draft().schedule" (ngModelChange)="setSchedule($event)" placeholder="0 3 * * *" autocomplete="off"><small>Five fields: minute hour day-of-month month day-of-week. Example: <code>0 3 * * *</code> runs daily at 03:00 in the manager's timezone.</small></label>
-      <label>Backup folder<input [ngModel]="draft().directory" (ngModelChange)="setDirectory($event)" placeholder="backups" autocomplete="off"><small>Relative paths are inside <code>DATA_DIR</code>. Absolute paths work when the folder is writable and mounted persistently.</small></label>
-      <label>Keep newest<input type="number" min="1" max="365" step="1" [value]="draft().retentionCount" (input)="setRetentionCount($event)"><small>Older scheduled ZIP files are deleted after a successful backup.</small></label>
+      <label>{{ 'BACKUPS.SCHEDULE' | translate }}<input [ngModel]="draft().schedule" (ngModelChange)="setSchedule($event)" placeholder="0 3 * * *" autocomplete="off"><small>{{ 'BACKUPS.SCHEDULE_HELP' | translate }} <code>0 3 * * *</code> {{ 'BACKUPS.SCHEDULE_EXAMPLE_END' | translate }}</small></label>
+      <label>{{ 'BACKUPS.FOLDER' | translate }}<input [ngModel]="draft().directory" (ngModelChange)="setDirectory($event)" placeholder="backups" autocomplete="off"><small>{{ 'BACKUPS.FOLDER_HELP_START' | translate }} <code>DATA_DIR</code>. {{ 'BACKUPS.FOLDER_HELP_END' | translate }}</small></label>
+      <label>{{ 'BACKUPS.KEEP_NEWEST' | translate }}<input type="number" min="1" max="365" step="1" [value]="draft().retentionCount" (input)="setRetentionCount($event)"><small>{{ 'BACKUPS.RETENTION_HELP' | translate }}</small></label>
     </div>
 
-    <div class="settings-actions"><span>Archives are private ZIP files and are excluded from their own contents.</span><button class="button primary" [disabled]="saving() || !settingsValid()" (click)="saveSettings()">{{ saving() ? 'Saving…' : 'Save backup settings' }}</button></div>
+    <div class="settings-actions"><span>{{ 'BACKUPS.ARCHIVE_PRIVACY' | translate }}</span><button class="button primary" [disabled]="saving() || !settingsValid()" (click)="saveSettings()">{{ (saving() ? 'COMMON.SAVING' : 'BACKUPS.SAVE_SETTINGS') | translate }}</button></div>
   </section>
 
   <article class="backup-card">
     <div class="backup-icon" aria-hidden="true">↓</div>
     <div class="backup-copy">
-      <h3>Download manager data</h3>
-      <p>The archive includes configuration, user accounts, saved script state, last-known device state, and files in the data folder such as logs. The ZIP is created for this download and is not stored on the server.</p>
-      <a class="download-button" href="/api/backups/download">Download ZIP <span aria-hidden="true">↗</span></a>
+      <h3>{{ 'BACKUPS.DOWNLOAD_TITLE' | translate }}</h3>
+      <p>{{ 'BACKUPS.DOWNLOAD_DESCRIPTION' | translate }}</p>
+      <a class="download-button" href="/api/backups/download">{{ 'BACKUPS.DOWNLOAD_ZIP' | translate }} <span aria-hidden="true">↗</span></a>
     </div>
   </article>
 
   <section class="settings-card history-card" aria-labelledby="config-history-title">
     <div class="section-heading">
       <div>
-        <h3 id="config-history-title">Configuration history</h3>
-        <p>Restore a full manager configuration snapshot. Restores are saved as new revisions.</p>
+        <h3 id="config-history-title">{{ 'BACKUPS.HISTORY_TITLE' | translate }}</h3>
+        <p>{{ 'BACKUPS.HISTORY_DESCRIPTION' | translate }}</p>
       </div>
-      <button class="button secondary" type="button" (click)="loadRevisions()">Refresh history</button>
+      <button class="button secondary" type="button" (click)="loadRevisions()">{{ 'BACKUPS.REFRESH_HISTORY' | translate }}</button>
     </div>
 
     @if (revisions().length > 0) {
@@ -52,23 +52,23 @@
               <span>{{ revision.createdAt | date:'medium' }} · {{ revision.actor }}</span>
             </div>
             <button class="button secondary" type="button" [disabled]="restoringRevisionId() !== null" (click)="restoreRevision(revision)">
-              {{ restoringRevisionId() === revision.id ? 'Restoring…' : 'Restore' }}
+              {{ (restoringRevisionId() === revision.id ? 'BACKUPS.RESTORING' : 'BACKUPS.RESTORE') | translate }}
             </button>
           </article>
         }
       </div>
     } @else {
-      <p class="empty-history">No configuration revisions have been recorded yet.</p>
+      <p class="empty-history">{{ 'BACKUPS.EMPTY_HISTORY' | translate }}</p>
     }
   </section>
 
   <aside class="backup-notice" role="note">
-    <h3>Keep the archive and secrets safe</h3>
-    <p>The ZIP contains sensitive configuration and account data. Store it securely. The credential-encryption key and optional OIDC client secret are kept outside the data folder; back them up separately. Without the encryption key, saved MQTT credentials cannot be read.</p>
+    <h3>{{ 'BACKUPS.SECURITY_TITLE' | translate }}</h3>
+    <p>{{ 'BACKUPS.SECURITY_DESCRIPTION' | translate }}</p>
   </aside>
 
   <aside class="restore-note" role="note">
-    <h3>Manual restore</h3>
-    <p>To restore, stop the manager, extract the archive contents into the configured <code>DATA_DIR</code>, restore required deployment secrets separately, then start the manager again.</p>
+    <h3>{{ 'BACKUPS.MANUAL_RESTORE_TITLE' | translate }}</h3>
+    <p>{{ 'BACKUPS.MANUAL_RESTORE_START' | translate }} <code>DATA_DIR</code>{{ 'BACKUPS.MANUAL_RESTORE_END' | translate }}</p>
   </aside>
 </section>

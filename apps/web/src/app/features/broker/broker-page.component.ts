@@ -1,5 +1,6 @@
 import { Component, OnInit, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
+import { TranslatePipe } from "@ngx-translate/core";
 import { ManagerStore } from "../../manager-store.service";
 import type { BrokerInput } from "../../models";
 
@@ -12,7 +13,7 @@ import type { BrokerInput } from "../../models";
 @Component({
   selector: "nspanel-broker-page",
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, TranslatePipe],
   templateUrl: "./broker-page.component.html",
   styleUrl: "./broker-page.component.css"
 })
@@ -30,7 +31,7 @@ export class BrokerPageComponent implements OnInit {
   refresh(): void {
     this.manager.refresh().subscribe({
       next: ({ config }) => this.draft.set({ url: config.broker.url, username: config.broker.username, password: "" }),
-      error: () => this.manager.inform("Could not load broker settings.", "error")
+      error: () => this.manager.inform("BROKER.ERROR_LOAD", "error")
     });
   }
 
@@ -50,9 +51,9 @@ export class BrokerPageComponent implements OnInit {
       next: ({ config }) => {
         this.draft.set({ url: config.broker.url, username: config.broker.username, password: "" });
         this.saving.set(false);
-        this.manager.inform("Broker settings saved. The manager will reconnect automatically.");
+        this.manager.inform("BROKER.NOTICE_SAVED");
       },
-      error: (error) => { this.saving.set(false); this.manager.inform(error.error?.error || "Could not save broker settings.", "error"); }
+      error: (error) => { this.saving.set(false); this.manager.inform(error.error?.error || "BROKER.ERROR_SAVE", "error"); }
     });
   }
 }

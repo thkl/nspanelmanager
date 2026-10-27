@@ -1,4 +1,5 @@
-import { Component, effect, input, output, signal, untracked } from "@angular/core";
+import { Component, effect, inject, input, output, signal, untracked } from "@angular/core";
+import { TranslatePipe, TranslateService } from "@ngx-translate/core";
 import type { ManagerConfig, Panel, PluginConfigValue, PluginInstance, PluginPagePreviewResult, PluginProfile } from "../../models";
 import { colorFromWheelTouch, type PanelWheelColor } from "./panel-color-wheel";
 
@@ -17,10 +18,12 @@ interface PreviewPreset { label: string; value: number }
 @Component({
   selector: "nspanel-screen-preview",
   standalone: true,
+  imports: [TranslatePipe],
   templateUrl: "./panel-screen-preview.component.html",
   styleUrl: "./panel-screen-preview.component.css"
 })
 export class PanelScreenPreviewComponent {
+  private readonly translate = inject(TranslateService);
   readonly panel = input<Panel | null>(null);
   readonly config = input<ManagerConfig | null>(null);
   readonly favoriteAssignments = input<Record<number, string>>({});
@@ -35,12 +38,12 @@ export class PanelScreenPreviewComponent {
   readonly selectedMusicPlayer = signal(0);
   readonly actionNotice = signal("");
   readonly screens: ReadonlyArray<{ id: PreviewScreen; label: string }> = [
-    { id: "home", label: "Home" },
-    { id: "favorites", label: "Favorites" },
-    { id: "info", label: "Message" },
-    { id: "music", label: "Music" },
-    { id: "thermostat", label: "Thermostat" },
-    { id: "weather", label: "Weather" }
+    { id: "home", label: "PREVIEW.HOME" },
+    { id: "favorites", label: "PREVIEW.FAVORITES" },
+    { id: "info", label: "PREVIEW.MESSAGE" },
+    { id: "music", label: "PREVIEW.MUSIC" },
+    { id: "thermostat", label: "PREVIEW.THERMOSTAT" },
+    { id: "weather", label: "PREVIEW.WEATHER" }
   ];
   private previousPanelId: string | null = null;
 
@@ -114,7 +117,7 @@ export class PanelScreenPreviewComponent {
     const button = this.panel()?.settings.buttons[index];
     const context = this.instanceContext(button?.pluginInstanceId);
     if (context?.profile.pluginId === "mqtt-light") this.navigate({ screen: "light", instanceId: context.instance.id, title: button?.label });
-    else this.actionNotice.set("This tile has no light control page assigned.");
+    else this.notice("PREVIEW.NO_LIGHT_PAGE");
   }
 
   /** Reads the visible shortcuts from the panel or a nested Favorites plugin. */
@@ -130,16 +133,16 @@ export class PanelScreenPreviewComponent {
   favoritesTitle(): string {
     const context = this.instanceContext(this.location().instanceId);
     return context?.profile.pluginId === "favorites-page"
-      ? this.configString(context.profile.config, "title", "Favorites")
-      : this.panel()?.settings.favorites.name || "Favorites";
+      ? this.configString(context.profile.config, "title", this.translate.instant("PREVIEW.FAVORITES"))
+      : this.panel()?.settings.favorites.name || this.translate.instant("PREVIEW.FAVORITES");
   }
 
   /** Follows the plugin binding for a favorite slot. */
   pressFavorite(index: number): void {
     const favorite = this.favorites()[index];
-    if (!favorite?.instanceId) { this.actionNotice.set("No plugin instance is assigned to this favorite."); return; }
+    if (!favorite?.instanceId) { this.notice("PREVIEW.NO_FAVORITE_INSTANCE"); return; }
     const context = this.instanceContext(favorite.instanceId);
-    if (!context) { this.actionNotice.set("The assigned plugin instance is unavailable."); return; }
+    if (!context) { this.notice("PREVIEW.FAVORITE_INSTANCE_UNAVAILABLE"); return; }
     const pluginId = context.profile.pluginId;
     if (pluginId === "favorites-page") this.navigate({ screen: "favorites", instanceId: favorite.instanceId });
     else if (pluginId === "mqtt-cover") this.navigate({ screen: "level", instanceId: favorite.instanceId, title: favorite.label });
@@ -150,10 +153,10 @@ export class PanelScreenPreviewComponent {
 
   /** Shows a scripted page name without running its renderer or MQTT actions. */
   messageTitle(): string {
-    if (this.pagePreview()) return this.pagePreview()?.title || "Message page";
+    if (this.pagePreview()) return this.pagePreview()?.title || this.translate.instant("PREVIEW.MESSAGE_PAGE");
     const context = this.instanceContext(this.location().instanceId);
     const page = this.parseRows(context?.profile.config["pages"], 16).find((row) => row["id"] === this.location().pageId);
-    return String(page?.["name"] || this.location().title || context?.instance.name || "Message page");
+    return String(page?.["name"] || this.location().title || context?.instance.name || this.translate.instant("PREVIEW.MESSAGE_PAGE"));
   }
 
   /** Labels scripted button slots from configured actions until a render exists. */
@@ -164,9 +167,9 @@ export class PanelScreenPreviewComponent {
     const actions = this.parseRows(context.profile.config["buttonActions"], 128);
     return Array.from({ length: 8 }, (_, index) => {
       const action = actions.find((row) => row["pageId"] === this.location().pageId && row["slot"] === String(index + 1));
-      if (action?.["type"] === "page") return `Open ${action["target"]}`;
-      if (action?.["type"] === "mqtt") return "Send MQTT";
-      if (action?.["type"] === "function") return `Run ${action["target"]}`;
+      if (action?.["type"] === "page") return this.translate.instant("PREVIEW.OPEN_ACTION_PAGE", { target: action["target"] });
+      if (action?.["type"] === "mqtt") return this.translate.instant("PREVIEW.SEND_MQTT");
+      if (action?.["type"] === "function") return this.translate.instant("PREVIEW.RUN_ACTION", { target: action["target"] });
       return "";
     });
   }
@@ -180,7 +183,7 @@ export class PanelScreenPreviewComponent {
     if (!action) return;
     if (action["type"] === "page" && typeof action["target"] === "string") this.navigate({ ...this.location(), pageId: action["target"] });
     else if (action["type"] === "mqtt" && context) this.showCommand(context, String(action["topic"] ?? ""), String(action["payload"] ?? ""));
-    else if (action["type"] === "function") this.actionNotice.set(`Would run ${action["target"]}. Function actions need the live runtime.`);
+    else if (action["type"] === "function") this.notice("PREVIEW.FUNCTION_NEEDS_RUNTIME", { target: String(action["target"] ?? "") });
   }
 
   /** Reads the configured eight cover presets for the level page. */
@@ -216,7 +219,7 @@ export class PanelScreenPreviewComponent {
   /** Previews one of the two color scene commands configured on the light. */
   pressLightScene(button: 1 | 2): void {
     const context = this.instanceContext(this.location().instanceId);
-    if (!context) { this.actionNotice.set("No light instance is assigned."); return; }
+    if (!context) { this.notice("PREVIEW.NO_LIGHT_INSTANCE"); return; }
     const settings = context.profile.config;
     const presetName = `PSET${button}`;
     const presetPayload = context.instance.variables[presetName];
@@ -233,7 +236,7 @@ export class PanelScreenPreviewComponent {
    */
   pickLightColor(event: PointerEvent): void {
     const context = this.instanceContext(this.location().instanceId);
-    if (!context) { this.actionNotice.set("No light instance is assigned."); return; }
+    if (!context) { this.notice("PREVIEW.NO_LIGHT_INSTANCE"); return; }
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const x = Math.max(0, Math.min(220, Math.round((event.clientX - rect.left) / rect.width * 220)));
     const y = Math.max(0, Math.min(220, Math.round((event.clientY - rect.top) / rect.height * 220)));
@@ -266,7 +269,7 @@ export class PanelScreenPreviewComponent {
   /** Simulates thermostat Up/Down using the assigned instance's range and step. */
   changeThermostat(direction: 1 | -1): void {
     const context = this.instanceContext(this.panel()?.nativePluginInstances?.["thermostat"]);
-    if (!context) { this.actionNotice.set("Assign a thermostat instance to this panel first."); return; }
+    if (!context) { this.notice("PREVIEW.ASSIGN_THERMOSTAT_FIRST"); return; }
     const settings = context.profile.config;
     const minimum = this.configNumber(settings, "minimum", 5);
     const maximum = this.configNumber(settings, "maximum", 30);
@@ -281,7 +284,7 @@ export class PanelScreenPreviewComponent {
   /** Simulates one Auto or Boost command from the thermostat screen. */
   setThermostatMode(mode: "auto" | "boost"): void {
     const context = this.instanceContext(this.panel()?.nativePluginInstances?.["thermostat"]);
-    if (!context) { this.actionNotice.set("Assign a thermostat instance to this panel first."); return; }
+    if (!context) { this.notice("PREVIEW.ASSIGN_THERMOSTAT_FIRST"); return; }
     const settings = context.profile.config;
     this.showCommand(context, this.configString(settings, "setTopic"), this.configString(settings, "modePayloadTemplate", "mode:{{mode}}").replaceAll("{{mode}}", mode));
   }
@@ -310,7 +313,7 @@ export class PanelScreenPreviewComponent {
   /** Chooses Play or Pause using the selected player's displayed track label. */
   pressMusicPlayPause(): void {
     const player = this.selectedMusic();
-    if (!player) { this.actionNotice.set("No music player is available in this panel's settings."); return; }
+    if (!player) { this.notice("PREVIEW.NO_MUSIC_PLAYER"); return; }
     const track = player.currentSong?.trim().toUpperCase() ?? "";
     const stoppedOrPaused = !track || track === "[STOP]" || track === "[S T O P]" || track === "[PAUSE]";
     this.pressMusic(stoppedOrPaused ? "group.play" : "group.pause");
@@ -319,24 +322,24 @@ export class PanelScreenPreviewComponent {
   /** Simulates the selected Sonos player's configured MQTT command. */
   pressMusic(command: "group.pause" | "group.play" | "group.stop" | "group.next.track" | "group.previous.track" | "group.adjust.volume", payload = ""): void {
     const player = this.selectedMusic();
-    if (!player?.player) { this.actionNotice.set("No music player is available in this panel's settings."); return; }
-    this.actionNotice.set(`Would publish ${player.player}/cmnd/${command} → ${payload || "(empty payload)"}`);
+    if (!player?.player) { this.notice("PREVIEW.NO_MUSIC_PLAYER"); return; }
+    this.notice("PREVIEW.WOULD_PUBLISH", { topic: `${player.player}/cmnd/${command}`, payload: payload || this.translate.instant("PREVIEW.EMPTY_PAYLOAD") });
   }
 
   /** Shows the firmware's Favorite action event in this local-only preview. */
   pressMusicFavorite(): void {
     const player = this.selectedMusic();
-    if (!player) { this.actionNotice.set("No music player is available in this panel's settings."); return; }
+    if (!player) { this.notice("PREVIEW.NO_MUSIC_PLAYER"); return; }
     const nodeName = this.panel()?.nodeName || "panel";
-    this.actionNotice.set(`Would send ${nodeName}/event/music { cmd: "fav1", player: "${player.id}" }`);
+    this.notice("PREVIEW.WOULD_SEND_FAVORITE", { topic: `${nodeName}/event/music`, player: player.id });
   }
 
   /** Shows the panel's Join/Leave group control in this local-only preview. */
   pressMusicGroup(): void {
     const player = this.selectedMusic();
-    if (!player) { this.actionNotice.set("No music player is available in this panel's settings."); return; }
+    if (!player) { this.notice("PREVIEW.NO_MUSIC_PLAYER"); return; }
     const nodeName = this.panel()?.nodeName || "panel";
-    this.actionNotice.set(`Would use ${nodeName}/event/music Join/Leave for ${player.name}.`);
+    this.notice("PREVIEW.WOULD_JOIN_LEAVE", { topic: `${nodeName}/event/music`, player: player.name });
   }
 
   /** Shows the value label that the home tile would receive after a touch. */
@@ -345,14 +348,14 @@ export class PanelScreenPreviewComponent {
     const value = instanceId ? this.simulatedLevels()[instanceId] : undefined;
     if (!context || value === undefined) return "—";
     if (context.profile.pluginId === "mqtt-light") {
-      if (value === 0) return this.configString(context.profile.config, "zeroValueLabel", "Off");
-      if (value === 100) return this.configString(context.profile.config, "fullValueLabel", "On");
+      if (value === 0) return this.configString(context.profile.config, "zeroValueLabel", this.translate.instant("PREVIEW.OFF"));
+      if (value === 100) return this.configString(context.profile.config, "fullValueLabel", this.translate.instant("PREVIEW.ON"));
       return `${value} %`;
     }
     const minimum = this.configNumber(context.profile.config, "minimum", 0);
     const maximum = this.configNumber(context.profile.config, "maximum", 100);
-    if (value === minimum) return this.configString(context.profile.config, "closedValueLabel", "Closed");
-    if (value === maximum) return this.configString(context.profile.config, "openValueLabel", "Open");
+    if (value === minimum) return this.configString(context.profile.config, "closedValueLabel", this.translate.instant("PREVIEW.CLOSED"));
+    if (value === maximum) return this.configString(context.profile.config, "openValueLabel", this.translate.instant("PREVIEW.OPEN"));
     return `${value} %`;
   }
 
@@ -369,7 +372,11 @@ export class PanelScreenPreviewComponent {
   /** Calculates a light or cover command using the profile's templates. */
   private changeDevice(instanceId: string | undefined, action: "toggle" | "up" | "dn" | "set", index?: number, requested?: number): void {
     const context = this.instanceContext(instanceId);
-    if (!context || !instanceId) { this.actionNotice.set(index === undefined ? "No device instance is assigned." : `Tile ${index + 1} has no plugin instance assigned.`); return; }
+    if (!context || !instanceId) {
+      if (index === undefined) this.notice("PREVIEW.NO_DEVICE_INSTANCE");
+      else this.notice("PREVIEW.TILE_NO_PLUGIN", { number: index + 1 });
+      return;
+    }
     const settings = context.profile.config;
     const previous = this.simulatedLevels()[instanceId];
     let value: number;
@@ -390,7 +397,7 @@ export class PanelScreenPreviewComponent {
       payload = action === "toggle"
         ? this.configString(settings, value === maximum ? "openPayloadTemplate" : "closePayloadTemplate")
         : this.configString(settings, "positionPayloadTemplate", '{"position":{{value}}}').replaceAll("{{value}}", String(value));
-    } else { this.actionNotice.set(`The ${context.profile.name} plugin has no preview tile action.`); return; }
+    } else { this.notice("PREVIEW.PLUGIN_NO_TILE_ACTION", { name: context.profile.name }); return; }
     this.simulatedLevels.update((values) => ({ ...values, [instanceId]: value }));
     this.showCommand(context, this.configString(settings, "setTopic"), payload);
   }
@@ -399,7 +406,12 @@ export class PanelScreenPreviewComponent {
   private showCommand(context: PreviewInstance, topic: string, payload: string, values: Record<string, string> = {}): void {
     const variables = { ...context.instance.variables, ...values };
     const interpolate = (value: string) => value.replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (_, name: string) => variables[name] ?? `{{${name}}}`);
-    this.actionNotice.set(`Would publish ${interpolate(topic)} → ${interpolate(payload)}`);
+    this.notice("PREVIEW.WOULD_PUBLISH", { topic: interpolate(topic), payload: interpolate(payload) });
+  }
+
+  /** Resolves a preview-only feedback message from the current UI locale. */
+  private notice(key: string, params?: Record<string, string | number>): void {
+    this.actionNotice.set(this.translate.instant(key, params));
   }
 
   /** Parses a bounded JSON table stored as a profile config string. */

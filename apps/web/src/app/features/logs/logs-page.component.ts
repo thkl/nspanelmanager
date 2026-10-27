@@ -1,4 +1,5 @@
 import { Component, OnInit, signal } from "@angular/core";
+import { TranslatePipe } from "@ngx-translate/core";
 import type { AdminLogEntry, LogLevel } from "../../models";
 import { ManagerStore } from "../../manager-store.service";
 
@@ -8,6 +9,7 @@ type LogLevelFilter = LogLevel | "all";
 @Component({
   selector: "nspanel-logs-page",
   standalone: true,
+  imports: [TranslatePipe],
   templateUrl: "./logs-page.component.html",
   styleUrl: "./logs-page.component.css"
 })
@@ -52,7 +54,7 @@ export class LogsPageComponent implements OnInit {
       },
       error: () => {
         if (requestVersion !== this.requestVersion) return;
-        this.error.set("Could not read the manager log files.");
+        this.error.set("LOGS.ERROR_LOAD");
         this.loading.set(false);
       }
     });

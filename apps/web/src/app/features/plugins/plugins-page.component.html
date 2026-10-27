@@ -1,8 +1,8 @@
 <section class="plugin-layout" [class.plugin-only-layout]="screen() === 'plugins'" [class.instances-layout]="screen() === 'instances'">
   @if (screen() === 'plugins') {
-  <nav class="plugin-profile-nav card" aria-label="Plugin profiles">
+  <nav class="plugin-profile-nav card" [attr.aria-label]="'PLUGINS.PROFILES' | translate">
     <button type="button" class="plugin-profile-button new-profile-button" [class.active]="!editingProfileId()" [attr.aria-pressed]="!editingProfileId()" (click)="cancelProfileEdit()">
-      <span class="profile-button-icon" aria-hidden="true">＋</span><span>New plugin</span>
+      <span class="profile-button-icon" aria-hidden="true">＋</span><span>{{ 'PLUGINS.NEW_PLUGIN' | translate }}</span>
     </button>
     @for (profile of manager.config().pluginProfiles; track profile.id) {
       <button type="button" class="plugin-profile-button" [class.active]="editingProfileId() === profile.id" [attr.aria-pressed]="editingProfileId() === profile.id" (click)="editPluginProfile(profile)">
@@ -10,26 +10,26 @@
         <small>{{ pluginName(profile.pluginId) }}</small>
       </button>
     } @empty {
-      <span class="profile-nav-empty">No saved plugins yet</span>
+      <span class="profile-nav-empty">{{ 'PLUGINS.NO_SAVED_PLUGINS' | translate }}</span>
     }
   </nav>
 
   <article class="card plugin-editor">
     <div class="card-heading">
-      <div><h2>{{ editingProfileId() ? 'Edit plugin' : 'New plugin' }}</h2><p>Define a device integration once, then use it from as many instances as you need.</p></div>
+      <div><h2>{{ (editingProfileId() ? 'PLUGINS.EDIT_PLUGIN' : 'PLUGINS.NEW_PLUGIN') | translate }}</h2><p>{{ 'PLUGINS.PROFILE_DESCRIPTION' | translate }}</p></div>
       <span class="plugin-mark">◈</span>
     </div>
 
     @if (definitions().length > 0) {
       <div class="plugin-form">
-        <label>Plugin type
+        <label>{{ 'PLUGINS.PLUGIN_TYPE' | translate }}
           <select [ngModel]="selectedPluginId()" (ngModelChange)="selectPlugin($event)" [disabled]="!!editingProfileId()">
             @for (definition of definitions(); track definition.id) { <option [value]="definition.id">{{ definition.name }}</option> }
           </select>
         </label>
         @if (selectedDefinition; as definition) {
-          <div class="plugin-description"><b>{{ definition.name }}</b><span>{{ definition.description }}</span><small>Capabilities: {{ definition.capabilities.join(', ') }}</small></div>
-          <label>Plugin name<input [ngModel]="profileName()" (ngModelChange)="profileName.set($event)" placeholder=""></label>
+          <div class="plugin-description"><b>{{ definition.name }}</b><span>{{ definition.description }}</span><small>{{ 'PLUGINS.CAPABILITIES' | translate }}: {{ definition.capabilities.join(', ') }}</small></div>
+          <label>{{ 'PLUGINS.PLUGIN_NAME' | translate }}<input [ngModel]="profileName()" (ngModelChange)="profileName.set($event)" placeholder=""></label>
           <div class="config-grid">
             @for (field of definition.configSchema; track field.key) {
               @if (field.type === 'table' && isTabbedPageField(field)) {
@@ -39,27 +39,27 @@
                     <span class="page-count">{{ tableRows(field).length }} / {{ field.maxRows ?? 16 }}</span>
                   </div>
                   <div class="page-tab-bar">
-                    <div class="page-tabs" role="tablist" aria-label="Plugin pages">
+                    <div class="page-tabs" role="tablist" [attr.aria-label]="'PLUGINS.PLUGIN_PAGES' | translate">
                       @for (page of tableRows(field); track $index; let pageIndex = $index) {
-                        <button type="button" class="page-tab" role="tab" [class.active]="pageIndex === activePageIndex()" [attr.aria-selected]="pageIndex === activePageIndex()" [attr.aria-controls]="'plugin-page-panel-' + pageIndex" [attr.id]="'plugin-page-tab-' + pageIndex" (click)="selectPage(pageIndex)">{{ page.name || page.id || 'Page ' + (pageIndex + 1) }}</button>
+                        <button type="button" class="page-tab" role="tab" [class.active]="pageIndex === activePageIndex()" [attr.aria-selected]="pageIndex === activePageIndex()" [attr.aria-controls]="'plugin-page-panel-' + pageIndex" [attr.id]="'plugin-page-tab-' + pageIndex" (click)="selectPage(pageIndex)">{{ page.name || page.id || ('PLUGINS.PAGE_NUMBER' | translate:{ number: pageIndex + 1 }) }}</button>
                       }
                     </div>
-                    <button type="button" class="text-action add-page" [disabled]="tableRows(field).length >= (field.maxRows ?? 16)" (click)="addPage(field)">＋ Add page</button>
+                    <button type="button" class="text-action add-page" [disabled]="tableRows(field).length >= (field.maxRows ?? 16)" (click)="addPage(field)">＋ {{ 'PLUGINS.ADD_PAGE' | translate }}</button>
                   </div>
                   @if (activePage(field); as page) {
                     <section class="page-tab-panel" role="tabpanel" [attr.id]="'plugin-page-panel-' + activePageIndex()" [attr.aria-labelledby]="'plugin-page-tab-' + activePageIndex()">
-                      <div class="page-panel-heading"><h3>Page settings</h3><button type="button" class="text-danger" [disabled]="tableRows(field).length <= (field.minRows ?? 1)" (click)="removePage(field, activePageIndex())">Remove page</button></div>
+                      <div class="page-panel-heading"><h3>{{ 'PLUGINS.PAGE_SETTINGS' | translate }}</h3><button type="button" class="text-danger" [disabled]="tableRows(field).length <= (field.minRows ?? 1)" (click)="removePage(field, activePageIndex())">{{ 'PLUGINS.REMOVE_PAGE' | translate }}</button></div>
                       <div class="page-identity">
-                        <label>Page ID<input [ngModel]="page.id" (ngModelChange)="setPageCell(field, activePageIndex(), 'id', $event)" placeholder="overview"></label>
-                        <label>Page name<input [ngModel]="page.name" (ngModelChange)="setPageCell(field, activePageIndex(), 'name', $event)" placeholder="Overview"></label>
+                        <label>{{ 'PLUGINS.PAGE_ID' | translate }}<input [ngModel]="page.id" (ngModelChange)="setPageCell(field, activePageIndex(), 'id', $event)" placeholder="overview"></label>
+                        <label>{{ 'PLUGINS.PAGE_NAME' | translate }}<input [ngModel]="page.name" (ngModelChange)="setPageCell(field, activePageIndex(), 'name', $event)" [placeholder]="'PLUGINS.OVERVIEW_EXAMPLE' | translate"></label>
                       </div>
                       <div class="multiline-editor page-renderer">
-                        <span>Render function body</span>
-                        <nspanel-script-editor [ariaLabel]="'Render function for ' + (page.name || page.id)" [ngModel]="page.renderCode" (ngModelChange)="setPageCell(field, activePageIndex(), 'renderCode', $event)"></nspanel-script-editor>
+                        <span>{{ 'PLUGINS.RENDER_FUNCTION_BODY' | translate }}</span>
+                        <nspanel-script-editor [ariaLabel]="('PLUGINS.RENDER_FUNCTION_FOR' | translate:{ page: (page.name || page.id) })" [ngModel]="page.renderCode" (ngModelChange)="setPageCell(field, activePageIndex(), 'renderCode', $event)"></nspanel-script-editor>
                         <div class="script-check-row">
-                          <button type="button" class="text-action" [disabled]="scriptCheckState(field, activePageIndex(), 'renderCode')?.status === 'checking'" (click)="checkScript(field, activePageIndex(), 'renderCode')">{{ scriptCheckState(field, activePageIndex(), 'renderCode')?.status === 'checking' ? 'Checking…' : 'Check syntax' }}</button>
+                          <button type="button" class="text-action" [disabled]="scriptCheckState(field, activePageIndex(), 'renderCode')?.status === 'checking'" (click)="checkScript(field, activePageIndex(), 'renderCode')">{{ (scriptCheckState(field, activePageIndex(), 'renderCode')?.status === 'checking' ? 'PLUGINS.CHECKING' : 'PLUGINS.CHECK_SYNTAX') | translate }}</button>
                           @if (scriptCheckState(field, activePageIndex(), 'renderCode'); as check) {
-                            <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message }}</span>
+                            <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message | translate }}</span>
                           }
                         </div>
                       </div>
@@ -68,10 +68,10 @@
                           <div class="page-buttons-heading">
                             <button type="button" class="page-buttons-toggle" [attr.aria-expanded]="arePageButtonsExpanded(activePageIndex())" [attr.aria-controls]="'page-button-actions-' + activePageIndex()" (click)="togglePageButtons(activePageIndex())">
                               <span class="page-buttons-chevron" [class.expanded]="arePageButtonsExpanded(activePageIndex())" aria-hidden="true">⌄</span>
-                              <span class="page-buttons-toggle-copy"><span class="page-buttons-title" [attr.id]="'page-buttons-heading-' + activePageIndex()">Button actions</span><span>These actions belong to {{ page.name || page.id }}. The button labels come from the render function above.</span></span>
-                              <span class="page-action-count">{{ pageActions(actionField, page.id).length }} configured</span>
+                              <span class="page-buttons-toggle-copy"><span class="page-buttons-title" [attr.id]="'page-buttons-heading-' + activePageIndex()">{{ 'PLUGINS.BUTTON_ACTIONS' | translate }}</span><span>{{ 'PLUGINS.BUTTON_ACTIONS_HELP' | translate:{ page: (page.name || page.id) } }}</span></span>
+                              <span class="page-action-count">{{ 'PLUGINS.CONFIGURED_COUNT' | translate:{ count: pageActions(actionField, page.id).length } }}</span>
                             </button>
-                            <button type="button" class="button secondary add-page-action" [disabled]="!canAddPageAction(actionField, page.id)" (click)="addPageAction(actionField, page.id)">＋ Add button action</button>
+                            <button type="button" class="button secondary add-page-action" [disabled]="!canAddPageAction(actionField, page.id)" (click)="addPageAction(actionField, page.id)">＋ {{ 'PLUGINS.ADD_BUTTON_ACTION' | translate }}</button>
                           </div>
                           <div class="page-button-content" [attr.id]="'page-button-actions-' + activePageIndex()" [hidden]="!arePageButtonsExpanded(activePageIndex())">
                             @if (actionField.help) { <small class="page-action-help">{{ actionField.help }}</small> }
@@ -80,46 +80,46 @@
                                 @for (entry of pageActions(actionField, page.id); track entry.index) {
                                   <div class="page-action-row">
                                     <div class="page-action-fields">
-                                      <label>Button slot
+                                      <label>{{ 'PLUGINS.BUTTON_SLOT' | translate }}
                                         <select [ngModel]="entry.action.slot" (ngModelChange)="setPageActionCell(actionField, entry.index, 'slot', $event)">
-                                          @for (slot of buttonSlots; track slot) { <option [value]="slot" [disabled]="pageActionSlotUsed(actionField, page.id, slot, entry.index)">Button {{ slot }}</option> }
+                                          @for (slot of buttonSlots; track slot) { <option [value]="slot" [disabled]="pageActionSlotUsed(actionField, page.id, slot, entry.index)">{{ 'PLUGINS.BUTTON_NUMBER' | translate:{ number: slot } }}</option> }
                                         </select>
                                       </label>
-                                      <label>Action type
+                                      <label>{{ 'PLUGINS.ACTION_TYPE' | translate }}
                                         <select [ngModel]="entry.action.type" (ngModelChange)="setPageActionType(actionField, entry.index, $event)">
-                                          <option value="none">No action</option>
-                                          <option value="page">Open page</option>
-                                          <option value="mqtt">Send MQTT</option>
-                                          <option value="function">Run function</option>
+                                          <option value="none">{{ 'PLUGINS.NO_ACTION' | translate }}</option>
+                                          <option value="page">{{ 'PLUGINS.OPEN_PAGE' | translate }}</option>
+                                          <option value="mqtt">{{ 'PLUGINS.SEND_MQTT' | translate }}</option>
+                                          <option value="function">{{ 'PLUGINS.RUN_FUNCTION' | translate }}</option>
                                         </select>
                                       </label>
                                       @if (entry.action.type === 'page') {
-                                        <label class="wide">Open page
+                                        <label class="wide">{{ 'PLUGINS.OPEN_PAGE' | translate }}
                                           <select [ngModel]="entry.action.target" (ngModelChange)="setPageActionCell(actionField, entry.index, 'target', $event)">
-                                            <option value="">Choose a page…</option>
+                                            <option value="">{{ 'PLUGINS.CHOOSE_PAGE' | translate }}</option>
                                             @for (targetPage of tableRows(field); track $index) { <option [value]="targetPage.id">{{ targetPage.name || targetPage.id }} ({{ targetPage.id }})</option> }
                                           </select>
                                         </label>
                                       }
                                       @if (entry.action.type === 'function') {
-                                        <label class="wide">Function
+                                        <label class="wide">{{ 'PLUGINS.FUNCTION' | translate }}
                                           <select [ngModel]="entry.action.target" (ngModelChange)="setPageActionCell(actionField, entry.index, 'target', $event)">
-                                            <option value="">Choose a function…</option>
+                                            <option value="">{{ 'PLUGINS.CHOOSE_FUNCTION' | translate }}</option>
                                             @for (fn of pageFunctionTargets(); track fn.id) { <option [value]="fn.id">{{ fn.id }}</option> }
                                           </select>
                                         </label>
                                       }
                                       @if (entry.action.type === 'mqtt') {
-                                        <label>MQTT topic<input [ngModel]="entry.action.topic" (ngModelChange)="setPageActionCell(actionField, entry.index, 'topic', $event)" placeholder="home/device/set"></label>
-                                        <label class="wide">MQTT payload<textarea [ngModel]="entry.action.payload" (ngModelChange)="setPageActionCell(actionField, entry.index, 'payload', $event)" rows="3" placeholder='{"power":"ON"}'></textarea></label>
+                                        <label>{{ 'PLUGINS.MQTT_TOPIC' | translate }}<input [ngModel]="entry.action.topic" (ngModelChange)="setPageActionCell(actionField, entry.index, 'topic', $event)" placeholder="home/device/set"></label>
+                                        <label class="wide">{{ 'PLUGINS.MQTT_PAYLOAD' | translate }}<textarea [ngModel]="entry.action.payload" (ngModelChange)="setPageActionCell(actionField, entry.index, 'payload', $event)" rows="3" placeholder='{"power":"ON"}'></textarea></label>
                                       }
                                     </div>
-                                    <button type="button" class="text-danger remove-page-action" (click)="removePageAction(actionField, entry.index)">Remove</button>
+                                    <button type="button" class="text-danger remove-page-action" (click)="removePageAction(actionField, entry.index)">{{ 'COMMON.REMOVE' | translate }}</button>
                                   </div>
                                 }
                               </div>
                             } @else {
-                              <p class="no-page-actions">No button actions configured for this page yet.</p>
+                              <p class="no-page-actions">{{ 'PLUGINS.NO_BUTTON_ACTIONS' | translate }}</p>
                             }
                           </div>
                         </section>
@@ -135,28 +135,28 @@
                   </div>
                   <div class="page-tab-bar">
                     @if (tableRows(field).length > 0) {
-                      <div class="page-tabs" role="tablist" aria-label="Helper functions">
+                      <div class="page-tabs" role="tablist" [attr.aria-label]="'PLUGINS.HELPER_FUNCTIONS' | translate">
                         @for (fn of tableRows(field); track $index; let functionIndex = $index) {
-                          <button type="button" class="page-tab" role="tab" [class.active]="functionIndex === activeFunctionIndex()" [attr.aria-selected]="functionIndex === activeFunctionIndex()" [attr.aria-controls]="'plugin-function-panel-' + functionIndex" [attr.id]="'plugin-function-tab-' + functionIndex" (click)="selectFunction(functionIndex)">{{ fn.id || 'Function ' + (functionIndex + 1) }}</button>
+                          <button type="button" class="page-tab" role="tab" [class.active]="functionIndex === activeFunctionIndex()" [attr.aria-selected]="functionIndex === activeFunctionIndex()" [attr.aria-controls]="'plugin-function-panel-' + functionIndex" [attr.id]="'plugin-function-tab-' + functionIndex" (click)="selectFunction(functionIndex)">{{ fn.id || ('PLUGINS.FUNCTION_NUMBER' | translate:{ number: functionIndex + 1 }) }}</button>
                         }
                       </div>
                     } @else {
-                      <span class="function-tab-empty">No helper functions configured yet.</span>
+                      <span class="function-tab-empty">{{ 'PLUGINS.NO_HELPERS' | translate }}</span>
                     }
-                    <button type="button" class="text-action add-page" [disabled]="tableRows(field).length >= (field.maxRows ?? 32)" (click)="addFunction(field)">＋ Add helper</button>
+                    <button type="button" class="text-action add-page" [disabled]="tableRows(field).length >= (field.maxRows ?? 32)" (click)="addFunction(field)">＋ {{ 'PLUGINS.ADD_HELPER' | translate }}</button>
                   </div>
                   @if (activeFunction(field); as fn) {
                     <section class="page-tab-panel" role="tabpanel" [attr.id]="'plugin-function-panel-' + activeFunctionIndex()" [attr.aria-labelledby]="'plugin-function-tab-' + activeFunctionIndex()">
-                      <div class="page-panel-heading"><h3>Helper settings</h3><button type="button" class="text-danger" (click)="removeFunction(field, activeFunctionIndex())">Remove helper</button></div>
+                      <div class="page-panel-heading"><h3>{{ 'PLUGINS.HELPER_SETTINGS' | translate }}</h3><button type="button" class="text-danger" (click)="removeFunction(field, activeFunctionIndex())">{{ 'PLUGINS.REMOVE_HELPER' | translate }}</button></div>
                       <div class="page-identity">
-                        <label>Function ID<input [ngModel]="fn.id" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'id', $event)" placeholder="formatStatus"></label>
-                        <label>Parameters<input [ngModel]="fn.parameters" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'parameters', $event)" placeholder="message, label"></label>
+                        <label>{{ 'PLUGINS.FUNCTION_ID' | translate }}<input [ngModel]="fn.id" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'id', $event)" placeholder="formatStatus"></label>
+                        <label>{{ 'PLUGINS.PARAMETERS' | translate }}<input [ngModel]="fn.parameters" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'parameters', $event)" placeholder="message, label"></label>
                       </div>
                       <div class="multiline-editor page-renderer">
-                        <span>Function body</span>
-                        <nspanel-script-editor [ariaLabel]="'Function body for ' + (fn.id || 'helper')" [ngModel]="fn.code" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'code', $event)"></nspanel-script-editor>
+                        <span>{{ 'PLUGINS.FUNCTION_BODY' | translate }}</span>
+                        <nspanel-script-editor [ariaLabel]="'PLUGINS.FUNCTION_BODY_FOR' | translate:{ function: (fn.id || ('PLUGINS.HELPER' | translate)) }" [ngModel]="fn.code" (ngModelChange)="setFunctionCell(field, activeFunctionIndex(), 'code', $event)"></nspanel-script-editor>
                         <div class="script-check-row">
-                          <button type="button" class="text-action" [disabled]="scriptCheckState(field, activeFunctionIndex(), 'code')?.status === 'checking'" (click)="checkScript(field, activeFunctionIndex(), 'code')">{{ scriptCheckState(field, activeFunctionIndex(), 'code')?.status === 'checking' ? 'Checking…' : 'Check syntax' }}</button>
+                          <button type="button" class="text-action" [disabled]="scriptCheckState(field, activeFunctionIndex(), 'code')?.status === 'checking'" (click)="checkScript(field, activeFunctionIndex(), 'code')">{{ (scriptCheckState(field, activeFunctionIndex(), 'code')?.status === 'checking' ? 'PLUGINS.CHECKING' : 'PLUGINS.CHECK_SYNTAX') | translate }}</button>
                           @if (scriptCheckState(field, activeFunctionIndex(), 'code'); as check) {
                             <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message }}</span>
                           }
@@ -173,7 +173,7 @@
                   @if (field.help) { <small>{{ field.help }}</small> }
                   <div class="table-scroll">
                     <table class="config-table">
-                      <thead><tr><th>{{ field.rowHeader ?? 'Row' }}</th>@for (column of field.columns ?? []; track column.key) { @if (!column.multiline) { <th>{{ column.label }}</th> } }<th></th></tr></thead>
+                      <thead><tr><th>{{ field.rowHeader ?? ('PLUGINS.ROW' | translate) }}</th>@for (column of field.columns ?? []; track column.key) { @if (!column.multiline) { <th>{{ column.label }}</th> } }<th></th></tr></thead>
                       <tbody>
                         @for (row of tableRows(field); track $index; let rowIndex = $index) {
                           <tr>
@@ -182,17 +182,17 @@
                               @if (!column.multiline) {
                                 <td>
                                   @if (tableColumnOptions(field, column.key, row); as options) {
-                                    <select [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
-                                      <option value="">Choose…</option>
+                                    <select [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? ('PLUGINS.ROW' | translate)).toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
+                                      <option value="">{{ 'PLUGINS.CHOOSE_VALUE' | translate }}</option>
                                       @for (option of options; track option) { <option [value]="option">{{ tableColumnOptionLabel(field, column.key, option) }}</option> }
                                     </select>
                                   } @else {
-                                    <input [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
+                                    <input [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? ('PLUGINS.ROW' | translate)).toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
                                   }
                                 </td>
                               }
                             }
-                            <td><button type="button" class="text-danger" [disabled]="tableRows(field).length <= (field.minRows ?? 0)" (click)="removeTableRow(field, rowIndex)">Remove</button></td>
+                            <td><button type="button" class="text-danger" [disabled]="tableRows(field).length <= (field.minRows ?? 0)" (click)="removeTableRow(field, rowIndex)">{{ 'COMMON.REMOVE' | translate }}</button></td>
                           </tr>
                           @if (hasMultilineColumns(field)) {
                             <tr class="table-detail-row">
@@ -201,17 +201,17 @@
                                   @for (column of field.columns ?? []; track column.key) {
                                     @if (column.multiline) {
                                       <div class="multiline-editor">
-                                        <span>{{ column.label }} · {{ (field.rowHeader ?? 'Row').toLowerCase() }} {{ rowIndex + 1 }}</span>
+                                      <span>{{ column.label }} · {{ (field.rowHeader ?? ('PLUGINS.ROW' | translate)).toLowerCase() }} {{ rowIndex + 1 }}</span>
                                         @if (isScriptColumn(field, column.key)) {
-                                          <nspanel-script-editor [ariaLabel]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)"></nspanel-script-editor>
+                                          <nspanel-script-editor [ariaLabel]="column.label + ' for ' + (field.rowHeader ?? ('PLUGINS.ROW' | translate)).toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)"></nspanel-script-editor>
                                         } @else {
-                                          <textarea [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? 'row').toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)" rows="4"></textarea>
+                                          <textarea [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? ('PLUGINS.ROW' | translate)).toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)" rows="4"></textarea>
                                         }
                                         @if (isScriptColumn(field, column.key)) {
                                           <div class="script-check-row">
-                                            <button type="button" class="text-action" [disabled]="scriptCheckState(field, rowIndex, column.key)?.status === 'checking'" (click)="checkScript(field, rowIndex, column.key)">{{ scriptCheckState(field, rowIndex, column.key)?.status === 'checking' ? 'Checking…' : 'Check syntax' }}</button>
+                                            <button type="button" class="text-action" [disabled]="scriptCheckState(field, rowIndex, column.key)?.status === 'checking'" (click)="checkScript(field, rowIndex, column.key)">{{ (scriptCheckState(field, rowIndex, column.key)?.status === 'checking' ? 'PLUGINS.CHECKING' : 'PLUGINS.CHECK_SYNTAX') | translate }}</button>
                                             @if (scriptCheckState(field, rowIndex, column.key); as check) {
-                                              <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message }}</span>
+                                              <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message | translate }}</span>
                                             }
                                           </div>
                                         }
@@ -226,7 +226,7 @@
                       </tbody>
                     </table>
                   </div>
-                  <button type="button" class="text-action add-row" [disabled]="tableRows(field).length >= (field.maxRows ?? 8)" (click)="addTableRow(field)">＋ {{ field.addRowLabel ?? 'Add row' }}</button>
+                  <button type="button" class="text-action add-row" [disabled]="tableRows(field).length >= (field.maxRows ?? 8)" (click)="addTableRow(field)">＋ {{ field.addRowLabel ?? ('PLUGINS.ADD_ROW' | translate) }}</button>
                 </div>
               } @else {
                 @if (isScriptField(field)) {
@@ -234,9 +234,9 @@
                     <span class="field-label">{{ field.label }}</span>
                     <nspanel-script-editor [ariaLabel]="field.label" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)"></nspanel-script-editor>
                     <div class="script-check-row">
-                      <button type="button" class="text-action" [disabled]="scriptFieldCheckState(field)?.status === 'checking'" (click)="checkScriptField(field)">{{ scriptFieldCheckState(field)?.status === 'checking' ? 'Checking…' : 'Check syntax' }}</button>
+                      <button type="button" class="text-action" [disabled]="scriptFieldCheckState(field)?.status === 'checking'" (click)="checkScriptField(field)">{{ (scriptFieldCheckState(field)?.status === 'checking' ? 'PLUGINS.CHECKING' : 'PLUGINS.CHECK_SYNTAX') | translate }}</button>
                       @if (scriptFieldCheckState(field); as check) {
-                        <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message }}</span>
+                                              <span class="syntax-result" [class.valid]="check.status === 'valid'" [class.invalid]="check.status === 'invalid'" role="status">{{ check.message | translate }}</span>
                       }
                     </div>
                     @if (field.help) { <small>{{ field.help }}</small> }
@@ -262,7 +262,7 @@
                       @if (field.type === 'textarea') {
                         <textarea [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="field.required ?? false" rows="4"></textarea>
                       } @else {
-                        <input [type]="field.type" [attr.step]="field.type === 'number' ? 'any' : null" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="(field.required ?? false) && !(field.secret && editingProfileConfiguredSecrets().includes(field.key))" [placeholder]="field.secret && editingProfileConfiguredSecrets().includes(field.key) ? 'Saved — leave blank to keep' : ''" autocomplete="off">
+                        <input [type]="field.type" [attr.step]="field.type === 'number' ? 'any' : null" [ngModel]="instanceConfig()[field.key]" (ngModelChange)="setConfigValue(field, $event)" [required]="(field.required ?? false) && !(field.secret && editingProfileConfiguredSecrets().includes(field.key))" [placeholder]="field.secret && editingProfileConfiguredSecrets().includes(field.key) ? ('BROKER.PASSWORD_KEEP' | translate) : ''" autocomplete="off">
                       }
                       @if (field.help) { <small>{{ field.help }}</small> }
                     </label>
@@ -274,41 +274,41 @@
           @if (canPreviewPage) {
             <section class="page-test" aria-labelledby="page-test-title">
               <div class="page-test-heading">
-                <div><h3 id="page-test-title">Test a page</h3><p>Render with the current editor values and a sample MQTT message. Changes are previewed without saving or replacing the saved settings.</p></div>
+                <div><h3 id="page-test-title">{{ 'PLUGINS.TEST_PAGE' | translate }}</h3><p>{{ 'PLUGINS.TEST_PAGE_HELP' | translate }}</p></div>
                 <span class="preview-mark">JS</span>
               </div>
               <div class="page-test-inputs">
-                <label>Page
+                <label>{{ 'PLUGINS.PAGE' | translate }}
                   <select [ngModel]="previewPageId()" (ngModelChange)="setPreviewPageId($event)">
                     @for (page of previewPages(); track page.id) { <option [value]="page.id">{{ page.name }} ({{ page.id }})</option> }
                   </select>
                 </label>
-                <label>Incoming MQTT topic
+                <label>{{ 'PLUGINS.INCOMING_MQTT_TOPIC' | translate }}
                   <input [ngModel]="previewTopic()" (ngModelChange)="setPreviewTopic($event)" placeholder="dyson/livingroom/status">
                 </label>
-                <label class="payload-input">Incoming MQTT payload
-                  <textarea [ngModel]="previewPayload()" (ngModelChange)="setPreviewPayload($event)" rows="5" placeholder="Paste the MQTT payload here"></textarea>
+                <label class="payload-input">{{ 'PLUGINS.INCOMING_MQTT_PAYLOAD' | translate }}
+                  <textarea [ngModel]="previewPayload()" (ngModelChange)="setPreviewPayload($event)" rows="5" [placeholder]="'PLUGINS.PASTE_PAYLOAD' | translate"></textarea>
                 </label>
               </div>
-              <p class="preview-help">When incoming topic filters are configured, this topic must match one of them. Otherwise it is passed directly to the renderer as a sample. In JavaScript, read it as <code>message.topic</code>. JSON payloads are parsed in both <code>message.payload</code> and <code>payload</code>; other payloads remain text.</p>
-              <button type="button" class="button secondary" [disabled]="previewingPage() || !previewPageId() || !previewTopic().trim()" (click)="startPreviewPage()">{{ previewingPage() ? 'Rendering…' : 'Render preview' }} <span>▶</span></button>
-              @if (pagePreviewError()) { <p class="preview-error" role="alert">{{ pagePreviewError() }}</p> }
+              <p class="preview-help">{{ 'PLUGINS.TEST_PAGE_INPUT_HELP' | translate }}</p>
+              <button type="button" class="button secondary" [disabled]="previewingPage() || !previewPageId() || !previewTopic().trim()" (click)="startPreviewPage()">{{ (previewingPage() ? 'PLUGINS.RENDERING' : 'PLUGINS.RENDER_PREVIEW') | translate }} <span>▶</span></button>
+              @if (pagePreviewError()) { <p class="preview-error" role="alert">{{ pagePreviewError() | translate }}</p> }
               @if (pagePreview(); as preview) {
                 <div class="page-preview" aria-live="polite">
                   @if (!preview.rendered) {
-                    <p class="preview-no-page">This function returned no page. The panel would not receive an update.</p>
+                    <p class="preview-no-page">{{ 'PLUGINS.NO_PAGE_RETURNED' | translate }}</p>
                   } @else {
                     <nspanel-screen-preview [pagePreview]="preview" [showBack]="previewHistory().length > 0" (pageButton)="pressPreviewButton($event)" (pageBack)="pressPreviewBack()" />
-                    @if (pagePreviewNotice()) { <p class="preview-action-notice" role="status">{{ pagePreviewNotice() }}</p> }
+                    @if (pagePreviewNotice()) { <p class="preview-action-notice" role="status">{{ pagePreviewNotice() | translate }}</p> }
                   }
-                  <section class="preview-debug" aria-label="JavaScript debug output">
-                    <h4>Debug output</h4>
+                  <section class="preview-debug" [attr.aria-label]="'PLUGINS.DEBUG_OUTPUT' | translate">
+                    <h4>{{ 'PLUGINS.DEBUG_OUTPUT' | translate }}</h4>
                     @if (preview.debugLogs.length > 0) {
                       <ol>
                         @for (line of preview.debugLogs; track $index) { <li><code>{{ line }}</code></li> }
                       </ol>
                     } @else {
-                      <p>No debug.log output from this render.</p>
+                      <p>{{ 'PLUGINS.NO_DEBUG_OUTPUT' | translate }}</p>
                     }
                   </section>
                 </div>
@@ -317,12 +317,12 @@
           }
         }
         <div class="form-actions plugin-profile-actions">
-          @if (editingProfileId()) { <button type="button" class="button danger" [disabled]="savingProfile()" (click)="removeCurrentPluginProfile()">Remove plugin</button> }
-          <button type="button" class="button primary profile-save-button" [disabled]="savingProfile() || !profileName().trim()" (click)="savePluginProfile()">{{ savingProfile() ? 'Saving…' : 'Save plugin' }} <span>✓</span></button>
+          @if (editingProfileId()) { <button type="button" class="button danger" [disabled]="savingProfile()" (click)="removeCurrentPluginProfile()">{{ 'PLUGINS.REMOVE_PLUGIN' | translate }}</button> }
+          <button type="button" class="button primary profile-save-button" [disabled]="savingProfile() || !profileName().trim()" (click)="savePluginProfile()">{{ (savingProfile() ? 'COMMON.SAVING' : 'PLUGINS.SAVE_PLUGIN') | translate }} <span>✓</span></button>
         </div>
       </div>
     } @else {
-      <div class="empty-state"><b>No plugins are registered</b><span>Built-in and custom plugins appear here when added to the server registry.</span></div>
+      <div class="empty-state"><b>{{ 'PLUGINS.NO_REGISTERED_PLUGINS' | translate }}</b><span>{{ 'PLUGINS.NO_REGISTERED_PLUGINS_HELP' | translate }}</span></div>
     }
   </article>
   }
@@ -330,26 +330,26 @@
   @if (screen() === 'instances') {
   <article class="card instance-list-card">
     <div class="card-heading">
-      <div><h2>Plugin instances</h2><p>Select an instance to edit it. Assignments are managed in panel settings.</p></div>
+      <div><h2>{{ 'PLUGINS.INSTANCES_TITLE' | translate }}</h2><p>{{ 'PLUGINS.INSTANCES_DESCRIPTION' | translate }}</p></div>
       <span class="count-badge">{{ manager.config().pluginInstances.length }}</span>
     </div>
     @if (manager.config().pluginInstances.length > 0) {
     <div class="instance-tree-tools">
-      <label class="instance-search">Search instances
-        <input type="search" [ngModel]="instanceSearch()" (ngModelChange)="setInstanceSearch($event)" placeholder="Name, plugin, topic, or panel">
+      <label class="instance-search">{{ 'PLUGINS.SEARCH_INSTANCES' | translate }}
+        <input type="search" [ngModel]="instanceSearch()" (ngModelChange)="setInstanceSearch($event)" [placeholder]="'PLUGINS.SEARCH_PLACEHOLDER' | translate">
       </label>
       <div class="instance-tree-actions">
-        <label class="instance-sort">Sort within groups
+        <label class="instance-sort">{{ 'PLUGINS.SORT_WITHIN_GROUPS' | translate }}
           <select [ngModel]="instanceSortBy()" (ngModelChange)="instanceSortBy.set($event)">
-            <option value="name">Instance name</option>
-            <option value="panel">Panel name</option>
+            <option value="name">{{ 'PLUGINS.INSTANCE_NAME' | translate }}</option>
+            <option value="panel">{{ 'PLUGINS.PANEL_NAME' | translate }}</option>
           </select>
         </label>
-        <button type="button" class="text-action" (click)="expandInstanceGroups()">Expand all</button>
-        <button type="button" class="text-action" (click)="collapseInstanceGroups()">Collapse all</button>
+        <button type="button" class="text-action" (click)="expandInstanceGroups()">{{ 'PLUGINS.EXPAND_ALL' | translate }}</button>
+        <button type="button" class="text-action" (click)="collapseInstanceGroups()">{{ 'PLUGINS.COLLAPSE_ALL' | translate }}</button>
       </div>
     </div>
-      <div class="instance-tree" role="list" aria-label="Plugin instances grouped by plugin">
+      <div class="instance-tree" role="list" [attr.aria-label]="'PLUGINS.INSTANCES_GROUPED' | translate">
         @for (group of instanceGroups; track group.id) {
           <section class="instance-group" role="listitem">
             <button type="button" class="instance-group-toggle" [attr.aria-expanded]="instanceGroupExpanded(group.id)" [attr.aria-controls]="'instance-group-' + group.id" (click)="toggleInstanceGroup(group.id)">
@@ -363,20 +363,20 @@
                 <div class="instance-row" role="listitem" [class.selected]="editingInstanceId() === instance.id">
                   <button type="button" class="instance-select" [attr.aria-pressed]="editingInstanceId() === instance.id" (click)="editInstance(instance)">
                     <span class="instance-icon" aria-hidden="true">⌁</span>
-                    <span class="instance-details"><b>{{ instance.name }}</b><code>{{ primaryTopic(instance) }}</code><small>Panels: {{ panelNames(instance).join(', ') || 'Not assigned' }}</small>
+                    <span class="instance-details"><b>{{ instance.name }}</b><code>{{ primaryTopic(instance) }}</code><small>{{ 'PLUGINS.PANELS' | translate }}: {{ panelNames(instance).join(', ') || ('PLUGINS.NOT_ASSIGNED' | translate) }}</small>
                       @if (manager.pluginActivities()[instance.id]; as activity) {
                         <small class="plugin-activity-status" [class.activity-error]="activity.status === 'error'" [title]="activity.lastError || ''">
-                          @if (!instance.enabled) { Disabled }
-                          @else if (activity.status === 'active' && activity.lastActivityAt) { Last activity {{ activity.lastActivityAt | date:'short' }} }
-                          @else if (activity.status === 'error') { Error · {{ activity.lastError || 'Plugin request failed' }} }
-                          @else { Waiting for data }
+                          @if (!instance.enabled) { {{ 'PLUGINS.DISABLED' | translate }} }
+                          @else if (activity.status === 'active' && activity.lastActivityAt) { {{ 'PLUGINS.LAST_ACTIVITY' | translate }} {{ activity.lastActivityAt | date:'short' }} }
+                          @else if (activity.status === 'error') { {{ 'PLUGINS.ACTIVITY_ERROR' | translate }} · {{ activity.lastError || ('PLUGINS.REQUEST_FAILED' | translate) }} }
+                          @else { {{ 'PLUGINS.WAITING_FOR_DATA' | translate }} }
                         </small>
                       } @else if (!instance.enabled) {
-                        <small class="plugin-activity-status">Disabled</small>
+                        <small class="plugin-activity-status">{{ 'PLUGINS.DISABLED' | translate }}</small>
                       }
                     </span>
                   </button>
-                  <div class="row-actions"><button class="text-danger" (click)="removeInstance(instance)">Remove</button></div>
+                  <div class="row-actions"><button class="text-danger" (click)="removeInstance(instance)">{{ 'COMMON.REMOVE' | translate }}</button></div>
                 </div>
               }
             </div>
@@ -384,69 +384,69 @@
         }
       </div>
       @if (instanceGroups.length === 0) {
-        <div class="empty-state compact instance-no-matches"><b>No matching instances</b><span>Try a different name, plugin, topic, or panel.</span></div>
+        <div class="empty-state compact instance-no-matches"><b>{{ 'PLUGINS.NO_MATCHING_INSTANCES' | translate }}</b><span>{{ 'PLUGINS.NO_MATCHING_INSTANCES_HELP' | translate }}</span></div>
       }
     } @else {
-      <div class="empty-state"><b>No plugin instances yet</b><span>Add a configured instance to connect device state and commands.</span></div>
+      <div class="empty-state"><b>{{ 'PLUGINS.NO_INSTANCES' | translate }}</b><span>{{ 'PLUGINS.NO_INSTANCES_HELP' | translate }}</span></div>
     }
   </article>
 
   <article class="card instance-editor-card">
     <div class="card-heading">
-      <div><h2>{{ editingInstanceId() ? 'Edit instance' : 'Create an instance' }}</h2><p>Choose a saved plugin and give this device its own name and variable values.</p></div>
-      @if (editingInstanceId()) { <button type="button" class="text-action" [disabled]="savingInstance()" (click)="cancelEdit()">＋ New instance</button> }
+      <div><h2>{{ (editingInstanceId() ? 'PLUGINS.EDIT_INSTANCE' : 'PLUGINS.CREATE_INSTANCE') | translate }}</h2><p>{{ 'PLUGINS.INSTANCE_EDITOR_HELP' | translate }}</p></div>
+      @if (editingInstanceId()) { <button type="button" class="text-action" [disabled]="savingInstance()" (click)="cancelEdit()">＋ {{ 'PLUGINS.NEW_INSTANCE' | translate }}</button> }
     </div>
     @if (manager.config().pluginProfiles.length > 0) {
     <div class="instance-form">
-      <label>Instance name<input [ngModel]="instanceName()" (ngModelChange)="instanceName.set($event)" placeholder="Living room fan"></label>
-      <label>Plugin
+      <label>{{ 'PLUGINS.INSTANCE_NAME' | translate }}<input [ngModel]="instanceName()" (ngModelChange)="instanceName.set($event)" [placeholder]="'PLUGINS.EXAMPLE_FAN' | translate"></label>
+      <label>{{ 'PLUGINS.PLUGIN' | translate }}
         <select [ngModel]="selectedPluginProfileId()" (ngModelChange)="setInstanceProfile($event)">
-          <option value="">Choose a saved plugin</option>
+          <option value="">{{ 'PLUGINS.CHOOSE_SAVED_PLUGIN' | translate }}</option>
           @for (profile of manager.config().pluginProfiles; track profile.id) { <option [value]="profile.id">{{ profile.name }}</option> }
         </select>
       </label>
       <section class="instance-variables" aria-labelledby="instance-variables-heading">
         <div class="field-heading">
-          <div><span id="instance-variables-heading" class="field-label">Instance variables</span><small>{{ instanceVariableHelp() }}</small></div>
+          <div><span id="instance-variables-heading" class="field-label">{{ 'PLUGINS.INSTANCE_VARIABLES' | translate }}</span><small>{{ instanceVariableHelp() }}</small></div>
           <div class="instance-variable-actions">
             @if (hasHomeAssistantEntityField()) {
-              <button type="button" class="text-action" [disabled]="loadingHomeAssistantProfileId() === selectedPluginProfileId()" (click)="loadHomeAssistantEntitiesForProfile(selectedPluginProfileId())">{{ loadingHomeAssistantProfileId() === selectedPluginProfileId() ? 'Loading…' : 'Refresh device list' }}</button>
+              <button type="button" class="text-action" [disabled]="loadingHomeAssistantProfileId() === selectedPluginProfileId()" (click)="loadHomeAssistantEntitiesForProfile(selectedPluginProfileId())">{{ (loadingHomeAssistantProfileId() === selectedPluginProfileId() ? 'PLUGINS.LOADING' : 'PLUGINS.REFRESH_DEVICE_LIST') | translate }}</button>
             }
-            <button type="button" class="text-action" (click)="addVariable()">＋ Add variable</button>
+            <button type="button" class="text-action" (click)="addVariable()">＋ {{ 'PLUGINS.ADD_VARIABLE' | translate }}</button>
           </div>
         </div>
         @for (entry of variableEntries(); track $index; let variableIndex = $index) {
           <div class="variable-row">
-            <label><span class="variable-label">{{ variableLabel(entry.name) }}@if (variableField(entry.name)?.required) { <em>Required</em> }</span><input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" [placeholder]="isFixedVariable(entry.name) ? entry.name : 'room'" [disabled]="isFixedVariable(entry.name)" autocomplete="off"></label>
+            <label><span class="variable-label">{{ variableLabel(entry.name) }}@if (variableField(entry.name)?.required) { <em>{{ 'PLUGINS.REQUIRED' | translate }}</em> }</span><input [ngModel]="entry.name" (ngModelChange)="setVariableName(variableIndex, $event)" [placeholder]="isFixedVariable(entry.name) ? entry.name : ('PLUGINS.ROOM_PLACEHOLDER' | translate)" [disabled]="isFixedVariable(entry.name)" autocomplete="off"></label>
             @if (variableField(entry.name)?.optionSource === 'home-assistant-entities') {
               <div class="ha-entity-field">
-                <span class="ha-entity-field-label">Home Assistant entity</span>
+                <span class="ha-entity-field-label">{{ 'PLUGINS.HA_ENTITY' | translate }}</span>
                 <div class="ha-entity-picker">
-                  <label>Search devices
-                    <input type="search" [ngModel]="homeAssistantEntitySearch()" (ngModelChange)="homeAssistantEntitySearch.set($event)" placeholder="Name or entity ID">
+                  <label>{{ 'PLUGINS.SEARCH_DEVICES' | translate }}
+                    <input type="search" [ngModel]="homeAssistantEntitySearch()" (ngModelChange)="homeAssistantEntitySearch.set($event)" [placeholder]="'PLUGINS.NAME_OR_ENTITY_ID' | translate">
                   </label>
                   <div class="ha-entity-filters">
-                    <label>Entity type
+                    <label>{{ 'PLUGINS.ENTITY_TYPE' | translate }}
                       <select [ngModel]="homeAssistantEntityTypeFilter()" (ngModelChange)="homeAssistantEntityTypeFilter.set($event)">
-                        <option value="all">All types</option>
+                        <option value="all">{{ 'PLUGINS.ALL_TYPES' | translate }}</option>
                         @for (type of homeAssistantEntityTypeOptions(); track type.value) {
                           <option [value]="type.value">{{ type.label }}</option>
                         }
                       </select>
                     </label>
-                    <label>Area
+                    <label>{{ 'PLUGINS.AREA' | translate }}
                       <select [ngModel]="homeAssistantAreaFilter()" (ngModelChange)="homeAssistantAreaFilter.set($event)" [disabled]="!homeAssistantAreaMetadataAvailable()">
-                        <option value="all">All areas</option>
-                        <option value="no-area">No area</option>
+                        <option value="all">{{ 'PLUGINS.ALL_AREAS' | translate }}</option>
+                        <option value="no-area">{{ 'PLUGINS.NO_AREA' | translate }}</option>
                         @for (area of homeAssistantAreaOptions(); track area.id) {
                           <option [value]="area.id">{{ area.name }}</option>
                         }
                       </select>
                     </label>
                   </div>
-                  <small class="ha-entity-count">{{ filteredHomeAssistantEntities().length }} of {{ homeAssistantEntityOptions().length }} devices</small>
+                  <small class="ha-entity-count">{{ 'PLUGINS.FILTERED_DEVICE_COUNT' | translate:{ filtered: filteredHomeAssistantEntities().length, total: homeAssistantEntityOptions().length } }}</small>
                   <select [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)">
-                    <option value="">Choose a device…</option>
+                    <option value="">{{ 'PLUGINS.CHOOSE_DEVICE' | translate }}</option>
                     @for (group of homeAssistantEntityGroups(entry.value); track group.label) {
                       <optgroup [label]="group.label">
                         @for (entity of group.entities; track entity.entityId) {
@@ -456,38 +456,38 @@
                     }
                   </select>
                   @if (homeAssistantEntityOptions().length && filteredHomeAssistantEntities().length === 0) {
-                    <small>No devices match these filters. The current selection stays available above.</small>
+                    <small>{{ 'PLUGINS.NO_DEVICES_MATCH' | translate }}</small>
                   }
                   @if (homeAssistantEntityOptions().length && !homeAssistantAreaMetadataAvailable()) {
-                    <small>Area details are unavailable. Search and entity type filters still work.</small>
+                    <small>{{ 'PLUGINS.AREA_DETAILS_UNAVAILABLE' | translate }}</small>
                   }
                   @if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }
-                  @if (homeAssistantEntityError()) { <small class="variable-error" role="alert">{{ homeAssistantEntityError() }}</small> }
+                  @if (homeAssistantEntityError()) { <small class="variable-error" role="alert">{{ homeAssistantEntityError() | translate }}</small> }
                 </div>
               </div>
             } @else {
-              <label>Value<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" [placeholder]="isFixedVariable(entry.name) ? 'Required value' : 'livingroom'"></textarea>@if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }</label>
+              <label>{{ 'PLUGINS.VALUE' | translate }}<textarea [ngModel]="entry.value" (ngModelChange)="setVariableValue(entry.name, $event)" rows="2" [placeholder]="isFixedVariable(entry.name) ? ('PLUGINS.REQUIRED_VALUE' | translate) : 'livingroom'"></textarea>@if (variableHelp(entry.name)) { <small>{{ variableHelp(entry.name) }}</small> }</label>
             }
-            <button type="button" class="text-danger" (click)="removeVariable(entry.name)" [disabled]="isFixedVariable(entry.name)">Remove</button>
+            <button type="button" class="text-danger" (click)="removeVariable(entry.name)" [disabled]="isFixedVariable(entry.name)">{{ 'COMMON.REMOVE' | translate }}</button>
           </div>
         } @empty {
-          <p class="no-variables">For example, set <code>room = livingroom</code> on one instance and <code>room = bedroom</code> on another.</p>
+          <p class="no-variables">{{ 'PLUGINS.NO_VARIABLES_EXAMPLE' | translate }}</p>
         }
         @if (!variablesValid()) {
           @if (missingRequiredVariables().length > 0) {
-            <small class="variable-error">Required by this plugin: {{ missingRequiredVariables().join(', ') }}.</small>
+            <small class="variable-error">{{ 'PLUGINS.MISSING_REQUIRED_VARIABLES' | translate:{ variables: missingRequiredVariables().join(', ') } }}</small>
           } @else {
-            <small class="variable-error">Use unique names with letters, numbers, or underscores (up to 64 characters), and values under 4,096 characters.</small>
+            <small class="variable-error">{{ 'PLUGINS.VARIABLES_VALIDATION' | translate }}</small>
           }
         }
       </section>
       <div class="form-actions">
-        <button class="button primary" [disabled]="savingInstance() || !instanceName().trim() || !selectedPluginProfileId() || !variablesValid()" (click)="saveInstance()">{{ savingInstance() ? 'Saving…' : editingInstanceId() ? 'Save instance' : 'Create instance' }} <span>＋</span></button>
-        @if (editingInstanceId()) { <button class="button secondary" [disabled]="savingInstance()" (click)="cancelEdit()">Cancel</button> }
+        <button class="button primary" [disabled]="savingInstance() || !instanceName().trim() || !selectedPluginProfileId() || !variablesValid()" (click)="saveInstance()">{{ (savingInstance() ? 'COMMON.SAVING' : editingInstanceId() ? 'PLUGINS.SAVE_INSTANCE' : 'PLUGINS.CREATE_INSTANCE') | translate }} <span>＋</span></button>
+        @if (editingInstanceId()) { <button class="button secondary" [disabled]="savingInstance()" (click)="cancelEdit()">{{ 'COMMON.CANCEL' | translate }}</button> }
       </div>
     </div>
     } @else {
-      <div class="empty-state compact"><b>Create a plugin first</b><span>Save a plugin on the Plugins screen before creating an instance.</span></div>
+      <div class="empty-state compact"><b>{{ 'PLUGINS.CREATE_PLUGIN_FIRST' | translate }}</b><span>{{ 'PLUGINS.CREATE_PLUGIN_FIRST_HELP' | translate }}</span></div>
     }
   </article>
   }

@@ -1,6 +1,7 @@
 import { Component, OnInit, input, signal } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
+import { TranslatePipe } from "@ngx-translate/core";
 import { ManagerStore } from "../../manager-store.service";
 import type { HomeAssistantAreaOption, HomeAssistantEntityOption, PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
 import { ScriptEditorComponent } from "./script-editor.component";
@@ -38,7 +39,7 @@ interface HomeAssistantEntityGroup {
 @Component({
   selector: "nspanel-plugins-page",
   standalone: true,
-  imports: [DatePipe, FormsModule, ScriptEditorComponent, PanelScreenPreviewComponent],
+  imports: [DatePipe, FormsModule, ScriptEditorComponent, PanelScreenPreviewComponent, TranslatePipe],
   templateUrl: "./plugins-page.component.html",
   styleUrl: "./plugins-page.component.css"
 })
@@ -95,7 +96,7 @@ export class PluginsPageComponent implements OnInit {
         const firstProfile = this.manager.config().pluginProfiles[0];
         if (!this.selectedPluginProfileId() && firstProfile) this.setInstanceProfile(firstProfile.id);
       },
-      error: () => this.manager.inform("Could not load plugin configuration.", "error")
+      error: () => this.manager.inform("PLUGINS.ERROR_LOAD_CONFIGURATION", "error")
     });
     this.manager.loadPlugins().subscribe({
       next: ({ plugins }) => {
@@ -103,7 +104,7 @@ export class PluginsPageComponent implements OnInit {
         if (this.selectedPluginProfileId()) this.setInstanceProfile(this.selectedPluginProfileId());
         if (!plugins.some((plugin) => plugin.id === this.selectedPluginId())) this.selectPlugin(plugins[0]?.id ?? "");
       },
-      error: () => this.manager.inform("Could not load registered plugins.", "error")
+      error: () => this.manager.inform("PLUGINS.ERROR_LOAD_REGISTRY", "error")
     });
   }
 
@@ -481,17 +482,17 @@ export class PluginsPageComponent implements OnInit {
   /** Sends a script body to the API parser and ignores stale responses after edits. */
   private checkScriptSource(source: string, key: string, getCurrentSource: () => string): void {
     if (!source.trim()) {
-      this.scriptChecks.update((checks) => ({ ...checks, [key]: { source, status: "invalid", message: "Enter a function body first." } }));
+      this.scriptChecks.update((checks) => ({ ...checks, [key]: { source, status: "invalid", message: "PLUGINS.SCRIPT_BODY_REQUIRED" } }));
       return;
     }
-    this.scriptChecks.update((checks) => ({ ...checks, [key]: { source, status: "checking", message: "Checking syntax…" } }));
+    this.scriptChecks.update((checks) => ({ ...checks, [key]: { source, status: "checking", message: "PLUGINS.CHECKING" } }));
     this.manager.checkPluginScript(source, this.instanceVariables()).subscribe({
       next: (result) => {
         const currentSource = getCurrentSource();
         if (currentSource !== source) return;
         this.scriptChecks.update((checks) => ({
           ...checks,
-          [key]: { source, status: result.valid ? "valid" : "invalid", message: result.valid ? "Valid JavaScript." : result.error ?? "Invalid JavaScript." }
+          [key]: { source, status: result.valid ? "valid" : "invalid", message: result.valid ? "PLUGINS.VALID_JAVASCRIPT" : result.error ?? "PLUGINS.INVALID_JAVASCRIPT" }
         }));
       },
       error: (error) => {
@@ -499,7 +500,7 @@ export class PluginsPageComponent implements OnInit {
         if (currentSource !== source) return;
         this.scriptChecks.update((checks) => ({
           ...checks,
-          [key]: { source, status: "invalid", message: error.error?.error || "Could not check JavaScript syntax." }
+          [key]: { source, status: "invalid", message: error.error?.error || "PLUGINS.ERROR_CHECK_SYNTAX" }
         }));
       }
     });
@@ -552,11 +553,11 @@ export class PluginsPageComponent implements OnInit {
         this.scriptChecks.set({});
         this.syncPreviewDefaults(profile.config);
         this.clearPagePreview();
-        this.manager.inform("Plugin saved. Instances using it will use the updated configuration.");
+        this.manager.inform("PLUGINS.NOTICE_PROFILE_SAVED");
       },
       error: (error) => {
         this.savingProfile.set(false);
-        this.manager.inform(error.error?.error || "Could not save plugin.", "error");
+        this.manager.inform(error.error?.error || "PLUGINS.ERROR_SAVE_PLUGIN", "error");
       }
     });
   }
@@ -593,14 +594,14 @@ export class PluginsPageComponent implements OnInit {
 
   /** Removes a plugin definition when the API confirms it has no instances. */
   removePluginProfile(profile: PluginProfile): void {
-    if (!confirm(`Remove the plugin '${profile.name}'?`)) return;
+    if (!this.manager.confirm("PLUGINS.CONFIRM_REMOVE_PLUGIN", { name: profile.name })) return;
     this.manager.removePluginProfile(profile).subscribe({
       next: () => {
         if (this.editingProfileId() === profile.id) this.cancelProfileEdit();
         if (this.selectedPluginProfileId() === profile.id) this.selectedPluginProfileId.set("");
-        this.manager.inform("Plugin removed.");
+        this.manager.inform("PLUGINS.NOTICE_PLUGIN_REMOVED");
       },
-      error: (error) => this.manager.inform(error.error?.error || "Could not remove plugin.", "error")
+      error: (error) => this.manager.inform(error.error?.error || "PLUGINS.ERROR_REMOVE_PLUGIN", "error")
     });
   }
 
@@ -630,11 +631,11 @@ export class PluginsPageComponent implements OnInit {
         this.selectedPluginProfileId.set(instance.pluginProfileId);
         this.instanceVariables.set(this.withProfileVariableDefaults(instance.pluginProfileId, instance.variables ?? {}));
         this.clearPagePreview();
-        this.manager.inform("Plugin instance saved.");
+        this.manager.inform("PLUGINS.NOTICE_INSTANCE_SAVED");
       },
       error: (error) => {
         this.savingInstance.set(false);
-        this.manager.inform(error.error?.error || "Could not save plugin instance.", "error");
+        this.manager.inform(error.error?.error || "PLUGINS.ERROR_SAVE_INSTANCE", "error");
       }
     });
   }
@@ -749,7 +750,7 @@ export class PluginsPageComponent implements OnInit {
       groups.set("selected", { label: "Current selection", entities: [selected] });
     }
     for (const entity of visible) {
-      const areaName = entity.areaName ?? "No area";
+      const areaName = entity.areaName ?? this.manager.translateText("PLUGINS.NO_AREA");
       const typeName = this.homeAssistantEntityDomainLabel(entity.domain);
       const label = `${areaName} · ${typeName}`;
       const group = groups.get(label) ?? { label, entities: [] };
@@ -798,8 +799,8 @@ export class PluginsPageComponent implements OnInit {
   /** Removes an unused or retired plugin instance and its attached bindings. */
   removeInstance(instance: PluginInstance): void {
     this.manager.removePluginInstance(instance).subscribe({
-      next: () => this.manager.inform("Plugin instance removed."),
-      error: (error) => this.manager.inform(error.error?.error || "Could not remove plugin instance.", "error")
+      next: () => this.manager.inform("PLUGINS.NOTICE_INSTANCE_REMOVED"),
+      error: (error) => this.manager.inform(error.error?.error || "PLUGINS.ERROR_REMOVE_INSTANCE", "error")
     });
   }
 
@@ -867,15 +868,15 @@ export class PluginsPageComponent implements OnInit {
 
   /** Shows guidance for the currently selected plugin's instance-specific settings. */
   instanceVariableHelp(): string {
-    if (this.instanceVariableFields().length) return "Required fields for this plugin profile are listed below. You can add more variables for templates and scripts.";
+    if (this.instanceVariableFields().length) return this.manager.translateText("PLUGINS.INSTANCE_VARIABLE_HELP_REQUIRED");
     const profile = this.manager.config().pluginProfiles.find((item) => item.id === this.selectedPluginProfileId());
     if (profile?.pluginId === "open-meteo-weather") {
-      return "Add latitude and longitude for this location. Optionally add timezone (for example Europe/Berlin); leave it blank to use automatic timezone detection.";
+      return this.manager.translateText("PLUGINS.INSTANCE_VARIABLE_HELP_WEATHER");
     }
     if (profile?.pluginId === "mqtt-thermostat") {
-      return "These values belong to this thermostat. For the default Homematic topics, add channel (for example LEQ0999385:2).";
+      return this.manager.translateText("PLUGINS.INSTANCE_VARIABLE_HELP_THERMOSTAT");
     }
-    return "These values belong to this device. Use {{name}} in scripts and MQTT actions, or read variables.name in JavaScript.";
+    return this.manager.translateText("PLUGINS.INSTANCE_VARIABLE_HELP_DEFAULT");
   }
 
   /** Returns metadata for the selected reusable profile's instance variables. */
@@ -889,7 +890,7 @@ export class PluginsPageComponent implements OnInit {
   }
 
   /** Uses the plugin's descriptive label for built-in fields and a generic label for custom values. */
-  variableLabel(name: string): string { return this.variableField(name)?.label ?? "Variable name"; }
+  variableLabel(name: string): string { return this.variableField(name)?.label ?? this.manager.translateText("PLUGINS.VARIABLE_NAME"); }
 
   /** Returns concise field guidance from the plugin schema. */
   variableHelp(name: string): string { return this.variableField(name)?.help ?? ""; }
@@ -908,7 +909,7 @@ export class PluginsPageComponent implements OnInit {
       const profile = this.manager.config().pluginProfiles.find((candidate) => candidate.id === instance.pluginProfileId);
       const group = groups.get(instance.pluginProfileId) ?? {
         id: instance.pluginProfileId,
-        name: profile?.name ?? "Removed plugin",
+        name: profile?.name ?? this.manager.translateText("PLUGINS.REMOVED_PLUGIN"),
         pluginTypeName: profile ? this.pluginName(profile.pluginId) : "",
         instances: []
       };
@@ -1104,15 +1105,15 @@ export class PluginsPageComponent implements OnInit {
           if (result.pageId !== "exit") this.previewPageId.set(result.pageId);
           const commands = result.commands ?? [];
           this.pagePreviewNotice.set(commands.length
-            ? commands.map((command) => `Would publish ${command.topic} → ${command.payload}`).join("\n")
-            : result.pageId === "exit" ? "This action would leave the plugin page."
-              : result.rendered ? `Button ${actionSlot} simulated without publishing or saving.` : "This action returned no page update.");
+            ? commands.map((command) => this.manager.translateText("PLUGINS.WOULD_PUBLISH", { topic: command.topic, payload: command.payload })).join("\n")
+            : result.pageId === "exit" ? "PLUGINS.ACTION_LEAVES_PAGE"
+              : result.rendered ? this.manager.translateText("PLUGINS.BUTTON_SIMULATED", { number: actionSlot ?? 0 }) : "PLUGINS.ACTION_NO_UPDATE");
         }
         this.pagePreview.set(result.rendered || !previous ? result : { ...previous, debugLogs: result.debugLogs });
         this.previewingPage.set(false);
       },
       error: (error) => {
-        this.pagePreviewError.set(error.error?.error || "Could not render this page preview.");
+        this.pagePreviewError.set(error.error?.error || "PLUGINS.ERROR_RENDER_PREVIEW");
         this.previewingPage.set(false);
       }
     });

@@ -1,5 +1,6 @@
 import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
+import { TranslateService } from "@ngx-translate/core";
 import { Observable, finalize, tap } from "rxjs";
 import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
@@ -45,7 +46,10 @@ export class ManagerStore {
   private realtimeGeneration = 0;
 
   /** Creates the shared state boundary for all feature components. */
-  constructor(private readonly http: HttpClient) {}
+  constructor(
+    private readonly http: HttpClient,
+    private readonly translate: TranslateService
+  ) {}
 
   /** Loads the public login state and current account without exposing user credentials. */
   loadAuthStatus(): Observable<AuthStatus> {
@@ -602,7 +606,19 @@ export class ManagerStore {
   }
 
   /** Records a short-lived success or error message for the app shell. */
-  inform(text: string, kind: NoticeKind = "success"): void { this.notice.set({ text, kind }); }
+  inform(text: string, kind: NoticeKind = "success", params?: Record<string, string | number>): void {
+    this.notice.set({ text: this.translate.instant(text, params), kind });
+  }
+
+  /** Resolves a translation resource for labels assembled in component code. */
+  translateText(key: string, params?: Record<string, string | number>): string {
+    return this.translate.instant(key, params);
+  }
+
+  /** Confirms a localized message before a destructive or restorative action. */
+  confirm(message: string, params?: Record<string, string | number>): boolean {
+    return window.confirm(this.translate.instant(message, params));
+  }
 
   /** Clears the current message after the user dismisses it. */
   dismissNotice(): void { this.notice.set(null); }

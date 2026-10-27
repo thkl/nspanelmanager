@@ -1,5 +1,6 @@
 import { Component, OnInit, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
+import { TranslatePipe } from "@ngx-translate/core";
 import { ManagerStore } from "../../manager-store.service";
 import type { MqttRoute, RouteDraft } from "../../models";
 
@@ -15,7 +16,7 @@ import type { MqttRoute, RouteDraft } from "../../models";
 @Component({
   selector: "nspanel-routes-page",
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, TranslatePipe],
   templateUrl: "./routes-page.component.html",
   styleUrl: "./routes-page.component.css"
 })
@@ -39,7 +40,7 @@ export class RoutesPageComponent implements OnInit {
 
   /** Refreshes server-managed lists without discarding the route being drafted. */
   refresh(): void {
-    this.manager.refresh().subscribe({ error: () => this.manager.inform("Could not load MQTT routes.", "error") });
+    this.manager.refresh().subscribe({ error: () => this.manager.inform("ROUTES.ERROR_LOAD", "error") });
   }
 
   /** Adds a route or saves edits to the route currently loaded in the form. */
@@ -54,11 +55,11 @@ export class RoutesPageComponent implements OnInit {
         this.editingRouteId.set(null);
         this.draft.set(this.emptyDraft());
         this.saving.set(false);
-        this.manager.inform(editingRouteId ? "MQTT route updated." : "MQTT route added.");
+        this.manager.inform(editingRouteId ? "ROUTES.NOTICE_UPDATED" : "ROUTES.NOTICE_ADDED");
       },
       error: (error) => {
         this.saving.set(false);
-        this.manager.inform(error.error?.error || (editingRouteId ? "Could not update route." : "Could not add route."), "error");
+        this.manager.inform(error.error?.error || (editingRouteId ? "ROUTES.ERROR_UPDATE" : "ROUTES.ERROR_ADD"), "error");
       }
     });
   }
@@ -94,9 +95,9 @@ export class RoutesPageComponent implements OnInit {
     this.manager.removeRoute(route).subscribe({
       next: () => {
         if (this.editingRouteId() === route.id) this.cancelEdit();
-        this.manager.inform("Route removed.");
+        this.manager.inform("ROUTES.NOTICE_REMOVED");
       },
-      error: () => this.manager.inform("Could not remove route.", "error")
+      error: () => this.manager.inform("ROUTES.ERROR_REMOVE", "error")
     });
   }
 
@@ -114,13 +115,21 @@ export class RoutesPageComponent implements OnInit {
   filterSummary(route: MqttRoute): string | undefined {
     const filter = route.payloadFilter;
     if (!filter) return undefined;
-    if (filter.mode === "json-equals") return `${filter.path} equals ${JSON.stringify(filter.value)}`;
-    return `${filter.mode} ${JSON.stringify(filter.value)}`;
+    if (filter.mode === "json-equals") {
+      return this.manager.translateText("ROUTES.FILTER_SUMMARY_JSON_EQUALS", {
+        path: filter.path,
+        value: JSON.stringify(filter.value)
+      });
+    }
+    const mode = filter.mode === "contains"
+      ? this.manager.translateText("ROUTES.FILTER_CONTAINS")
+      : this.manager.translateText("ROUTES.FILTER_EQUALS");
+    return `${mode} ${JSON.stringify(filter.value)}`;
   }
 
   /** Resolves a route's optional panel id into the current human-readable name. */
   panelName(id: string | undefined): string {
-    return this.manager.config().panels.find((panel) => panel.id === id)?.name ?? "All matching panels";
+    return this.manager.config().panels.find((panel) => panel.id === id)?.name ?? this.manager.translateText("ROUTES.ALL_MATCHING_PANELS");
   }
 
   private emptyDraft(): RouteDraft {

@@ -1,31 +1,31 @@
-<section class="hmi-page" aria-label="Firmware and HMI updates">
+<section class="hmi-page" [attr.aria-label]="'HMI.PAGE_LABEL' | translate">
   <div class="hmi-heading">
     <div>
-      <p class="eyebrow">PANEL MAINTENANCE</p>
-      <h2>Panel updates</h2>
-      <p class="hmi-description">Manage panel firmware and display updates.</p>
+      <p class="eyebrow">{{ 'HMI.EYEBROW' | translate }}</p>
+      <h2>{{ 'HMI.TITLE' | translate }}</h2>
+      <p class="hmi-description">{{ 'HMI.DESCRIPTION' | translate }}</p>
     </div>
   </div>
 
-  <div class="update-tabs" role="tablist" aria-label="Panel update type" (keydown)="handleTabKeydown($event)">
-    <button #firmwareTab id="firmware-tab" type="button" role="tab" aria-controls="firmware-panel" [attr.aria-selected]="activeTab() === 'firmware'" [attr.tabindex]="activeTab() === 'firmware' ? 0 : -1" (click)="selectTab('firmware')">Firmware</button>
-    <button #hmiTab id="hmi-tab" type="button" role="tab" aria-controls="hmi-panel" [attr.aria-selected]="activeTab() === 'hmi'" [attr.tabindex]="activeTab() === 'hmi' ? 0 : -1" (click)="selectTab('hmi')">HMI</button>
+  <div class="update-tabs" role="tablist" [attr.aria-label]="'HMI.TAB_LIST' | translate" (keydown)="handleTabKeydown($event)">
+    <button #firmwareTab id="firmware-tab" type="button" role="tab" aria-controls="firmware-panel" [attr.aria-selected]="activeTab() === 'firmware'" [attr.tabindex]="activeTab() === 'firmware' ? 0 : -1" (click)="selectTab('firmware')">{{ 'HMI.FIRMWARE' | translate }}</button>
+    <button #hmiTab id="hmi-tab" type="button" role="tab" aria-controls="hmi-panel" [attr.aria-selected]="activeTab() === 'hmi'" [attr.tabindex]="activeTab() === 'hmi' ? 0 : -1" (click)="selectTab('hmi')">{{ 'HMI.HMI' | translate }}</button>
   </div>
 
   <div class="update-tab-panel" id="firmware-panel" role="tabpanel" aria-labelledby="firmware-tab" tabindex="0" [hidden]="activeTab() !== 'firmware'">
   <article class="hmi-card upload-card">
     <div class="hmi-icon" aria-hidden="true">↻</div>
     <div class="card-copy">
-      <h3>Upload firmware package</h3>
-      <p>Upload the versioned package produced by <code>pnpm firmware:compile</code>. It contains the ESPHome OTA image and a manifest, so the manager reads the compiled version automatically. The standalone <code>.bin</code> is still available for other workflows.</p>
+      <h3>{{ 'HMI.UPLOAD_FIRMWARE_TITLE' | translate }}</h3>
+      <p>{{ 'HMI.UPLOAD_FIRMWARE_DESCRIPTION' | translate }}</p>
       <div class="file-picker firmware-file-picker">
-        <label for="firmware-file">Firmware package .zip</label>
+        <label for="firmware-file">{{ 'HMI.FIRMWARE_PACKAGE_LABEL' | translate }}</label>
         <input #firmwareFileInput id="firmware-file" type="file" accept=".zip,application/zip,application/octet-stream" [disabled]="uploadingFirmware()" (change)="selectFirmwareFile($event)">
         @if (selectedFirmwareFile(); as file) {
           <div class="selected-file"><span>{{ file.name }}</span><span>{{ formatSize(file.size) }}</span></div>
         }
         <button class="primary-button" type="button" [disabled]="!selectedFirmwareFile() || uploadingFirmware()" (click)="uploadFirmware()">
-          {{ uploadingFirmware() ? 'Uploading…' : 'Upload firmware' }}
+          {{ (uploadingFirmware() ? 'HMI.UPLOADING' : 'HMI.UPLOAD_FIRMWARE') | translate }}
         </button>
       </div>
     </div>
@@ -33,31 +33,31 @@
 
   <section class="rollout-settings-card" aria-labelledby="firmware-rollout-title">
     <div>
-      <h3 id="firmware-rollout-title">Staged firmware rollout</h3>
-      <p>Manually update one panel as the canary. After it reports the new version and maintains continuous uptime for the stability window, opted-in unified panels update one at a time. If you already installed the uploaded version before enabling rollout, stage it from that panel without reflashing.</p>
+      <h3 id="firmware-rollout-title">{{ 'HMI.ROLLOUT_TITLE' | translate }}</h3>
+      <p>{{ 'HMI.ROLLOUT_DESCRIPTION' | translate }}</p>
     </div>
     <label class="rollout-enable-option">
       <input type="checkbox" [checked]="rolloutEnabled()" (change)="setRolloutEnabled($event)">
-      <span><b>Enable automatic rollout</b><small>Panels marked below can be updated after the canary passes.</small></span>
+      <span><b>{{ 'HMI.ENABLE_ROLLOUT' | translate }}</b><small>{{ 'HMI.ENABLE_ROLLOUT_HELP' | translate }}</small></span>
     </label>
     <div class="rollout-settings-actions">
-      <label>Canary stable for
-        <span class="rollout-hour-input"><input type="number" min="1" max="24" step="1" [value]="rolloutStableHours()" (input)="setRolloutStableHours($event)"><span>hours</span></span>
+      <label>{{ 'HMI.CANARY_STABLE_FOR' | translate }}
+        <span class="rollout-hour-input"><input type="number" min="1" max="24" step="1" [value]="rolloutStableHours()" (input)="setRolloutStableHours($event)"><span>{{ 'HMI.HOURS' | translate }}</span></span>
       </label>
-      <button class="primary-button" type="button" [disabled]="savingRolloutSettings() || !rolloutSettingsValid()" (click)="saveRolloutSettings()">{{ savingRolloutSettings() ? 'Saving…' : 'Save rollout settings' }}</button>
+      <button class="primary-button" type="button" [disabled]="savingRolloutSettings() || !rolloutSettingsValid()" (click)="saveRolloutSettings()">{{ (savingRolloutSettings() ? 'COMMON.SAVING' : 'HMI.SAVE_ROLLOUT_SETTINGS') | translate }}</button>
     </div>
   </section>
 
   @if (manager.firmwareRollout(); as rollout) {
     <section class="rollout-status-card" [class]="'rollout-status-card status-' + rollout.status" aria-live="polite">
-      <div class="rollout-status-heading"><b>Rollout · {{ rollout.firmwareVersion }}</b><span>{{ rollout.status }}</span></div>
+      <div class="rollout-status-heading"><b>{{ 'HMI.ROLLOUT_VERSION' | translate:{ version: rollout.firmwareVersion } }}</b><span>{{ ('HMI.ROLLOUT_STATUS.' + rollout.status) | translate }}</span></div>
       <p>{{ rollout.message }}</p>
       @if (rollout.status === 'monitoring' || rollout.status === 'updating') {
-        <small>Canary: {{ rollout.canaryPanelName }}@if (rollout.currentPanelId) { · Updating {{ rolloutCurrentPanelName() }} }@if (rollout.pendingPanelIds.length) { · {{ rollout.pendingPanelIds.length }} queued }</small>
+        <small>{{ 'HMI.CANARY_PANEL' | translate:{ name: rollout.canaryPanelName } }}@if (rollout.currentPanelId) { · {{ 'HMI.UPDATING_PANEL' | translate:{ name: rolloutCurrentPanelName() } }} }@if (rollout.pendingPanelIds.length) { · {{ 'HMI.QUEUED_COUNT' | translate:{ count: rollout.pendingPanelIds.length } }} }</small>
         <div class="rollout-cancel-row">
-          <small>Cancel stops queued panels. An update already sent to a panel will finish.</small>
+          <small>{{ 'HMI.CANCEL_ROLLOUT_HELP' | translate }}</small>
           <button class="cancel-rollout-button" type="button" [disabled]="cancellingRollout()" (click)="cancelFirmwareRollout()">
-            {{ cancellingRollout() ? 'Cancelling…' : 'Cancel rollout' }}
+            {{ (cancellingRollout() ? 'HMI.CANCELLING' : 'HMI.CANCEL_ROLLOUT') | translate }}
           </button>
         </div>
       }
@@ -65,13 +65,13 @@
   }
 
   @if (firmwareLoading()) {
-    <p class="loading-note" aria-live="polite">Loading stored firmware…</p>
+    <p class="loading-note" aria-live="polite">{{ 'HMI.LOADING_FIRMWARE' | translate }}</p>
   } @else if (firmwareArtifact(); as currentFirmware) {
     <article class="artifact-card">
-      <div class="artifact-topline"><span class="status-dot" aria-hidden="true"></span><span>FIRMWARE READY · {{ currentFirmware.version }}</span></div>
-      <div class="artifact-main"><div><h3>{{ currentFirmware.filename }}</h3><p>{{ formatSize(currentFirmware.size) }} · Uploaded {{ formatTimestamp(currentFirmware.uploadedAt) }}</p></div></div>
+      <div class="artifact-topline"><span class="status-dot" aria-hidden="true"></span><span>{{ 'HMI.FIRMWARE_READY' | translate:{ version: currentFirmware.version } }}</span></div>
+      <div class="artifact-main"><div><h3>{{ currentFirmware.filename }}</h3><p>{{ formatSize(currentFirmware.size) }} · {{ 'HMI.UPLOADED_AT' | translate }} {{ formatTimestamp(currentFirmware.uploadedAt) }}</p></div></div>
       <dl class="artifact-details">
-        <div><dt>Version</dt><dd>{{ currentFirmware.version }}</dd></div>
+        <div><dt>{{ 'HMI.VERSION' | translate }}</dt><dd>{{ currentFirmware.version }}</dd></div>
         <div><dt>MD5</dt><dd>{{ currentFirmware.md5 }}</dd></div>
         <div><dt>SHA-256</dt><dd>{{ currentFirmware.sha256 }}</dd></div>
       </dl>
@@ -79,12 +79,12 @@
 
     <section class="panel-section" aria-labelledby="firmware-targets-title">
       <div class="section-heading">
-        <div><h3 id="firmware-targets-title">Push firmware to a panel</h3><p>Manually update the canary panel here. The panel downloads the binary from this manager and verifies it with MD5 before flashing.</p></div>
-        <div class="connection-badges"><span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'MQTT connected' : 'MQTT disconnected' }}</span><span class="live-state" [class.connected]="manager.realtimeConnected()">{{ manager.realtimeConnected() ? 'Live updates' : 'Reconnecting…' }}</span></div>
+        <div><h3 id="firmware-targets-title">{{ 'HMI.PUSH_FIRMWARE_TITLE' | translate }}</h3><p>{{ 'HMI.PUSH_FIRMWARE_DESCRIPTION' | translate }}</p></div>
+        <div class="connection-badges"><span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ (manager.mqtt().connected ? 'COMMON.MQTT_CONNECTED' : 'COMMON.MQTT_DISCONNECTED') | translate }}</span><span class="live-state" [class.connected]="manager.realtimeConnected()">{{ (manager.realtimeConnected() ? 'HMI.LIVE_UPDATES' : 'HMI.RECONNECTING') | translate }}</span></div>
       </div>
       <label class="force-option" [class.force-active]="forceFirmwareUpdate()">
         <input type="checkbox" [checked]="forceFirmwareUpdate()" (change)="setForceFirmwareUpdate($event)">
-        <span><b>Force update</b><small>Start downloading immediately without waiting for confirmation on the panel.</small></span>
+        <span><b>{{ 'HMI.FORCE_UPDATE' | translate }}</b><small>{{ 'HMI.FORCE_UPDATE_HELP' | translate }}</small></span>
       </label>
       @if (manager.config().panels.length) {
         <div class="panel-list">
@@ -102,17 +102,17 @@
                 @if (panel.unifiedFirmware) {
                   <label class="auto-rollout-option">
                     <input type="checkbox" [checked]="panel.autoUpdateFirmware === true" [disabled]="savingAutoUpdatePanelId() !== ''" (change)="setAutoUpdatePanel(panel, $event)">
-                    <span><b>Include in automatic rollout</b><small>Opted-in panels update after the canary passes.</small></span>
+                    <span><b>{{ 'HMI.INCLUDE_IN_ROLLOUT' | translate }}</b><small>{{ 'HMI.OPTED_IN_HELP' | translate }}</small></span>
                   </label>
                 } @else {
-                  <small class="auto-rollout-unavailable">Automatic rollout requires detected unified firmware.</small>
+                  <small class="auto-rollout-unavailable">{{ 'HMI.ROLLOUT_REQUIRES_UNIFIED' | translate }}</small>
                 }
                 <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingFirmwarePanelId() !== '' || firmwareUpdateInProgress(panel) || !!manager.firmwareRollout() && (manager.firmwareRollout()?.status === 'monitoring' || manager.firmwareRollout()?.status === 'updating')" (click)="requestFirmwareUpdate(panel)">
-                  {{ firmwareUpdateInProgress(panel) ? 'Update in progress' : updatingFirmwarePanelId() === panel.id ? 'Sending…' : forceFirmwareUpdate() ? 'Force update now' : 'Send firmware prompt' }}
+                  {{ (firmwareUpdateInProgress(panel) ? 'HMI.UPDATE_IN_PROGRESS' : updatingFirmwarePanelId() === panel.id ? 'HMI.SENDING' : forceFirmwareUpdate() ? 'HMI.FORCE_UPDATE_NOW' : 'HMI.SEND_FIRMWARE_PROMPT') | translate }}
                 </button>
                 @if (canStageFirmwareRollout(panel)) {
                   <button class="stage-button" type="button" [disabled]="stagingFirmwarePanelId() !== '' || !!manager.firmwareRollout() && (manager.firmwareRollout()?.status === 'monitoring' || manager.firmwareRollout()?.status === 'updating')" (click)="stageFirmwareRollout(panel)">
-                    {{ stagingFirmwarePanelId() === panel.id ? 'Staging…' : 'Stage rollout from this panel' }}
+                    {{ (stagingFirmwarePanelId() === panel.id ? 'HMI.STAGING' : 'HMI.STAGE_FROM_PANEL') | translate }}
                   </button>
                 }
               </div>
@@ -120,11 +120,11 @@
           }
         </div>
       } @else {
-        <p class="empty-note">Add a panel under Panels before requesting a firmware update.</p>
+        <p class="empty-note">{{ 'HMI.ADD_PANEL_BEFORE_FIRMWARE' | translate }}</p>
       }
     </section>
   } @else {
-    <aside class="empty-artifact" role="note"><h3>No firmware package uploaded</h3><p>Upload the versioned ESPHome OTA <code>.zip</code> package to push firmware from the manager.</p></aside>
+    <aside class="empty-artifact" role="note"><h3>{{ 'HMI.NO_FIRMWARE_UPLOADED' | translate }}</h3><p>{{ 'HMI.NO_FIRMWARE_HELP' | translate }}</p></aside>
   }
   </div>
 
@@ -132,48 +132,48 @@
   <article class="hmi-card upload-card">
     <div class="hmi-icon" aria-hidden="true">↑</div>
     <div class="card-copy">
-      <h3>Upload HMI file</h3>
-      <p>The latest upload becomes the selected version. Files still referenced by active panel links are retained until those links expire. Its SHA-256 checksum is the HMI version ID reported by updated panels.</p>
+      <h3>{{ 'HMI.UPLOAD_HMI_TITLE' | translate }}</h3>
+      <p>{{ 'HMI.UPLOAD_HMI_DESCRIPTION' | translate }}</p>
       <div class="file-picker">
-        <label for="hmi-file">TFT file</label>
+        <label for="hmi-file">{{ 'HMI.TFT_FILE' | translate }}</label>
         <input #fileInput id="hmi-file" type="file" accept=".tft,application/octet-stream" [disabled]="uploading()" (change)="selectFile($event)">
         @if (selectedFile(); as file) {
           <div class="selected-file"><span>{{ file.name }}</span><span>{{ formatSize(file.size) }}</span></div>
         }
         <button class="primary-button" type="button" [disabled]="!selectedFile() || uploading()" (click)="upload()">
-          {{ uploading() ? 'Uploading…' : 'Upload TFT' }}
+          {{ (uploading() ? 'HMI.UPLOADING' : 'HMI.UPLOAD_TFT') | translate }}
         </button>
       </div>
     </div>
   </article>
 
   @if (loading()) {
-    <p class="loading-note" aria-live="polite">Loading stored HMI file…</p>
+    <p class="loading-note" aria-live="polite">{{ 'HMI.LOADING_HMI' | translate }}</p>
   } @else if (artifact(); as currentArtifact) {
     <article class="artifact-card">
-      <div class="artifact-topline"><span class="status-dot" aria-hidden="true"></span><span>READY TO SEND</span></div>
+      <div class="artifact-topline"><span class="status-dot" aria-hidden="true"></span><span>{{ 'HMI.READY_TO_SEND' | translate }}</span></div>
       <div class="artifact-main">
         <div>
           <h3>{{ currentArtifact.filename }}</h3>
-          <p>{{ formatSize(currentArtifact.size) }} · Uploaded {{ formatTimestamp(currentArtifact.uploadedAt) }}</p>
+          <p>{{ formatSize(currentArtifact.size) }} · {{ 'HMI.UPLOADED_AT' | translate }} {{ formatTimestamp(currentArtifact.uploadedAt) }}</p>
         </div>
       </div>
       <dl class="artifact-details">
-        <div><dt>HMI version ID</dt><dd>{{ currentArtifact.sha256 }}</dd></div>
+        <div><dt>{{ 'HMI.HMI_VERSION_ID' | translate }}</dt><dd>{{ currentArtifact.sha256 }}</dd></div>
       </dl>
     </article>
 
     <section class="panel-section" aria-labelledby="panel-targets-title">
       <div class="section-heading">
-        <div><h3 id="panel-targets-title">Choose a panel</h3><p>Send an update prompt, or force the panel to start downloading immediately.</p></div>
+        <div><h3 id="panel-targets-title">{{ 'HMI.CHOOSE_PANEL' | translate }}</h3><p>{{ 'HMI.CHOOSE_PANEL_HELP' | translate }}</p></div>
         <div class="connection-badges">
-          <span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ manager.mqtt().connected ? 'MQTT connected' : 'MQTT disconnected' }}</span>
-          <span class="live-state" [class.connected]="manager.realtimeConnected()">{{ manager.realtimeConnected() ? 'Live updates' : 'Reconnecting…' }}</span>
+          <span class="mqtt-state" [class.connected]="manager.mqtt().connected">{{ (manager.mqtt().connected ? 'COMMON.MQTT_CONNECTED' : 'COMMON.MQTT_DISCONNECTED') | translate }}</span>
+          <span class="live-state" [class.connected]="manager.realtimeConnected()">{{ (manager.realtimeConnected() ? 'HMI.LIVE_UPDATES' : 'HMI.RECONNECTING') | translate }}</span>
         </div>
       </div>
       <label class="force-option" [class.force-active]="forceUpdate()">
         <input type="checkbox" [checked]="forceUpdate()" (change)="setForceUpdate($event)">
-        <span><b>Force update</b><small>Start immediately without waiting for confirmation on the panel.</small></span>
+        <span><b>{{ 'HMI.FORCE_UPDATE' | translate }}</b><small>{{ 'HMI.FORCE_HMI_HELP' | translate }}</small></span>
       </label>
       @if (manager.config().panels.length) {
         <div class="panel-list">
@@ -188,25 +188,25 @@
                 }
               </div>
               <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingPanelId() !== '' || updateInProgress(panel)" (click)="requestUpdate(panel)">
-                {{ updateInProgress(panel) ? 'Update in progress' : updatingPanelId() === panel.id ? 'Sending…' : forceUpdate() ? 'Force update now' : 'Send update prompt' }}
+                {{ (updateInProgress(panel) ? 'HMI.UPDATE_IN_PROGRESS' : updatingPanelId() === panel.id ? 'HMI.SENDING' : forceUpdate() ? 'HMI.FORCE_UPDATE_NOW' : 'HMI.SEND_UPDATE_PROMPT') | translate }}
               </button>
             </article>
           }
         </div>
       } @else {
-        <p class="empty-note">Add a panel under Panels before requesting an HMI update.</p>
+        <p class="empty-note">{{ 'HMI.ADD_PANEL_BEFORE_HMI' | translate }}</p>
       }
     </section>
   } @else {
     <aside class="empty-artifact" role="note">
-      <h3>No HMI file uploaded</h3>
-      <p>Choose a compatible Nextion <code>.tft</code> file above. It will be stored in the manager's persistent data directory.</p>
+      <h3>{{ 'HMI.NO_HMI_UPLOADED' | translate }}</h3>
+      <p>{{ 'HMI.NO_HMI_HELP' | translate }}</p>
     </aside>
   }
   </div>
 
   <aside class="hmi-notice" role="note">
-    <h3>Before sending an update</h3>
-    <p>Panels need manager HTTP OTA support from the current NSPanel firmware. Unified firmware uses an MQTT topic derived from the assigned device MAC. Set <code>APP_PUBLIC_URL</code> or <code>HMI_PUBLIC_URL</code> to an address reachable from the panel network. Firmware and HMI download links are valid for six hours.</p>
+    <h3>{{ 'HMI.BEFORE_UPDATE_TITLE' | translate }}</h3>
+    <p>{{ 'HMI.BEFORE_UPDATE_HELP' | translate }}</p>
   </aside>
 </section>

@@ -1,6 +1,7 @@
 import { CommonModule } from "@angular/common";
 import { Component, OnInit, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
+import { TranslatePipe } from "@ngx-translate/core";
 import { ManagerStore } from "../../manager-store.service";
 import type { BackupSettings, ConfigRevision } from "../../models";
 
@@ -8,7 +9,7 @@ import type { BackupSettings, ConfigRevision } from "../../models";
 @Component({
   selector: "nspanel-backups-page",
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, TranslatePipe],
   templateUrl: "./backups-page.component.html",
   styleUrl: "./backups-page.component.css"
 })
@@ -25,7 +26,7 @@ export class BackupsPageComponent implements OnInit {
   ngOnInit(): void {
     this.manager.refresh().subscribe({
       next: ({ config }) => this.draft.set(structuredClone(config.backupSettings)),
-      error: () => this.manager.inform("Could not load backup settings.", "error")
+      error: () => this.manager.inform("BACKUPS.ERROR_LOAD_SETTINGS", "error")
     });
     this.loadRevisions();
   }
@@ -59,12 +60,12 @@ export class BackupsPageComponent implements OnInit {
       next: ({ backupSettings }) => {
         this.draft.set(structuredClone(backupSettings));
         this.saving.set(false);
-        this.manager.inform(backupSettings.enabled ? "Scheduled backup settings saved." : "Scheduled backups disabled.");
+        this.manager.inform(backupSettings.enabled ? "BACKUPS.NOTICE_SAVED" : "BACKUPS.NOTICE_DISABLED");
       },
       error: (error: unknown) => {
         this.saving.set(false);
         const message = (error as { error?: { error?: string } })?.error?.error;
-        this.manager.inform(message || "Could not save backup settings.", "error");
+        this.manager.inform(message || "BACKUPS.ERROR_SAVE_SETTINGS", "error");
       }
     });
   }
@@ -80,7 +81,7 @@ export class BackupsPageComponent implements OnInit {
   loadRevisions(): void {
     this.manager.loadConfigRevisions().subscribe({
       next: ({ revisions }) => this.revisions.set(revisions),
-      error: () => this.manager.inform("Could not load configuration history.", "error")
+      error: () => this.manager.inform("BACKUPS.ERROR_LOAD_HISTORY", "error")
     });
   }
 
@@ -88,7 +89,7 @@ export class BackupsPageComponent implements OnInit {
   restoreRevision(revision: ConfigRevision): void {
     if (this.restoringRevisionId() !== null) return;
     const createdAt = new Date(revision.createdAt).toLocaleString();
-    if (!window.confirm(`Restore the complete manager configuration from ${createdAt}? This will create a new revision and reconnect the runtime.`)) return;
+    if (!this.manager.confirm("BACKUPS.CONFIRM_RESTORE", { createdAt })) return;
     this.restoringRevisionId.set(revision.id);
     this.manager.restoreConfigRevision(revision.id).subscribe({
       next: () => this.manager.refresh().subscribe({
@@ -96,17 +97,17 @@ export class BackupsPageComponent implements OnInit {
           this.draft.set(structuredClone(config.backupSettings));
           this.loadRevisions();
           this.restoringRevisionId.set(null);
-          this.manager.inform("Configuration restored and runtime reconnected.");
+          this.manager.inform("BACKUPS.NOTICE_RESTORED");
         },
         error: () => {
           this.restoringRevisionId.set(null);
-          this.manager.inform("Configuration was restored, but the page could not refresh. Reload to see the current settings.", "error");
+          this.manager.inform("BACKUPS.ERROR_REFRESH_AFTER_RESTORE", "error");
         }
       }),
       error: (error: unknown) => {
         this.restoringRevisionId.set(null);
         const message = (error as { error?: { error?: string } })?.error?.error;
-        this.manager.inform(message || "Could not restore this configuration revision.", "error");
+        this.manager.inform(message || "BACKUPS.ERROR_RESTORE", "error");
       }
     });
   }
