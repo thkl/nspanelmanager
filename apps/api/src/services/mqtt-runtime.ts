@@ -532,6 +532,7 @@ export class MqttRuntime {
         for (const command of commands) {
           if (commandCount > 0) await wait(MqttRuntime.PANEL_GROUP_COMMAND_INTERVAL_MS);
           commandCount++;
+          this.logger.info("Publish",{topic:command.topic,payload:command.payload});
           if (!this.publish(command.topic, command.payload)) published = false;
         }
         if (!published) {
