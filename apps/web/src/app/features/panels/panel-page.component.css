@@ -239,6 +239,12 @@ nspanel-screen-preview {
   overflow-wrap: anywhere;
 }
 
+.panel-row-copy .panel-health-muted {
+  color: var(--amber-text);
+  font-family: inherit;
+  font-weight: 650;
+}
+
 .row-arrow {
   margin-left: auto;
   color: var(--ink-faint);
@@ -419,6 +425,10 @@ nspanel-screen-preview {
   background: var(--canvas-soft);
 }
 
+.health-notification-toggle {
+  margin-bottom: 18px;
+}
+
 .panel-crash-dump {
   display: flex;
   align-items: center;
@@ -494,6 +504,10 @@ nspanel-screen-preview {
   gap: 15px;
   padding: 14px 21px;
   border-bottom: 1px solid var(--line);
+}
+
+.mobile-back {
+  display: none;
 }
 
 .copy-settings-panel {
@@ -979,21 +993,55 @@ label input::placeholder {
 @media (max-width: 800px) {
   .content-grid {
     grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
   }
+
+  .content-grid:not(.mobile-detail-open) .editor-card {
+    display: none;
+  }
+
+  .content-grid.mobile-detail-open .health-alerts-card,
+  .content-grid.mobile-detail-open .panel-list-card {
+    display: none;
+  }
+
   .panel-list-card {
     position: static;
-    overflow-x: auto;
+    overflow: visible;
+    padding: 16px;
   }
+
   .editor-card,
   .blank-editor {
-    grid-row: 2;
+    grid-row: auto;
   }
+
   .panel-row {
+    width: 100%;
+    min-width: 0;
+    margin: 8px 0 0;
+  }
+
+  .panel-row-copy small {
+    display: none;
+  }
+
+  .panel-row-copy small:first-of-type {
+    display: block;
+  }
+
+  .panel-row-copy .panel-health-muted {
+    display: block;
+  }
+
+  .mobile-back {
     display: inline-flex;
-    width: auto;
-    min-width: 180px;
-    margin-right: 4px;
-    vertical-align: top;
+    align-self: flex-start;
+  }
+
+  .editor-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

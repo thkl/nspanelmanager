@@ -70,6 +70,7 @@ export class ConfigStore {
           ...panel,
           ...(typeof panel.groupName === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(panel.groupName) ? { groupName: panel.groupName } : { groupName: undefined }),
           autoUpdateFirmware: panel.autoUpdateFirmware === true,
+          healthNotificationsEnabled: panel.healthNotificationsEnabled !== false,
           ...(normalizeMacAddress(panel.macAddress) ? { macAddress: normalizeMacAddress(panel.macAddress) } : { macAddress: undefined }),
           unifiedFirmware: panel.unifiedFirmware === true && Boolean(normalizeMacAddress(panel.macAddress)),
           nativePluginInstances: normalizeNativePluginInstances(panel.nativePluginInstances),

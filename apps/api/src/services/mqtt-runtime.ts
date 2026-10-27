@@ -46,6 +46,7 @@ export class MqttRuntime {
   private readonly unifiedInitSettingsSentAt = new Map<string, number>();
   private readonly unifiedInitRetryUsed = new Set<string>();
   private readonly pendingUnifiedIdentityAssignments = new Set<string>();
+  private readonly pendingPanelSettings = new Set<string>();
   private readonly panelDisplayReadyLastHandledAt = new Map<string, number>();
   private readonly panelBootedEventLastHandledAt = new Map<string, number>();
   private readonly panelResetReportRequestedAt = new Map<string, number>();
@@ -375,6 +376,14 @@ export class MqttRuntime {
     const instances = this.resolvePluginInstances(config);
     const desiredTopics = new Set<string>();
     desiredTopics.add("esphome/discover/#");
+    const panelIds = new Set(config.panels.map((panel) => panel.id));
+    const unifiedPanelIds = new Set(config.panels.filter((panel) => panel.unifiedFirmware).map((panel) => panel.id));
+    for (const panelId of this.pendingUnifiedIdentityAssignments) {
+      if (!unifiedPanelIds.has(panelId)) this.pendingUnifiedIdentityAssignments.delete(panelId);
+    }
+    for (const panelId of this.pendingPanelSettings) {
+      if (!panelIds.has(panelId)) this.pendingPanelSettings.delete(panelId);
+    }
     const panelNodeNames = new Set(config.panels.map((panel) => panel.nodeName));
     for (const nodeName of this.panelConnections.keys()) {
       if (!panelNodeNames.has(nodeName)) this.panelConnections.delete(nodeName);
@@ -466,12 +475,13 @@ export class MqttRuntime {
         music: configuredPlayers.map(({ id, name, sonos, player }) => ({ id, name, sonos, player }))
       }
     });
-    if (!force && this.publishedPanelSettings.get(panel.id) === configFingerprint) {
+    if (!force && !this.pendingPanelSettings.has(panel.id) && this.publishedPanelSettings.get(panel.id) === configFingerprint) {
       this.schedulePanelGroupSettings(panel);
       return true;
     }
     const published = this.publish(`${topicRoot}/cmnd/settings`, JSON.stringify(settings));
     if (published) {
+      this.pendingPanelSettings.delete(panel.id);
       this.publishedPanelSettings.set(panel.id, configFingerprint);
       if (panel.unifiedFirmware) {
         this.unifiedInitSettingsSentAt.set(panel.id, Date.now());
@@ -479,6 +489,8 @@ export class MqttRuntime {
         this.pendingUnifiedIdentityAssignments.delete(panel.id);
       }
       this.schedulePanelGroupSettings(panel);
+    } else if (force) {
+      this.pendingPanelSettings.add(panel.id);
     }
     return published;
   }
@@ -642,12 +654,11 @@ export class MqttRuntime {
     return this.publish(`${panelTopicRoot(panel)}/cmnd/reboot`, "{}");
   }
 
-  /** Assigns a unified panel's operational topic root, then waits for its ready report before sending full settings. */
+  /** Assigns a unified panel's operational topic root, retrying after broker reconnects until settings are sent. */
   publishPanelIdentityAssignment(panel: Panel, topicRoot = panelBootstrapTopicRoot(panel)): boolean {
     const topic = `${topicRoot}/cmnd/identity`;
     const published = this.publish(topic, JSON.stringify({ mqtt_alias: panel.nodeName }));
-    if (published) this.pendingUnifiedIdentityAssignments.add(panel.id);
-    else this.pendingUnifiedIdentityAssignments.delete(panel.id);
+    this.pendingUnifiedIdentityAssignments.add(panel.id);
     return published;
   }
 
@@ -806,6 +817,7 @@ export class MqttRuntime {
     this.unifiedInitSettingsSentAt.delete(panelId);
     this.unifiedInitRetryUsed.delete(panelId);
     this.pendingUnifiedIdentityAssignments.delete(panelId);
+    this.pendingPanelSettings.delete(panelId);
     this.panelBootedEventLastHandledAt.delete(panelId);
     this.panelResetReportRequestedAt.delete(panelId);
     this.publishedPanelFavoriteStates.delete(panelId);
@@ -2515,10 +2527,12 @@ export class MqttRuntime {
     const instances = this.resolvePluginInstances(config);
     for (const panel of config.panels) {
       if (panel.unifiedFirmware) {
+        if (this.pendingUnifiedIdentityAssignments.has(panel.id)) this.publishPanelIdentityAssignment(panel);
+        else if (this.pendingPanelSettings.has(panel.id)) this.publishPanelSettings(panel, true);
         continue;
       }
       this.requestPanelResetReport(panel);
-      this.publishPanelSettings(panel);
+      this.publishPanelSettings(panel, this.pendingPanelSettings.has(panel.id));
       await this.publishPanelFavoriteState(panel, config.panelBindings, instances);
       await this.refreshNativePanel(panel);
       await this.refreshAllHomeTiles(panel);

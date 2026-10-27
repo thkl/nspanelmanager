@@ -47,6 +47,8 @@ export interface Panel {
   hardwareButtonPluginInstances?: Partial<Record<"0" | "1", string>>;
   /** Includes this unified panel in firmware rollouts after the canary passes its stability window. */
   autoUpdateFirmware?: boolean;
+  /** Whether this panel contributes to health alerts and notification delivery. Defaults to enabled. */
+  healthNotificationsEnabled?: boolean;
 }
 
 /** Global settings for manually-started canary firmware rollouts. */

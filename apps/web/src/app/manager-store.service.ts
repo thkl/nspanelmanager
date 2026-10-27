@@ -214,6 +214,18 @@ export class ManagerStore {
     }));
   }
 
+  /** Saves a panel's health-alert preference and updates the shared configuration snapshot. */
+  setPanelHealthNotifications(panelId: string, enabled: boolean): Observable<{ panel: Panel }> {
+    return this.http.patch<{ panel: Panel }>(`/api/panels/${panelId}/health-notifications`, {
+      healthNotificationsEnabled: enabled
+    }).pipe(tap(({ panel }) => {
+      this.config.update((config) => ({
+        ...config,
+        panels: config.panels.map((item) => item.id === panel.id ? panel : item)
+      }));
+    }));
+  }
+
   /** Loads the most recent crash dump metadata for one configured panel. */
   loadPanelCoreDump(panelId: string): Observable<{ dump: CoreDumpRecord | null }> {
     return this.http.get<{ dump: CoreDumpRecord | null }>(`/api/firmware/panels/${encodeURIComponent(panelId)}/crash-dump`).pipe(tap(({ dump }) => {
@@ -383,9 +395,25 @@ export class ManagerStore {
   }
 
   /** Assigns or clears a discovered device MAC on a saved panel profile. */
-  setPanelMacAddress(panelId: string, macAddress: string | null): Observable<{ panel: Panel }> {
-    return this.http.patch<{ panel: Panel }>(`/api/panels/${panelId}/identity`, { macAddress }).pipe(tap(({ panel }) => {
-      this.config.update((config) => ({ ...config, panels: config.panels.map((item) => item.id === panel.id ? panel : item) }));
+  setPanelMacAddress(
+    panelId: string,
+    macAddress: string | null
+  ): Observable<{
+    panel: Panel;
+    published: boolean;
+    command?: "identity" | "settings";
+    topic?: string;
+  }> {
+    return this.http.patch<{
+      panel: Panel;
+      published: boolean;
+      command?: "identity" | "settings";
+      topic?: string;
+    }>(`/api/panels/${panelId}/identity`, { macAddress }).pipe(tap(({ panel }) => {
+      this.config.update((config) => ({
+        ...config,
+        panels: config.panels.map((item) => item.id === panel.id ? panel : item)
+      }));
     }));
   }
 

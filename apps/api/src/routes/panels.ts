@@ -12,7 +12,10 @@ import { isValidPanelGroupName } from "../domain/panel-groups.js";
  * Creates the HTTP endpoints for panel profile lifecycle operations.
  *
  * `GET /status` returns in-memory MQTT connectivity, `POST /` creates a profile,
- * `PUT /:id` normalizes and publishes changed settings, `POST /:id/copy-settings`
+ * `PATCH /:id/identity` saves a discovered device assignment and sends the
+ * firmware-appropriate identity or settings message, `PUT /:id` normalizes and
+ * publishes changed settings, `PATCH /:id/health-notifications` controls health
+ * alerts for a panel, `POST /:id/copy-settings`
  * copies a saved profile onto another panel while retaining its identity,
  * `POST /:id/reboot` requests a firmware reboot, `DELETE /:id` removes its
  * associated routes, and `POST /:id/apply` manually resends the profile to
@@ -38,7 +41,17 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
     if (store.get().panels.some((panel) => panel.nodeName === nodeName)) return response.status(409).json({ error: "That MQTT node name is already in use." });
     if (macAddress && store.get().panels.some((panel) => normalizeMacAddress(panel.macAddress) === macAddress)) return response.status(409).json({ error: "That device MAC address is already assigned to a panel." });
     const unifiedFirmware = Boolean(macAddress && /^nspanel-[a-f0-9]{6}$/i.test(nodeName));
-    const panel = await store.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}), ...(unifiedFirmware ? { unifiedFirmware: true } : {}), settings: defaultPanelSettings(name), nativePluginInstances: {}, panelEventPluginInstances: {}, hardwareButtonPluginInstances: {} }, {
+    const panel = await store.addPanel({
+      name,
+      nodeName,
+      ...(macAddress ? { macAddress } : {}),
+      ...(unifiedFirmware ? { unifiedFirmware: true } : {}),
+      healthNotificationsEnabled: true,
+      settings: defaultPanelSettings(name),
+      nativePluginInstances: {},
+      panelEventPluginInstances: {},
+      hardwareButtonPluginInstances: {}
+    }, {
       actor: request.authUser?.email ?? "unknown",
       summary: `Panel '${name}' created`
     });
@@ -62,7 +75,20 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       summary: `Panel '${current.name}' device assignment changed`
     });
     mqttRuntime.syncSubscriptions();
-    response.json({ panel });
+    const command = macAddress ? (panel.unifiedFirmware ? "identity" : "settings") : undefined;
+    const topicRoot = panel.unifiedFirmware ? panelBootstrapTopicRoot(panel) : panelTopicRoot(panel);
+    let published = false;
+    if (command === "identity") {
+      published = mqttRuntime.publishPanelIdentityAssignment(panel, topicRoot);
+    } else if (command === "settings") {
+      published = mqttRuntime.publishPanelSettings(panel, true, topicRoot);
+      await mqttRuntime.refreshNativePanel(panel);
+    }
+    response.json({
+      panel,
+      published,
+      ...(command ? { command, topic: `${topicRoot}/cmnd/${command}` } : {})
+    });
   });
 
   router.patch("/:id/firmware-rollout", async (request, response) => {
@@ -79,6 +105,25 @@ export function createPanelRouter(store: ConfigStore, mqttRuntime: MqttRuntime, 
       actor: request.authUser?.email ?? "unknown",
       summary: `Panel '${panel.name}' firmware rollout setting changed`
     });
+    response.json({ panel });
+  });
+
+  router.patch("/:id/health-notifications", async (request, response) => {
+    const current = store.get().panels.find((panel) => panel.id === request.params.id);
+    if (!current) return response.status(404).json({ error: "Panel not found." });
+    if (typeof request.body?.healthNotificationsEnabled !== "boolean") {
+      return response.status(400).json({ error: "Choose whether health alerts are enabled for this panel." });
+    }
+    const panel: Panel = { ...current, healthNotificationsEnabled: request.body.healthNotificationsEnabled };
+    await store.update(
+      (config) => {
+        config.panels = config.panels.map((item) => item.id === panel.id ? panel : item);
+      },
+      {
+        actor: request.authUser?.email ?? "unknown",
+        summary: `Panel '${panel.name}' health alerts ${panel.healthNotificationsEnabled ? "enabled" : "disabled"}`
+      }
+    );
     response.json({ panel });
   });
 

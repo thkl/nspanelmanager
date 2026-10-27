@@ -1,4 +1,4 @@
-<div class="content-grid">
+<div class="content-grid" [class.mobile-detail-open]="mobileDetailsOpen()">
   <section class="health-alerts-card card" aria-labelledby="panel-health-heading" aria-live="polite">
     <div class="health-alerts-heading">
       <div><h2 id="panel-health-heading">Panel health</h2><p>Live warnings from connectivity, reboot reports, and memory telemetry.</p></div>
@@ -27,6 +27,7 @@
         <span class="panel-icon">▣</span><span class="panel-row-copy"><b>{{ panel.name }}</b><small>{{ panel.nodeName }}</small>
           @if (panel.macAddress) { <small>MAC {{ panel.macAddress }}</small> }
           @if (panel.groupName) { <small>Group {{ panel.groupName }}</small> }
+          @if (panel.healthNotificationsEnabled === false) { <small class="panel-health-muted">Health alerts muted</small> }
           @if (manager.panelConnections()[panel.nodeName]; as connection) {
             @if (connection.lastResetReport; as report) {
               <small class="panel-reset-reason">Reboot reason: {{ report.reason }}
@@ -98,7 +99,15 @@
 
   @if (draft(); as panel) {
     <section class="editor-card card">
-    <div class="editor-heading"><div class="device-title"><span class="device-icon">▣</span><div><h2>{{ panel.name }}</h2><p><code>{{ panel.nodeName }}</code> <span class="dot-sep">·</span> {{ panel.unifiedFirmware ? 'Unified firmware' : 'NSPanel firmware' }}</p></div></div>
+    <div class="editor-heading">
+      <button type="button" class="button ghost mobile-back" (click)="showPanelList()">← Panel list</button>
+      <div class="device-title">
+        <span class="device-icon">▣</span>
+        <div>
+          <h2>{{ panel.name }}</h2>
+          <p><code>{{ panel.nodeName }}</code> <span class="dot-sep">·</span> {{ panel.unifiedFirmware ? 'Unified firmware' : 'NSPanel firmware' }}</p>
+        </div>
+      </div>
       <div class="editor-actions">
         <button class="button ghost" [disabled]="manager.config().panels.length < 2 || copyingPanelSettings()" (click)="showCopySettings() ? cancelCopySettings() : showCopySettings.set(true)">Copy settings to…</button>
         <button class="button ghost" [disabled]="!manager.mqtt().connected || manager.panelConnections()[panel.nodeName]?.status !== 'online' || rebootingPanelId() !== ''" (click)="rebootPanel(panel)">{{ rebootingPanelId() === panel.id ? 'Sending…' : 'Reboot panel' }}</button>
@@ -128,6 +137,18 @@
       }
       <div class="settings-scroll">
         <div class="panel-identity"><div><b>Hardware identity</b><small>{{ panel.macAddress || 'No device assigned' }}</small></div>@if (panel.macAddress) { <button class="button ghost small" (click)="clearPanelMacAddress(panel)">Unassign device</button> }</div>
+        <label class="toggle-row health-notification-toggle">
+          <span>
+            <b>Health alerts</b>
+            <small>Show offline, reboot, and low-memory alerts for this panel. Status and diagnostics stay visible when alerts are off.</small>
+          </span>
+          <input
+            type="checkbox"
+            [ngModel]="panel.healthNotificationsEnabled !== false"
+            [disabled]="savingHealthPreferencePanelId() !== ''"
+            (ngModelChange)="setHealthNotificationsEnabled(panel, $event)"
+          >
+        </label>
         <div class="panel-group-settings form-grid two-col">
           <label>Panel group<input [(ngModel)]="panel.groupName" placeholder="downstairs" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}"></label>
           <div class="panel-group-help">

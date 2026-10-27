@@ -185,7 +185,8 @@ Add an authenticated firmware and HMI workspace for administrators to upload art
 ### Panel Health Notifications
 
 - Add manager health notifications for offline panels, unexpected reboots, firmware/HMI mismatches, and configurable resource thresholds such as low free heap.
-- Add a per-panel notification opt-out. Opted-out panels remain visible in status and diagnostics but do not generate health alerts; this supports test panels that are routinely powered off.
+- Implemented a per-panel opt-out for the in-manager health alert list. Existing panels default to enabled; opted-out panels remain visible in status and diagnostics.
+- Apply the same opt-out when outbound notification channels are introduced. A test panel that is routinely powered off should not produce health alerts or notifications.
 - Make notification state and recent outcomes visible in the manager, with delivery over the configured notification channels.
 
 ### Localization and Help

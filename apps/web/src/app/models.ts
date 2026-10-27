@@ -37,6 +37,7 @@ export interface Panel {
   panelEventPluginInstances?: Record<string, string>;
   hardwareButtonPluginInstances?: Partial<Record<"0" | "1", string>>;
   autoUpdateFirmware?: boolean;
+  healthNotificationsEnabled?: boolean;
 }
 
 export interface FirmwareRolloutSettings {

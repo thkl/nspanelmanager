@@ -33,6 +33,7 @@ export class PanelPageComponent implements OnInit {
   readonly rememberedPanelId = input<string | null>(null);
   readonly panelSelectionChange = output<string | null>();
   readonly selectedPanelId = signal<string | null>(null);
+  readonly mobileDetailsOpen = signal(false);
   readonly pluginDefinitions = signal<PluginDefinition[]>([]);
   readonly draft = signal<Panel | null>(null);
   readonly favoriteInstances = signal<Record<number, string>>({});
@@ -45,6 +46,7 @@ export class PanelPageComponent implements OnInit {
   readonly copyTargetPanelId = signal("");
   readonly copyingPanelSettings = signal(false);
   readonly saving = signal(false);
+  readonly savingHealthPreferencePanelId = signal("");
   readonly rebootingPanelId = signal("");
   readonly coreDump = signal<CoreDumpRecord | null>(null);
   readonly coreDumpLoading = signal(false);
@@ -94,6 +96,7 @@ export class PanelPageComponent implements OnInit {
     const connections = this.manager.panelConnections();
     const alerts: PanelHealthAlert[] = [];
     for (const panel of this.manager.config().panels) {
+      if (panel.healthNotificationsEnabled === false) continue;
       const connection = connections[panel.nodeName];
       if (connection?.status !== "online") {
         alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: "Panel is offline." });
@@ -111,6 +114,27 @@ export class PanelPageComponent implements OnInit {
       }
     }
     return alerts;
+  }
+
+  /** Saves a panel's health-alert preference without disturbing other unsaved panel edits. */
+  setHealthNotificationsEnabled(panel: Panel, enabled: boolean): void {
+    if (this.savingHealthPreferencePanelId()) return;
+    this.savingHealthPreferencePanelId.set(panel.id);
+    this.manager.setPanelHealthNotifications(panel.id, enabled).subscribe({
+      next: ({ panel: saved }) => {
+        this.savingHealthPreferencePanelId.set("");
+        this.draft.update((current) => current?.id === saved.id
+          ? { ...current, healthNotificationsEnabled: saved.healthNotificationsEnabled }
+          : current);
+        this.manager.inform(enabled
+          ? `Health alerts enabled for ${saved.name}.`
+          : `Health alerts muted for ${saved.name}; status and diagnostics remain visible.`);
+      },
+      error: (error) => {
+        this.savingHealthPreferencePanelId.set("");
+        this.manager.inform(error.error?.error || "Could not save the panel health-alert preference.", "error");
+      }
+    });
   }
 
   /** Opens the settings editor for a panel named in a health alert. */
@@ -150,7 +174,15 @@ export class PanelPageComponent implements OnInit {
   }
 
   /** Switches the editor to a separate copy of the chosen panel. */
-  selectPanel(panel: Panel): void { this.setDraft(panel); }
+  selectPanel(panel: Panel): void {
+    this.mobileDetailsOpen.set(true);
+    this.setDraft(panel);
+  }
+
+  /** Returns from the focused mobile editor to the panel list. */
+  showPanelList(): void {
+    this.mobileDetailsOpen.set(false);
+  }
 
   /** Creates a new panel profile from the user-visible name and firmware node name. */
   addPanel(): void {
@@ -159,6 +191,7 @@ export class PanelPageComponent implements OnInit {
     const macAddress = this.newMacAddress().trim();
     this.manager.addPanel({ name, nodeName, ...(macAddress ? { macAddress } : {}) }).subscribe({
       next: ({ panel }) => {
+        this.mobileDetailsOpen.set(true);
         this.setDraft(panel);
         this.newName.set("");
         this.newNodeName.set("");
@@ -235,10 +268,22 @@ export class PanelPageComponent implements OnInit {
     const panelId = this.discoveryAssignmentTargets()[device.macAddress];
     if (!panelId) return;
     this.manager.setPanelMacAddress(panelId, device.macAddress).subscribe({
-      next: ({ panel }) => {
+      next: ({ panel, published, command, topic }) => {
         this.discoveryAssignmentTargets.update((targets) => ({ ...targets, [device.macAddress]: "" }));
         if (this.draft()?.id === panel.id) this.setDraft(panel);
-        this.manager.inform(`${device.macAddress} assigned to ${panel.name}.`);
+        let confirmation: string;
+        if (command === "identity" && published) {
+          confirmation = `${device.macAddress} assigned to ${panel.name}; identity sent to ${topic}. The panel will receive settings after it confirms the new name.`;
+        } else if (command === "identity") {
+          confirmation = `${device.macAddress} assigned to ${panel.name}; identity and settings are queued until MQTT reconnects.`;
+        } else if (command === "settings" && published) {
+          confirmation = `${device.macAddress} assigned to ${panel.name}; settings sent to ${topic}.`;
+        } else if (command === "settings") {
+          confirmation = `${device.macAddress} assigned to ${panel.name}; settings will sync when MQTT reconnects.`;
+        } else {
+          confirmation = `Device assignment cleared for ${panel.name}.`;
+        }
+        this.manager.inform(confirmation);
       },
       error: (error) => this.manager.inform(error.error?.error || "Could not assign the device to this panel.", "error")
     });
