@@ -1,7 +1,7 @@
 @if (!authLoaded()) {
-  <main class="auth-loading" aria-live="polite">Loading sign-in status…</main>
+  <main class="auth-loading" aria-live="polite">{{ 'APP.LOADING_AUTH' | translate }}</main>
 } @else if (authError()) {
-  <main class="auth-loading" role="alert">The manager API is unavailable. Refresh the page to try again.</main>
+  <main class="auth-loading" role="alert">{{ 'APP.API_UNAVAILABLE' | translate }}</main>
 } @else if (!manager.authUser()) {
   <nspanel-auth-page />
 } @else {
@@ -9,68 +9,76 @@
   <aside class="sidebar">
     <a class="brand" href="#" (click)="$event.preventDefault(); show('panels')">
       <span class="brand-mark">N</span>
-      <span class="brand-copy"><b>panel manager</b><small>SMARTHOME CONTROL</small></span>
+      <span class="brand-copy"><b>panel manager</b><small>{{ 'APP.BRAND_TAGLINE' | translate }}</small></span>
     </a>
-    <p class="nav-label">WORKSPACE</p>
+    <p class="nav-label">{{ 'APP.WORKSPACE' | translate }}</p>
     <button class="nav-item" [class.active]="view() === 'panels'" [attr.aria-current]="view() === 'panels' ? 'page' : null" (click)="show('panels')">
-      <span>▦</span> Panels <em>{{ manager.config().panels.length }}</em>
+      <span>▦</span> {{ 'APP.PANELS' | translate }} <em>{{ manager.config().panels.length }}</em>
     </button>
     <button class="nav-item" [class.active]="view() === 'plugins'" [attr.aria-current]="view() === 'plugins' ? 'page' : null" (click)="show('plugins')">
-      <span>◈</span> Plugins <em>{{ manager.config().pluginProfiles.length }}</em>
+      <span>◈</span> {{ 'APP.PLUGINS' | translate }} <em>{{ manager.config().pluginProfiles.length }}</em>
     </button>
     <button class="nav-item" [class.active]="view() === 'instances'" [attr.aria-current]="view() === 'instances' ? 'page' : null" (click)="show('instances')">
-      <span>⌁</span> Instances <em>{{ manager.config().pluginInstances.length }}</em>
+      <span>⌁</span> {{ 'APP.INSTANCES' | translate }} <em>{{ manager.config().pluginInstances.length }}</em>
     </button>
     <button class="nav-item" [class.active]="view() === 'routes'" [attr.aria-current]="view() === 'routes' ? 'page' : null" (click)="show('routes')">
-      <span>↔</span> MQTT routes <em>{{ manager.config().routes.length }}</em>
+      <span>↔</span> {{ 'APP.MQTT_ROUTES' | translate }} <em>{{ manager.config().routes.length }}</em>
     </button>
     <div class="settings-nav">
       <button class="nav-item" type="button" [class.active]="isSettingsView() || settingsExpanded()" [attr.aria-expanded]="settingsExpanded()" aria-controls="settings-menu" (click)="toggleSettings()">
-        <span>⚙</span> Settings <span class="settings-chevron" [class.expanded]="settingsExpanded()" aria-hidden="true">⌄</span>
+        <span>⚙</span> {{ 'APP.SETTINGS' | translate }} <span class="settings-chevron" [class.expanded]="settingsExpanded()" aria-hidden="true">⌄</span>
       </button>
-      <div id="settings-menu" class="settings-submenu" role="group" aria-label="Settings pages" [hidden]="!settingsExpanded()">
-        <button class="nav-item settings-child" type="button" aria-label="Connection settings" [class.active]="view() === 'broker'" [attr.aria-current]="view() === 'broker' ? 'page' : null" (click)="show('broker')">
-          <span>⌁</span> Connection
+      <div id="settings-menu" class="settings-submenu" role="group" [attr.aria-label]="'APP.SETTINGS' | translate" [hidden]="!settingsExpanded()">
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.CONNECTION' | translate" [class.active]="view() === 'broker'" [attr.aria-current]="view() === 'broker' ? 'page' : null" (click)="show('broker')">
+          <span>⌁</span> {{ 'APP.CONNECTION' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" aria-label="User settings" [class.active]="view() === 'users'" [attr.aria-current]="view() === 'users' ? 'page' : null" (click)="show('users')">
-          <span>♙</span> Users
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.USERS' | translate" [class.active]="view() === 'users'" [attr.aria-current]="view() === 'users' ? 'page' : null" (click)="show('users')">
+          <span>♙</span> {{ 'APP.USERS' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" aria-label="Application logs" [class.active]="view() === 'logs'" [attr.aria-current]="view() === 'logs' ? 'page' : null" (click)="show('logs')">
-          <span>≋</span> Logs
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.LOGS' | translate" [class.active]="view() === 'logs'" [attr.aria-current]="view() === 'logs' ? 'page' : null" (click)="show('logs')">
+          <span>≋</span> {{ 'APP.LOGS' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" aria-label="Data backup" [class.active]="view() === 'backups'" [attr.aria-current]="view() === 'backups' ? 'page' : null" (click)="show('backups')">
-          <span>↓</span> Backup
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.BACKUP' | translate" [class.active]="view() === 'backups'" [attr.aria-current]="view() === 'backups' ? 'page' : null" (click)="show('backups')">
+          <span>↓</span> {{ 'APP.BACKUP' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" aria-label="Firmware and HMI updates" [class.active]="view() === 'hmi'" [attr.aria-current]="view() === 'hmi' ? 'page' : null" (click)="show('hmi')">
-          <span>▧</span> Panel updates
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.PANEL_UPDATES' | translate" [class.active]="view() === 'hmi'" [attr.aria-current]="view() === 'hmi' ? 'page' : null" (click)="show('hmi')">
+          <span>▧</span> {{ 'APP.PANEL_UPDATES' | translate }}
         </button>
       </div>
     </div>
     <div class="sidebar-bottom">
-      <div class="broker-state"><i [class.online]="manager.mqtt().connected"></i><span>{{ manager.mqtt().connected ? 'Broker connected' : 'Broker disconnected' }}</span></div>
-      <small class="version">NSPanel Manager · MVP</small>
+      <div class="broker-state"><i [class.online]="manager.mqtt().connected"></i><span>{{ (manager.mqtt().connected ? 'APP.BROKER_CONNECTED' : 'APP.BROKER_DISCONNECTED') | translate }}</span></div>
+      <small class="version">{{ 'APP.VERSION' | translate }}</small>
     </div>
   </aside>
 
   <main class="main-content">
     <header class="topbar">
-      <div><div class="eyebrow">SMART HOME / {{ viewLabel }}</div><h1>{{ pageTitle }}</h1></div>
+      <div><div class="eyebrow">{{ 'APP.SMART_HOME' | translate }} / {{ viewLabel | translate }}</div><h1>{{ pageTitle | translate }}</h1></div>
       <div class="top-actions">
-        <span class="connection-pill" [class.is-connected]="manager.mqtt().connected"><i></i>{{ manager.mqtt().connected ? 'MQTT online' : 'MQTT offline' }}</span>
+        <span class="connection-pill" [class.is-connected]="manager.mqtt().connected"><i></i>{{ (manager.mqtt().connected ? 'APP.MQTT_ONLINE' : 'APP.MQTT_OFFLINE') | translate }}</span>
         <span class="signed-in-user">{{ manager.authUser()?.email }}</span>
-        <button class="theme-button" type="button" (click)="toggleTheme()" [attr.aria-label]="theme() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'" [title]="theme() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'">
-          <span aria-hidden="true">{{ theme() === 'dark' ? '☀' : '☾' }}</span><span class="theme-label">{{ theme() === 'dark' ? 'Light' : 'Dark' }}</span>
+        <label class="language-picker">
+          <span class="visually-hidden">{{ 'APP.LANGUAGE' | translate }}</span>
+          <select [value]="locale.currentLanguage()" [attr.aria-label]="'APP.LANGUAGE' | translate" (change)="changeLanguage($event)">
+            @for (language of locale.languages(); track language.code) {
+              <option [value]="language.code">{{ language.nativeName }}</option>
+            }
+          </select>
+        </label>
+        <button class="theme-button" type="button" (click)="toggleTheme()" [attr.aria-label]="(theme() === 'dark' ? 'APP.SWITCH_TO_LIGHT' : 'APP.SWITCH_TO_DARK') | translate" [title]="(theme() === 'dark' ? 'APP.SWITCH_TO_LIGHT' : 'APP.SWITCH_TO_DARK') | translate">
+          <span aria-hidden="true">{{ theme() === 'dark' ? '☀' : '☾' }}</span><span class="theme-label">{{ (theme() === 'dark' ? 'APP.LIGHT' : 'APP.DARK') | translate }}</span>
         </button>
-        <button class="signout-button" type="button" (click)="signOut()">Sign out</button>
+        <button class="signout-button" type="button" (click)="signOut()">{{ 'APP.SIGN_OUT' | translate }}</button>
         @if (view() !== 'backups') {
-          <button class="icon-button" aria-label="Refresh current page" (click)="refreshCurrent()">↻</button>
+          <button class="icon-button" [attr.aria-label]="'APP.REFRESH_PAGE' | translate" (click)="refreshCurrent()">↻</button>
         }
       </div>
     </header>
 
     @if (manager.notice(); as notice) {
       <div class="notice" [class.error]="notice.kind === 'error'" role="status" aria-live="polite">
-        {{ notice.text }}<button aria-label="Dismiss message" (click)="manager.dismissNotice()">×</button>
+        {{ notice.text }}<button [attr.aria-label]="'APP.DISMISS_MESSAGE' | translate" (click)="manager.dismissNotice()">×</button>
       </div>
     }
 

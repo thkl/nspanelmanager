@@ -9,6 +9,8 @@ import { UsersPageComponent } from "./app/features/auth/users-page.component";
 import { LogsPageComponent } from "./app/features/logs/logs-page.component";
 import { BackupsPageComponent } from "./app/features/backups/backups-page.component";
 import { HmiPageComponent } from "./app/features/hmi/hmi-page.component";
+import { TranslatePipe } from "@ngx-translate/core";
+import { LocaleService } from "./app/i18n/locale.service";
 
 type WorkspaceView = "panels" | "plugins" | "instances" | "routes" | "broker" | "users" | "logs" | "backups" | "hmi";
 
@@ -21,7 +23,7 @@ type WorkspaceView = "panels" | "plugins" | "instances" | "routes" | "broker" | 
 @Component({
   selector: "nspanel-app",
   standalone: true,
-  imports: [AuthPageComponent, PanelPageComponent, PluginsPageComponent, RoutesPageComponent, BrokerPageComponent, UsersPageComponent, LogsPageComponent, BackupsPageComponent, HmiPageComponent],
+  imports: [AuthPageComponent, PanelPageComponent, PluginsPageComponent, RoutesPageComponent, BrokerPageComponent, UsersPageComponent, LogsPageComponent, BackupsPageComponent, HmiPageComponent, TranslatePipe],
   templateUrl: "./app.component.html",
   styleUrl: "./app.component.css"
 })
@@ -41,7 +43,7 @@ export class AppComponent implements OnInit {
   readonly authError = signal(false);
 
   /** Receives shared manager state and restores the saved or system color theme. */
-  constructor(readonly manager: ManagerStore) {
+  constructor(readonly manager: ManagerStore, readonly locale: LocaleService) {
     let theme: "light" | "dark" = "light";
     if (typeof window !== "undefined") {
       try {
@@ -115,16 +117,41 @@ export class AppComponent implements OnInit {
 
   /** Human-readable heading matching the selected workspace feature. */
   get pageTitle(): string {
-    return this.view() === "panels" ? "Panel manager" : this.view() === "plugins" ? "Plugin manager" : this.view() === "instances" ? "Plugin instances" : this.view() === "routes" ? "MQTT routes" : this.view() === "users" ? "User accounts" : this.view() === "logs" ? "Application logs" : this.view() === "backups" ? "Data backup" : this.view() === "hmi" ? "Panel updates" : "Broker connection";
+    switch (this.view()) {
+      case "panels": return "PAGE.PANELS";
+      case "plugins": return "PAGE.PLUGINS";
+      case "instances": return "PAGE.INSTANCES";
+      case "routes": return "PAGE.ROUTES";
+      case "users": return "PAGE.USERS";
+      case "logs": return "PAGE.LOGS";
+      case "backups": return "PAGE.BACKUPS";
+      case "hmi": return "PAGE.UPDATES";
+      default: return "PAGE.BROKER";
+    }
   }
 
   /** Breadcrumb label matching the selected workspace feature. */
   get viewLabel(): string {
-    return this.view() === "panels" ? "PANELS" : this.view() === "plugins" || this.view() === "instances" ? "PLUGINS" : this.view() === "routes" ? "AUTOMATIONS" : this.view() === "users" ? "ACCESS" : this.view() === "logs" || this.view() === "backups" || this.view() === "hmi" ? "SYSTEM" : "SETUP";
+    switch (this.view()) {
+      case "panels": return "SECTION.PANELS";
+      case "plugins":
+      case "instances": return "SECTION.PLUGINS";
+      case "routes": return "SECTION.AUTOMATIONS";
+      case "users": return "SECTION.ACCESS";
+      case "logs":
+      case "backups":
+      case "hmi": return "SECTION.SYSTEM";
+      default: return "SECTION.SETUP";
+    }
   }
 
   /** Revokes the current session and reveals the sign-in screen. */
   signOut(): void {
     this.manager.logout().subscribe({ error: () => this.manager.authUser.set(null) });
+  }
+
+  /** Applies a selected UI locale from the shell's accessible language picker. */
+  changeLanguage(event: Event): void {
+    if (event.target instanceof HTMLSelectElement) this.locale.useLanguage(event.target.value);
   }
 }

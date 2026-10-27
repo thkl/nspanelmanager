@@ -1,12 +1,14 @@
 import { Component, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
+import { TranslatePipe } from "@ngx-translate/core";
 import { ManagerStore } from "../../manager-store.service";
+import { LocaleService } from "../../i18n/locale.service";
 
 /** Provides first-run administrator setup, local password sign-in, and optional OIDC entry. */
 @Component({
   selector: "nspanel-auth-page",
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, TranslatePipe],
   templateUrl: "./auth-page.component.html",
   styleUrl: "./auth-page.component.css"
 })
@@ -19,9 +21,9 @@ export class AuthPageComponent {
   readonly signingIn = signal(false);
 
   /** Receives the shared auth status and typed API methods. */
-  constructor(readonly manager: ManagerStore) {
+  constructor(readonly manager: ManagerStore, readonly locale: LocaleService) {
     if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("login") === "sso-failed") {
-      this.error.set("Single sign-on could not link this identity to an enabled local account.");
+      this.error.set("AUTH.ERROR_SSO_LINK");
       window.history.replaceState({}, "", window.location.pathname);
     }
   }
@@ -34,7 +36,7 @@ export class AuthPageComponent {
     this.manager.login(this.email(), this.password()).subscribe({
       next: () => { this.password.set(""); this.signingIn.set(false); },
       error: (error) => {
-        this.error.set(error.error?.error || "Could not sign in. Check your details and try again.");
+        this.error.set(error.error?.error || "AUTH.ERROR_SIGN_IN");
         this.password.set("");
         this.signingIn.set(false);
       }
@@ -49,7 +51,7 @@ export class AuthPageComponent {
     this.manager.startSsoLogin().subscribe({
       next: ({ authorizationUrl }) => { window.location.assign(authorizationUrl); },
       error: (error) => {
-        this.error.set(error.error?.error || "Could not start single sign-on. Check the API server log.");
+        this.error.set(error.error?.error || "AUTH.ERROR_START_SSO");
         this.signingIn.set(false);
       }
     });
@@ -59,7 +61,7 @@ export class AuthPageComponent {
   createFirstUser(): void {
     if (this.signingIn()) return;
     if (this.password() !== this.confirmPassword()) {
-      this.error.set("The passwords do not match.");
+      this.error.set("AUTH.ERROR_PASSWORD_MISMATCH");
       return;
     }
     this.signingIn.set(true);
@@ -71,15 +73,20 @@ export class AuthPageComponent {
         this.signingIn.set(false);
       },
       error: (error) => {
-        this.error.set(error.error?.error || "Could not complete setup. Check the email and password and try again.");
+        this.error.set(error.error?.error || "AUTH.ERROR_SETUP");
         this.password.set("");
         this.confirmPassword.set("");
         this.signingIn.set(false);
         if (error.status === 409) {
           this.manager.loadAuthStatus().subscribe({ error: () => undefined });
-          this.error.set("Initial setup has already been completed. Sign in with the existing account.");
+          this.error.set("AUTH.ERROR_SETUP_COMPLETE");
         }
       }
     });
+  }
+
+  /** Applies the language selected on the sign-in and first-run screens. */
+  changeLanguage(event: Event): void {
+    if (event.target instanceof HTMLSelectElement) this.locale.useLanguage(event.target.value);
   }
 }

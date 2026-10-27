@@ -192,6 +192,7 @@ Add an authenticated firmware and HMI workspace for administrators to upload art
 ### Localization and Help
 
 - Add locale selection for the web UI and move user-visible labels, errors, confirmations, and empty states into translation resources. Keep English as the fallback for missing translations.
+- Implemented ngx-translate with its HTTP loader, a server-served language catalog, English and German JSON resources, English fallback, and per-browser language preference. The app shell and sign-in/setup screens are migrated; feature-page text and contextual help remain to be migrated.
 - Add contextual help for configuration fields and workflows, with examples and links to focused documentation for MQTT topics, plugin variables, panel assignments, backups, and updates.
 
 ### Mobile Layout

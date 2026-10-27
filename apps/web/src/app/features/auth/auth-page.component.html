@@ -1,30 +1,40 @@
 <main class="auth-shell">
   <section class="auth-card" aria-labelledby="auth-title">
-    <div class="auth-brand"><span class="brand-mark">N</span><span>NSPanel Manager</span></div>
+    <div class="auth-top-row">
+      <div class="auth-brand"><span class="brand-mark">N</span><span>NSPanel Manager</span></div>
+      <label class="language-picker">
+        <span class="visually-hidden">{{ 'APP.LANGUAGE' | translate }}</span>
+        <select [value]="locale.currentLanguage()" [attr.aria-label]="'APP.LANGUAGE' | translate" (change)="changeLanguage($event)">
+          @for (language of locale.languages(); track language.code) {
+            <option [value]="language.code">{{ language.nativeName }}</option>
+          }
+        </select>
+      </label>
+    </div>
     @if (manager.authStatus()?.hasUsers) {
-      <div class="auth-heading"><p class="eyebrow">SMART HOME CONTROL</p><h1 id="auth-title">Sign in to your manager</h1><p>Use your local account to manage panels and integrations.</p></div>
+      <div class="auth-heading"><p class="eyebrow">{{ 'APP.BRAND_TAGLINE' | translate }}</p><h1 id="auth-title">{{ 'AUTH.SIGN_IN_TITLE' | translate }}</h1><p>{{ 'AUTH.SIGN_IN_DESCRIPTION' | translate }}</p></div>
 
       <form class="login-form" (ngSubmit)="login()">
-        <label>Email<input name="email" type="email" autocomplete="username" required [ngModel]="email()" (ngModelChange)="email.set($event)" placeholder="you@example.com"></label>
-        <label>Password<input name="password" type="password" autocomplete="current-password" required [ngModel]="password()" (ngModelChange)="password.set($event)" placeholder="Your password"></label>
-        <button class="button primary" type="submit" [disabled]="signingIn() || !email().trim() || !password()">{{ signingIn() ? 'Signing in…' : 'Sign in' }}</button>
+        <label>{{ 'AUTH.EMAIL' | translate }}<input name="email" type="email" autocomplete="username" required [ngModel]="email()" (ngModelChange)="email.set($event)" [placeholder]="'AUTH.EMAIL_PLACEHOLDER' | translate"></label>
+        <label>{{ 'AUTH.PASSWORD' | translate }}<input name="password" type="password" autocomplete="current-password" required [ngModel]="password()" (ngModelChange)="password.set($event)" [placeholder]="'AUTH.PASSWORD_PLACEHOLDER' | translate"></label>
+        <button class="button primary" type="submit" [disabled]="signingIn() || !email().trim() || !password()">{{ (signingIn() ? 'AUTH.SIGNING_IN' : 'AUTH.SIGN_IN') | translate }}</button>
       </form>
       @if (manager.authStatus()?.ssoEnabled) {
-        <div class="separator"><span>or</span></div>
-        <button class="button secondary sso-button" type="button" (click)="startSsoLogin()" [disabled]="signingIn()">{{ signingIn() ? 'Connecting…' : 'Continue with single sign-on' }} <span aria-hidden="true">↗</span></button>
+        <div class="separator"><span>{{ 'AUTH.OR' | translate }}</span></div>
+        <button class="button secondary sso-button" type="button" (click)="startSsoLogin()" [disabled]="signingIn()">{{ (signingIn() ? 'AUTH.CONNECTING' : 'AUTH.CONTINUE_SSO') | translate }} <span aria-hidden="true">↗</span></button>
       }
     } @else {
-      <div class="auth-heading"><p class="eyebrow">FIRST RUN SETUP</p><h1 id="auth-title">Create your administrator account</h1><p>Set up secure access to your NSPanel Manager. This step is available only until the first account is created.</p></div>
+      <div class="auth-heading"><p class="eyebrow">{{ 'AUTH.FIRST_RUN' | translate }}</p><h1 id="auth-title">{{ 'AUTH.CREATE_ADMIN_TITLE' | translate }}</h1><p>{{ 'AUTH.CREATE_ADMIN_DESCRIPTION' | translate }}</p></div>
       <form class="login-form" (ngSubmit)="createFirstUser()">
-        <label>Setup token<input name="setup-token" type="password" autocomplete="one-time-code" maxlength="64" required [ngModel]="bootstrapToken()" (ngModelChange)="bootstrapToken.set($event)" placeholder="64-character token from the API log"></label>
-        <label>Email address<input name="setup-email" type="email" autocomplete="email" required [ngModel]="email()" (ngModelChange)="email.set($event)" placeholder="you@example.com"></label>
-        <label>Password<input name="setup-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required [ngModel]="password()" (ngModelChange)="password.set($event)" placeholder="At least 12 characters"></label>
-        <label>Confirm password<input name="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required [ngModel]="confirmPassword()" (ngModelChange)="confirmPassword.set($event)" placeholder="Enter the same password again"></label>
-        <button class="button primary" type="submit" [disabled]="signingIn() || !bootstrapToken() || !email().trim() || password().length < 12 || !confirmPassword()">{{ signingIn() ? 'Creating account…' : 'Create administrator account' }}</button>
+        <label>{{ 'AUTH.SETUP_TOKEN' | translate }}<input name="setup-token" type="password" autocomplete="one-time-code" maxlength="64" required [ngModel]="bootstrapToken()" (ngModelChange)="bootstrapToken.set($event)" [placeholder]="'AUTH.TOKEN_PLACEHOLDER' | translate"></label>
+        <label>{{ 'AUTH.EMAIL_ADDRESS' | translate }}<input name="setup-email" type="email" autocomplete="email" required [ngModel]="email()" (ngModelChange)="email.set($event)" [placeholder]="'AUTH.EMAIL_PLACEHOLDER' | translate"></label>
+        <label>{{ 'AUTH.PASSWORD' | translate }}<input name="setup-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required [ngModel]="password()" (ngModelChange)="password.set($event)" [placeholder]="'AUTH.NEW_PASSWORD_PLACEHOLDER' | translate"></label>
+        <label>{{ 'AUTH.CONFIRM_PASSWORD' | translate }}<input name="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required [ngModel]="confirmPassword()" (ngModelChange)="confirmPassword.set($event)" [placeholder]="'AUTH.CONFIRM_PASSWORD_PLACEHOLDER' | translate"></label>
+        <button class="button primary" type="submit" [disabled]="signingIn() || !bootstrapToken() || !email().trim() || password().length < 12 || !confirmPassword()">{{ (signingIn() ? 'AUTH.CREATING_ACCOUNT' : 'AUTH.CREATE_ADMIN') | translate }}</button>
       </form>
     }
 
-    @if (error()) { <p class="error-line" role="alert">{{ error() }}</p> }
-    @if (!manager.authStatus()?.hasUsers && manager.authStatus()?.ssoEnabled) { <p class="sso-hint">Create a local account before using SSO. SSO sign-in is limited to existing local users with a matching verified email.</p> }
+    @if (error()) { <p class="error-line" role="alert">{{ error() | translate }}</p> }
+    @if (!manager.authStatus()?.hasUsers && manager.authStatus()?.ssoEnabled) { <p class="sso-hint">{{ 'AUTH.SSO_HINT' | translate }}</p> }
   </section>
 </main>

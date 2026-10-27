@@ -20,6 +20,13 @@
   box-shadow: 0 18px 52px var(--shadow-soft);
 }
 
+.auth-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .auth-brand {
   display: flex;
   align-items: center;
