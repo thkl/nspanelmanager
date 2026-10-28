@@ -19,6 +19,7 @@ import { Logger } from "./logger.js";
  */
 export class MqttRuntime {
   private static readonly PANEL_HEARTBEAT_TIMEOUT_MS = 150_000;
+  private static readonly PANEL_OFFLINE_ALERT_STARTUP_GRACE_MS = 120_000;
   private static readonly DISCOVERED_PANEL_TIMEOUT_MS = 5 * 60 * 1000;
   private static readonly DISCOVERED_PANEL_LIMIT = 64;
   private static readonly PANEL_GROUP_COMMAND_INTERVAL_MS = 100;
@@ -67,6 +68,8 @@ export class MqttRuntime {
   private closing = false;
   private readonly panelProtocol: PanelProtocolAdapter;
   private readonly discoveryCleanupTimer: NodeJS.Timeout;
+  private readonly panelOfflineAlertGraceUntil: number;
+  private readonly panelOfflineAlertGraceTimer: NodeJS.Timeout;
 
   /** Creates the runtime around saved config, registered plugins, and runtime storage. */
   constructor(
@@ -76,6 +79,9 @@ export class MqttRuntime {
     private readonly logger: Logger = new Logger()
   ) {
     this.panelProtocol = new PanelProtocolAdapter((topic, payload) => this.publish(topic, payload));
+    this.panelOfflineAlertGraceUntil = Date.now() + MqttRuntime.PANEL_OFFLINE_ALERT_STARTUP_GRACE_MS;
+    this.panelOfflineAlertGraceTimer = setTimeout(() => this.notifyPanelConnectionsChanged(), MqttRuntime.PANEL_OFFLINE_ALERT_STARTUP_GRACE_MS);
+    this.panelOfflineAlertGraceTimer.unref();
     this.discoveryCleanupTimer = setInterval(() => this.expireDiscoveredPanels(), 15_000);
     this.discoveryCleanupTimer.unref();
   }
@@ -188,6 +194,7 @@ export class MqttRuntime {
         nodeName: panel.nodeName,
         ...(ip ? { ip } : {}),
         status: connection?.status === "online" && heartbeatFresh ? "online" : "offline",
+        offlineAlertSuppressed: now < this.panelOfflineAlertGraceUntil && connection?.lastSeenAt == null,
         lastSeenAt: connection?.lastSeenAt ?? null,
         lastResetReport: resetReport ?? null,
         telemetry: connection?.telemetry ?? null,
@@ -275,6 +282,7 @@ export class MqttRuntime {
     this.notifyMqttStatusChanged();
     this.activeTopics.clear();
     clearInterval(this.discoveryCleanupTimer);
+    clearTimeout(this.panelOfflineAlertGraceTimer);
     for (const id of this.pluginPollTimers.keys()) this.clearPluginPoll(id);
     for (const timeout of this.panelGroupAckTimeouts.values()) clearTimeout(timeout);
     this.panelGroupAckTimeouts.clear();

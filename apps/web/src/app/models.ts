@@ -287,6 +287,7 @@ export interface PanelConnectionStatus {
   nodeName: string;
   ip?: string;
   status: "online" | "offline";
+  offlineAlertSuppressed?: boolean;
   lastSeenAt: number | null;
   lastResetReport: PanelResetReport | null;
   telemetry: PanelTelemetry | null;

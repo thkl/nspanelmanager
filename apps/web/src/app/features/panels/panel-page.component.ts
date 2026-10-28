@@ -105,7 +105,7 @@ export class PanelPageComponent implements OnInit {
     for (const panel of this.manager.config().panels) {
       if (panel.healthNotificationsEnabled === false) continue;
       const connection = connections[panel.nodeName];
-      if (connection?.status !== "online") {
+      if (connection && connection.status !== "online" && connection.offlineAlertSuppressed !== true) {
         alerts.push({ panelId: panel.id, panelName: panel.name, severity: "warning", message: "PANEL.ALERT_OFFLINE" });
       }
       const rebootReason = connection?.lastResetReport?.reason.toLowerCase() ?? "";

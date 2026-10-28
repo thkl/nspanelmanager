@@ -146,6 +146,8 @@ export interface PanelConnectionStatus {
   nodeName: string;
   ip?: string;
   status: "online" | "offline";
+  /** True during manager startup while this panel has not reported a heartbeat yet. */
+  offlineAlertSuppressed?: boolean;
   lastSeenAt: number | null;
   lastResetReport: PanelResetReport | null;
   telemetry: PanelTelemetry | null;
