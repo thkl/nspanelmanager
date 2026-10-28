@@ -174,6 +174,29 @@ export interface PluginProfile {
   configuredSecrets?: string[];
 }
 
+/** Schema validation and conflict details returned before a plugin blueprint is imported. */
+export interface PluginBlueprintPreview {
+  pluginId: string;
+  pluginName: string;
+  pluginVersion: number;
+  profileName: string;
+  profileNameConflict: boolean;
+  instanceName: string;
+  instanceNameConflict: boolean;
+  hasInstanceTemplate: boolean;
+  omittedSecrets: string[];
+  missingSecrets: string[];
+  warnings: string[];
+}
+
+/** Validated, portable profile data selected for import. */
+export interface PluginBlueprintImportDraft {
+  blueprint: unknown;
+  profileName: string;
+  includeInstance: boolean;
+  instanceName: string;
+}
+
 export interface PluginInstanceActivity {
   instanceId: string;
   status: "waiting" | "active" | "error";

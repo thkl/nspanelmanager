@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.28"
+  firmware_version: "6.0.29"
   diagnostic_ignore_music_commands: "false"
   diagnostic_skip_music_display: "false"
 
@@ -84,6 +84,16 @@ globals:
     type: int
     restore_value: no
     initial_value: "0"
+
+  - id: panel_night_mode
+    type: int
+    restore_value: no
+    initial_value: "-1"
+
+  - id: panel_display_brightness
+    type: int
+    restore_value: no
+    initial_value: "-1"
 
   - id: touchClickEnabled
     type: bool
@@ -413,6 +423,8 @@ script:
             root["firmware_version"] = "$firmware_version";
             if (!id(hmi_version).empty()) root["hmi_version"] = id(hmi_version);
             if (id(panel_uptime).has_state()) root["uptime_seconds"] = id(panel_uptime).state;
+            if (id(panel_night_mode) >= 0) root["nightmode"] = id(panel_night_mode);
+            if (id(panel_display_brightness) >= 0) root["brightness"] = id(panel_display_brightness);
             if (id(debug_heap_free).has_state()) root["free_heap_bytes"] = id(debug_heap_free).state;
             if (id(debug_heap_min_free).has_state()) root["min_free_heap_bytes"] = id(debug_heap_min_free).state;
             if (id(debug_heap_block).has_state()) root["largest_free_block_bytes"] = id(debug_heap_block).state;
@@ -457,6 +469,7 @@ script:
     then:
       - lambda: |-
           if (has_night) {
+            id(panel_night_mode) = night;
             id(disp1).send_command_printf("page0.vaNightMode.val=%d", night);
             if (night == 1) {
               id(disp1).send_command_printf("page Screensaver");
@@ -465,6 +478,7 @@ script:
             }
           }
           if (has_brightness) {
+            id(panel_display_brightness) = brightness;
             id(disp1).send_command_printf("page0.vaBrightnessWeather.val=%d", brightness);
             id(disp1).send_command_printf("dims=%d", brightness);
           }
@@ -528,6 +542,7 @@ script:
           then:
             - lambda: |-
                 id(disp1).set_backlight_brightness(1);
+                id(panel_display_brightness) = 1;
                 id(disp1).send_command_printf("pageList.tTitle.txt=\"Firmware Update\"");
                 id(disp1).send_command_printf("pageList.vaMessage.txt=\"Updating firmware... Please wait\"");
                 id(disp1).send_command_printf("pageList.vLevel.val=0");
@@ -1049,6 +1064,7 @@ script:
       - lambda: |-
           id(mqtt_client).disable();
           id(disp1).set_backlight_brightness(1);
+          id(panel_display_brightness) = 1;
           if (!id(disp1).upload_tft()) {
             ESP_LOGE("hmi", "TFT upload failed; clearing the pending HMI version ID");
             std::string failed_job_id = id(pending_hmi_job_id);
@@ -1182,6 +1198,7 @@ panel_mqtt:
         - lambda: |-
                if (x.containsKey("night")){
                   int night = x["night"]; 
+                  id(panel_night_mode) = night;
                   id(disp1).send_command_printf("page0.vaNightMode.val=%d",night);
                   if (night==1) {
                     id(disp1).send_command_printf("page Screensaver");
@@ -1253,6 +1270,7 @@ panel_mqtt:
         - lambda: |-
               id(wakeupMode) = 1; // set this to 1 to prevent query the config and refresh to page0
               id(disp1).set_backlight_brightness(1);
+              id(panel_display_brightness) = 1;
               id(disp1).goto_page("Message");
 
               const char *title = "Message";
@@ -1295,6 +1313,7 @@ panel_mqtt:
                   if (x.containsKey("brightness")){
                     int brightness = 100;
                     brightness = x["brightness"];
+                    id(panel_display_brightness) = brightness;
                     id(disp1).send_command_printf("page0.vaBrightnessWeather.val=%d", brightness);
                     id(disp1).send_command_printf("dims=%d", brightness);
                   }
@@ -1359,6 +1378,7 @@ panel_mqtt:
               if (x.containsKey("brightness")){
                   int brightness = 100;
                   brightness = x["brightness"];
+                  id(panel_display_brightness) = brightness;
                   id(disp1).send_command_printf("page0.vaBrightness.val=%d", brightness);
               }
 
@@ -1387,6 +1407,7 @@ panel_mqtt:
               
               if (x.containsKey("nightmode")){
                   int night = x["nightmode"]; 
+                  id(panel_night_mode) = night;
                   id(disp1).send_command_printf("page0.vaNightMode.val=%d",night);
               }
 
@@ -1728,6 +1749,7 @@ panel_mqtt:
               if (x.containsKey("force") && x["force"].is<bool>() && x["force"].as<bool>()) {
                  id(proceed_hmi_update).execute();
               } else {
+                id(panel_display_brightness) = 1;
                 id(disp1).set_backlight_brightness(1);
                 id(disp1).send_command_printf("pageList.tTitle.txt=\"%s\"","HMI Update");
                 id(disp1).send_command_printf("pageList.vaMessage.txt=\"%s\"","Press the UPDATE Button to start");
@@ -1813,6 +1835,7 @@ panel_mqtt:
                 id(start_firmware_update).execute();
                 return;
               }
+              id(panel_display_brightness) = 1;
               id(disp1).set_backlight_brightness(1);
               id(disp1).send_command_printf("pageList.tTitle.txt=\"%s\"", "Firmware Update");
               id(disp1).send_command_printf("pageList.vaMessage.txt=\"%s\"", "Press UPDATE to install firmware");
@@ -1848,6 +1871,7 @@ panel_mqtt:
               if (id(currentPage) != "pageList") {
                 id(disp1).send_command_printf("page pageList");
               }
+              id(panel_display_brightness) = 1;
               id(disp1).set_backlight_brightness(1);
               const char *msg = "";
               if (x.containsKey("message")){
@@ -3558,6 +3582,20 @@ sensor:
     update_interval: 30s
 
   - platform: nextion
+    name: $device_name Night Mode State
+    id: panel_night_mode_sensor
+    internal: true
+    variable_name: page0.vaNightMode.val
+    update_interval: 30s
+    on_value:
+      then:
+        - lambda: |-
+            const int night_mode = static_cast<int>(x);
+            if (night_mode == 0 || night_mode == 1) {
+              id(panel_night_mode) = night_mode;
+            }
+
+  - platform: nextion
     name: $device_name Level Page Slider
     id: level_value
     internal: true
@@ -3732,7 +3770,23 @@ text_sensor:
     topic: cmnd/nextion
     on_value:
       then:
-        - lambda: id(disp1).send_command_printf("%s", id(nextion_command).state.c_str());
+        - lambda: |-
+            const std::string command = id(nextion_command).state;
+            if (command.compare(0, 5, "dims=") == 0) {
+              int brightness = 0;
+              bool has_digit = false;
+              for (size_t index = 5; index < command.size(); index++) {
+                const char digit = command[index];
+                if (digit < '0' || digit > '9') break;
+                brightness = brightness * 10 + (digit - '0');
+                has_digit = true;
+                if (brightness > 100) break;
+              }
+              if (has_digit && brightness <= 100) {
+                id(panel_display_brightness) = brightness;
+              }
+            }
+            id(disp1).send_command_printf("%s", command.c_str());
 
 button:
   - platform: restart

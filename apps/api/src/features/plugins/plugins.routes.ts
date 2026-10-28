@@ -16,6 +16,35 @@ import type { PluginRegistry } from "./plugin-registry.js";
 import { checkScriptSyntax } from "./script-runtime.js";
 import { preserveBlankPluginSecrets, presentPluginProfile } from "./plugin-profile-utils.js";
 
+const PLUGIN_BLUEPRINT_FORMAT = "nspanel-manager-plugin-blueprint";
+const PLUGIN_BLUEPRINT_SCHEMA_VERSION = 1;
+
+interface ParsedPluginBlueprint {
+  format: typeof PLUGIN_BLUEPRINT_FORMAT;
+  schemaVersion: number;
+  pluginId: string;
+  pluginVersion: number;
+  profile: {
+    name: string;
+    config: Record<string, unknown>;
+  };
+  instanceTemplate?: {
+    name: string;
+    variables: Record<string, unknown>;
+  };
+}
+
+interface ValidatedPluginBlueprint {
+  definition: PluginDefinition;
+  profileName: string;
+  config: Record<string, PluginConfigValue>;
+  variables?: Record<string, string>;
+  instanceName?: string;
+  omittedSecrets: string[];
+  missingSecrets: string[];
+  warnings: string[];
+}
+
 /**
  * Exposes plugin discovery, reusable plugin profiles, device instances, and
  * favorite bindings. Plugin schemas drive the Angular editor; profiles hold
@@ -33,6 +62,148 @@ export function createPluginsRouter(store: ConfigStore, runtime: MqttRuntime, re
     instances: store.get().pluginInstances,
     bindings: store.get().panelBindings
   }));
+
+  router.get("/blueprints/:profileId", (request, response) => {
+    const config = store.get();
+    const profile = config.pluginProfiles.find((item) => item.id === request.params.profileId);
+    if (!profile) return response.status(404).json({ error: "Plugin profile not found." });
+    const definition = registry.get(profile.pluginId);
+    if (!definition) return response.status(409).json({ error: "The profile uses a plugin that is not registered." });
+
+    const instanceId = stringValue(request.query["instanceId"]);
+    const instance = instanceId
+      ? config.pluginInstances.find((item) => item.id === instanceId && item.pluginProfileId === profile.id)
+      : undefined;
+    if (instanceId && !instance) return response.status(404).json({ error: "Choose an instance that uses this plugin profile." });
+
+    const secretKeys = new Set(pluginConfigSchema(definition)
+      .filter((field) => field.secret || field.type === "password")
+      .map((field) => field.key));
+    const omittedSecrets = [...secretKeys].map((key) => `config.${key}`);
+    const safeConfig = Object.fromEntries(Object.entries(profile.config).filter(([key]) => !secretKeys.has(key)));
+    let instanceTemplate: ParsedPluginBlueprint["instanceTemplate"];
+    if (instance) {
+      const safeVariables = Object.fromEntries(Object.entries(instance.variables ?? {}).filter(([key]) => !isSensitiveVariableName(key)));
+      omittedSecrets.push(...Object.keys(instance.variables ?? {})
+        .filter(isSensitiveVariableName)
+        .map((key) => `variables.${key}`));
+      instanceTemplate = { name: instance.name, variables: safeVariables };
+    }
+
+    const blueprint = {
+      format: PLUGIN_BLUEPRINT_FORMAT,
+      schemaVersion: PLUGIN_BLUEPRINT_SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      pluginId: registry.canonicalId(profile.pluginId),
+      pluginVersion: definition.version,
+      profile: { name: profile.name, config: safeConfig },
+      ...(instanceTemplate ? { instanceTemplate } : {}),
+      omittedSecrets
+    };
+    const filename = `${safeDownloadName(profile.name)}.nspanel-plugin.json`;
+    response.type("application/json");
+    response.attachment(filename);
+    response.send(`${JSON.stringify(blueprint, null, 2)}\n`);
+  });
+
+  router.post("/blueprints/preview", async (request, response) => {
+    const validated = await validatePluginBlueprint(request.body?.blueprint, registry);
+    if ("error" in validated) return response.status(400).json({ error: validated.error });
+    const config = store.get();
+    const profileNameConflict = config.pluginProfiles.some((item) =>
+      item.name.trim().toLocaleLowerCase() === validated.profileName.trim().toLocaleLowerCase());
+    const instanceNameConflict = Boolean(validated.instanceName && config.pluginInstances.some((item) => {
+      const profile = config.pluginProfiles.find((candidate) => candidate.id === item.pluginProfileId);
+      return profile?.pluginId === validated.definition.id &&
+        item.name.trim().toLocaleLowerCase() === validated.instanceName?.trim().toLocaleLowerCase();
+    }));
+    response.json({
+      pluginId: validated.definition.id,
+      pluginName: validated.definition.name,
+      pluginVersion: validated.definition.version,
+      profileName: validated.profileName,
+      profileNameConflict,
+      instanceName: validated.instanceName ?? "",
+      instanceNameConflict,
+      hasInstanceTemplate: Boolean(validated.variables),
+      omittedSecrets: validated.omittedSecrets,
+      missingSecrets: validated.missingSecrets,
+      warnings: validated.warnings
+    });
+  });
+
+  router.post("/blueprints/import", async (request, response) => {
+    const validated = await validatePluginBlueprint(request.body?.blueprint, registry);
+    if ("error" in validated) return response.status(400).json({ error: validated.error });
+    const profileName = stringValue(request.body?.profileName).trim() || validated.profileName;
+    const includeInstance = request.body?.includeInstance === true;
+    const instanceName = stringValue(request.body?.instanceName).trim() || validated.instanceName || "";
+    const current = store.get();
+    if (current.pluginProfiles.some((item) => item.name.trim().toLocaleLowerCase() === profileName.toLocaleLowerCase())) {
+      return response.status(409).json({ error: `A plugin profile named '${profileName}' already exists. Choose another name.` });
+    }
+    if (includeInstance && !validated.variables) {
+      return response.status(400).json({ error: "This blueprint does not contain an instance template." });
+    }
+    if (includeInstance && !instanceName) return response.status(400).json({ error: "Enter a name for the imported instance." });
+    if (includeInstance && current.pluginInstances.some((item) => {
+      const profile = current.pluginProfiles.find((candidate) => candidate.id === item.pluginProfileId);
+      return profile?.pluginId === validated.definition.id && item.name.trim().toLocaleLowerCase() === instanceName.toLocaleLowerCase();
+    })) {
+      return response.status(409).json({ error: `An instance named '${instanceName}' already exists for this plugin. Choose another name.` });
+    }
+
+    const profile: PluginProfile = {
+      id: randomUUID(),
+      name: profileName,
+      pluginId: validated.definition.id,
+      config: validated.config
+    };
+    let instance: PluginInstance | undefined;
+    if (includeInstance && validated.variables) {
+      const missingVariables = (validated.definition.instanceVariableFields ?? [])
+        .filter((field) => field.required && !validated.variables?.[field.key]?.trim());
+      if (missingVariables.length > 0) {
+        return response.status(400).json({
+          error: `Complete the required instance values before importing: ${missingVariables.map((field) => field.label).join(", ")}.`
+        });
+      }
+      const variableError = validatePluginVariables(validated.variables);
+      if (variableError) return response.status(400).json({ error: variableError });
+      instance = {
+        id: randomUUID(),
+        name: instanceName,
+        pluginProfileId: profile.id,
+        enabled: true,
+        variables: validated.variables
+      };
+      const resolved = { ...instance, pluginId: validated.definition.id, config: profile.config };
+      const instanceError = validated.definition.validateInstance?.(resolved);
+      if (instanceError) return response.status(400).json({ error: instanceError });
+      const identityError = validateSharedNativePageInstance(
+        instance,
+        validated.definition,
+        current.pluginInstances,
+        [...current.pluginProfiles, profile],
+        registry
+      );
+      if (identityError) return response.status(400).json({ error: identityError });
+    }
+
+    await store.update((next) => {
+      next.pluginProfiles.push(profile);
+      if (instance) next.pluginInstances.push(instance);
+    }, {
+      actor: request.authUser?.email ?? "unknown",
+      summary: `Plugin blueprint '${profile.name}' imported`
+    });
+    await runtime.refreshPluginInstances();
+    response.status(201).json({
+      profile: presentPluginProfile(profile, registry),
+      ...(instance ? { instance } : {}),
+      warnings: validated.warnings
+    });
+  });
 
   router.post("/check-script", async (request, response) => {
     const source = request.body?.source;
@@ -395,6 +566,126 @@ function normalizePluginConfig(definition: PluginDefinition, input: unknown): Re
     }
   }
   return normalized;
+}
+
+/** Validates an untrusted blueprint against the currently registered plugin schema. */
+async function validatePluginBlueprint(input: unknown, registry: PluginRegistry): Promise<ValidatedPluginBlueprint | { error: string }> {
+  if (!isRecord(input)) return { error: "The selected file must contain a plugin blueprint object." };
+  if (input["format"] !== PLUGIN_BLUEPRINT_FORMAT) return { error: "This file is not an NSPanel Manager plugin blueprint." };
+  if (input["schemaVersion"] !== PLUGIN_BLUEPRINT_SCHEMA_VERSION) {
+    return { error: `Blueprint schema version '${String(input["schemaVersion"])}' is not supported.` };
+  }
+  const pluginId = stringValue(input["pluginId"]);
+  const definition = registry.get(pluginId);
+  if (!definition) return { error: `Plugin '${pluginId || "(missing ID)"}' is not installed in this manager.` };
+  if (!Number.isInteger(input["pluginVersion"])) return { error: "The blueprint is missing its plugin version." };
+  if (!isRecord(input["profile"])) return { error: "The blueprint is missing its plugin profile." };
+
+  const profileName = stringValue(input["profile"]["name"]).trim();
+  if (!profileName) return { error: "The blueprint profile needs a name." };
+  const sourceConfig = input["profile"]["config"];
+  if (!isRecord(sourceConfig)) return { error: "The blueprint profile configuration must be an object." };
+  const fields = pluginConfigSchema(definition);
+  const fieldsByKey = new Map(fields.map((field) => [field.key, field]));
+  const unknownKeys = Object.keys(sourceConfig).filter((key) => !fieldsByKey.has(key));
+  if (unknownKeys.length > 0) return { error: `Unsupported configuration field${unknownKeys.length === 1 ? "" : "s"}: ${unknownKeys.join(", ")}.` };
+
+  const config: Record<string, PluginConfigValue> = {};
+  const missingSecrets: string[] = [];
+  for (const field of fields) {
+    const sensitive = field.secret === true || field.type === "password";
+    if (sensitive) {
+      config[field.key] = typeof field.defaultValue === "string" ? "" : field.defaultValue;
+      if (field.required) missingSecrets.push(field.label);
+      continue;
+    }
+    const value = Object.hasOwn(sourceConfig, field.key) ? sourceConfig[field.key] : field.defaultValue;
+    if (!matchesPluginConfigType(field, value)) {
+      return { error: `Configuration field '${field.label}' has the wrong value type.` };
+    }
+    if (field.required && (typeof value === "string" ? !value.trim() : value === undefined)) {
+      return { error: `Required configuration field '${field.label}' is empty.` };
+    }
+    config[field.key] = value;
+  }
+
+  let variables: Record<string, string> | undefined;
+  let instanceName: string | undefined;
+  if (input["instanceTemplate"] !== undefined) {
+    if (!isRecord(input["instanceTemplate"])) return { error: "The instance template must be an object." };
+    instanceName = stringValue(input["instanceTemplate"]["name"]).trim();
+    if (!instanceName) return { error: "The instance template needs a name." };
+    const sourceVariables = input["instanceTemplate"]["variables"];
+    const variableError = validatePluginVariables(sourceVariables);
+    if (variableError) return { error: variableError };
+    if (!isRecord(sourceVariables)) return { error: "Instance template variables must be an object." };
+    variables = Object.fromEntries(Object.entries(sourceVariables)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+    for (const key of Object.keys(variables)) {
+      if (isSensitiveVariableName(key)) return { error: `Sensitive instance variable '${key}' cannot be imported from a blueprint.` };
+    }
+  }
+
+  const validationConfig = { ...config };
+  for (const field of fields.filter((candidate) => candidate.secret || candidate.type === "password")) {
+    validationConfig[field.key] = `blueprint-secret-placeholder:${field.key}`;
+  }
+  const configError = definition.validateConfig(validationConfig);
+  if (configError) return { error: configError };
+  const scriptError = await validateConfiguredScripts(config, variables ?? {});
+  if (scriptError) return { error: scriptError };
+
+  const warnings: string[] = [];
+  if (input["pluginVersion"] !== definition.version) {
+    warnings.push(`Blueprint was exported from plugin version ${String(input["pluginVersion"])}; this manager has version ${definition.version}.`);
+  }
+  for (const field of definition.instanceVariableFields ?? []) {
+    if (field.required && !variables?.[field.key]?.trim()) warnings.push(`Instance template needs a value for '${field.label}'.`);
+  }
+  if (missingSecrets.length > 0) warnings.push(`Enter these secret settings after import: ${missingSecrets.join(", ")}.`);
+
+  const omittedSecrets = fields
+    .filter((field) => field.secret || field.type === "password")
+    .map((field) => `config.${field.key}`);
+  if (Array.isArray(input["omittedSecrets"])) {
+    for (const item of input["omittedSecrets"].slice(0, 128)) {
+      if (typeof item === "string" && item.startsWith("variables.")) {
+        const variableName = item.slice("variables.".length);
+        if (/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(variableName) && isSensitiveVariableName(variableName)) {
+          omittedSecrets.push(item);
+        }
+      }
+    }
+  }
+  return {
+    definition,
+    profileName,
+    config,
+    ...(variables ? { variables } : {}),
+    ...(instanceName ? { instanceName } : {}),
+    omittedSecrets: [...new Set(omittedSecrets)],
+    missingSecrets,
+    warnings
+  };
+}
+
+/** Checks whether a blueprint value matches the editor type for one plugin setting. */
+function matchesPluginConfigType(field: ReturnType<typeof pluginConfigSchema>[number], value: unknown): value is PluginConfigValue {
+  if (field.type === "number") return typeof value === "number" && Number.isFinite(value);
+  if (field.type === "checkbox") return typeof value === "boolean";
+  return typeof value === "string";
+}
+
+/** Omits credential-like custom variable names from portable instance templates. */
+function isSensitiveVariableName(name: string): boolean {
+  const normalized = name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[^A-Za-z0-9]+/g, "_").toLowerCase();
+  return /(?:^|_)(?:password|passwd|secret|token|credential|credentials|authentication|auth|api_key|access_key)(?:_|$)/.test(normalized);
+}
+
+/** Creates a safe portable filename from a profile name. */
+function safeDownloadName(name: string): string {
+  const filename = name.normalize("NFKD").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+  return filename || "plugin";
 }
 
 function normalizePluginVariables(input: unknown): Record<string, string> {

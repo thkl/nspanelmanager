@@ -203,9 +203,9 @@ Add an authenticated firmware and HMI workspace for administrators to upload art
 
 ### Plugin Blueprints
 
-- Export and import versioned plugin blueprints so profiles can be shared between manager installations. Optionally include an instance template and its non-secret variables.
-- Include the plugin ID and blueprint schema version, validate imported values against the installed plugin definition, and show a preview before saving.
-- Omit secret fields from exports and clearly identify credentials that must be entered again after import. Report unsupported plugins, invalid fields, and naming conflicts without partially applying the blueprint.
+- Implemented versioned JSON blueprint export and import for plugin profiles, with an optional selected instance template and its non-sensitive variables.
+- Blueprints carry the plugin ID, plugin version, and blueprint schema version. The API validates profile and instance data against the installed plugin schema and shows the profile, secret omissions, warnings, and naming conflicts before import.
+- Secret and password config values are never exported or imported. Imports that include an instance and profile are saved in one SQLite revision, so validation or naming conflicts cannot leave a partial import.
 
 ### Runtime Process Architecture
 

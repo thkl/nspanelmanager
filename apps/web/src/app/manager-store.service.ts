@@ -2,7 +2,7 @@ import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { TranslateService } from "@ngx-translate/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PluginBlueprintImportDraft, PluginBlueprintPreview, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -513,6 +513,28 @@ export class ManagerStore {
   /** Checks configured JavaScript syntax without executing the function body. */
   checkPluginScript(source: string, variables: Record<string, string> = {}): Observable<PluginScriptCheckResult> {
     return this.http.post<PluginScriptCheckResult>("/api/plugins/check-script", { source, variables });
+  }
+
+  /** Downloads a sanitized JSON blueprint, optionally including one instance template. */
+  downloadPluginBlueprint(profileId: string, instanceId?: string): Observable<Blob> {
+    const query = instanceId ? `?instanceId=${encodeURIComponent(instanceId)}` : "";
+    return this.http.get(`/api/plugins/blueprints/${encodeURIComponent(profileId)}${query}`, { responseType: "blob" as const });
+  }
+
+  /** Validates an uploaded blueprint and reports schema, secret, and naming details. */
+  previewPluginBlueprint(blueprint: unknown): Observable<PluginBlueprintPreview> {
+    return this.http.post<PluginBlueprintPreview>("/api/plugins/blueprints/preview", { blueprint });
+  }
+
+  /** Applies a validated profile and optional instance template in one SQLite revision. */
+  importPluginBlueprint(draft: PluginBlueprintImportDraft): Observable<{ profile: PluginProfile; instance?: PluginInstance; warnings: string[] }> {
+    return this.http.post<{ profile: PluginProfile; instance?: PluginInstance; warnings: string[] }>("/api/plugins/blueprints/import", draft).pipe(tap(({ profile, instance }) => {
+      this.config.update((config) => ({
+        ...config,
+        pluginProfiles: [...config.pluginProfiles, profile],
+        pluginInstances: instance ? [...config.pluginInstances, instance] : config.pluginInstances
+      }));
+    }));
   }
 
   /** Creates a reusable plugin configuration that instances can share. */

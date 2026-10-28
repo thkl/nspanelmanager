@@ -3,7 +3,7 @@ import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { TranslatePipe } from "@ngx-translate/core";
 import { ManagerStore } from "../../manager-store.service";
-import type { HomeAssistantAreaOption, HomeAssistantEntityOption, PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
+import type { HomeAssistantAreaOption, HomeAssistantEntityOption, PluginBlueprintPreview, PluginConfigField, PluginConfigValue, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginPagePreviewResult, PluginProfile, PluginProfileDraft } from "../../models";
 import { ScriptEditorComponent } from "./script-editor.component";
 import { PanelScreenPreviewComponent } from "../panels/panel-screen-preview.component";
 
@@ -80,6 +80,17 @@ export class PluginsPageComponent implements OnInit {
   readonly scriptChecks = signal<Record<string, ScriptCheckState>>({});
   readonly savingInstance = signal(false);
   readonly savingProfile = signal(false);
+  readonly blueprintExportInstanceId = signal("");
+  readonly blueprintPreview = signal<PluginBlueprintPreview | null>(null);
+  readonly blueprintSource = signal<unknown>(null);
+  readonly blueprintProfileName = signal("");
+  readonly blueprintInstanceName = signal("");
+  readonly blueprintIncludeInstance = signal(false);
+  readonly blueprintFileName = signal("");
+  readonly blueprintError = signal("");
+  readonly blueprintNotice = signal("");
+  readonly previewingBlueprint = signal(false);
+  readonly importingBlueprint = signal(false);
   readonly instanceSortBy = signal<"name" | "panel">("name");
   readonly buttonSlots = Array.from({ length: 8 }, (_, index) => String(index + 1));
 
@@ -111,6 +122,128 @@ export class PluginsPageComponent implements OnInit {
   /** Returns the schema currently selected for a new or edited reusable plugin. */
   get selectedDefinition(): PluginDefinition | undefined {
     return this.definitions().find((definition) => definition.id === this.selectedPluginId());
+  }
+
+  /** Returns the device instances that can be included as a profile template. */
+  currentProfileInstances(): PluginInstance[] {
+    const profileId = this.editingProfileId();
+    return profileId ? this.manager.config().pluginInstances.filter((instance) => instance.pluginProfileId === profileId) : [];
+  }
+
+  /** Downloads the selected profile as a portable blueprint without secret values. */
+  exportPluginBlueprint(): void {
+    const profileId = this.editingProfileId();
+    if (!profileId) return;
+    const instanceId = this.blueprintExportInstanceId() || undefined;
+    this.manager.downloadPluginBlueprint(profileId, instanceId).subscribe({
+      next: (file) => {
+        const profile = this.manager.config().pluginProfiles.find((item) => item.id === profileId);
+        const safeName = (profile?.name ?? "plugin").normalize("NFKD").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "plugin";
+        const objectUrl = URL.createObjectURL(file);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = `${safeName}.nspanel-plugin.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+        this.blueprintError.set("");
+      },
+      error: (error) => this.blueprintError.set(error.error?.error || "PLUGINS.BLUEPRINT_EXPORT_ERROR")
+    });
+  }
+
+  /** Reads a selected JSON file and asks the API to validate it before import. */
+  async selectBlueprintFile(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    this.blueprintPreview.set(null);
+    this.blueprintSource.set(null);
+    this.blueprintNotice.set("");
+    this.blueprintError.set("");
+    this.blueprintFileName.set(file?.name ?? "");
+    if (!file) return;
+    this.previewingBlueprint.set(true);
+    try {
+      const blueprint: unknown = JSON.parse(await file.text());
+      this.blueprintSource.set(blueprint);
+      this.manager.previewPluginBlueprint(blueprint).subscribe({
+        next: (preview) => {
+          this.blueprintPreview.set(preview);
+          this.blueprintProfileName.set(preview.profileName);
+          this.blueprintInstanceName.set(preview.instanceName);
+          this.blueprintIncludeInstance.set(preview.hasInstanceTemplate);
+          this.previewingBlueprint.set(false);
+        },
+        error: (error) => {
+          this.blueprintError.set(error.error?.error || "PLUGINS.BLUEPRINT_PREVIEW_ERROR");
+          this.previewingBlueprint.set(false);
+        }
+      });
+    } catch {
+      this.blueprintError.set("PLUGINS.BLUEPRINT_INVALID_JSON");
+      this.previewingBlueprint.set(false);
+    }
+  }
+
+  /** Imports the profile and optional instance together as one API transaction. */
+  importPluginBlueprint(): void {
+    const preview = this.blueprintPreview();
+    const blueprint = this.blueprintSource();
+    if (!preview || blueprint === null || this.isBlueprintImportDisabled()) return;
+    this.importingBlueprint.set(true);
+    this.blueprintError.set("");
+    this.manager.importPluginBlueprint({
+      blueprint,
+      profileName: this.blueprintProfileName().trim(),
+      includeInstance: this.blueprintIncludeInstance(),
+      instanceName: this.blueprintInstanceName().trim()
+    }).subscribe({
+      next: ({ profile, instance, warnings }) => {
+        this.importingBlueprint.set(false);
+        this.editPluginProfile(profile);
+        if (instance) this.selectedPluginProfileId.set(profile.id);
+        this.blueprintNotice.set(warnings.length > 0 ? warnings.join(" ") : "PLUGINS.BLUEPRINT_IMPORT_SUCCESS");
+        this.blueprintPreview.set(null);
+        this.blueprintSource.set(null);
+        this.blueprintFileName.set("");
+      },
+      error: (error) => {
+        this.importingBlueprint.set(false);
+        this.blueprintError.set(error.error?.error || "PLUGINS.BLUEPRINT_IMPORT_ERROR");
+      }
+    });
+  }
+
+  /** Prevents an incomplete or conflicting preview from reaching the import endpoint. */
+  isBlueprintImportDisabled(): boolean {
+    const preview = this.blueprintPreview();
+    if (!preview || this.importingBlueprint() || !this.blueprintProfileName().trim()) return true;
+    if (this.blueprintProfileNameConflict()) return true;
+    if (!this.blueprintIncludeInstance()) return false;
+    if (!preview.hasInstanceTemplate || !this.blueprintInstanceName().trim()) return true;
+    if (this.blueprintInstanceNameConflict()) return true;
+    const definition = this.definitions().find((plugin) => plugin.id === preview.pluginId);
+    return (definition?.instanceVariableFields ?? []).some((field) => field.required &&
+      preview.warnings.includes(`Instance template needs a value for '${field.label}'.`));
+  }
+
+  /** Checks the editable import name against the profiles currently saved in this manager. */
+  blueprintProfileNameConflict(): boolean {
+    const name = this.blueprintProfileName().trim().toLocaleLowerCase();
+    return Boolean(name) && this.manager.config().pluginProfiles.some((profile) =>
+      profile.name.trim().toLocaleLowerCase() === name);
+  }
+
+  /** Checks the editable instance name against instances of the imported plugin. */
+  blueprintInstanceNameConflict(): boolean {
+    const preview = this.blueprintPreview();
+    const name = this.blueprintInstanceName().trim().toLocaleLowerCase();
+    return Boolean(preview && name) && this.manager.config().pluginInstances.some((instance) => {
+      const profile = this.manager.config().pluginProfiles.find((candidate) => candidate.id === instance.pluginProfileId);
+      return profile?.pluginId === preview?.pluginId && instance.name.trim().toLocaleLowerCase() === name;
+    });
   }
 
   /** Selects a plugin implementation and initializes its reusable profile fields. */
@@ -564,6 +697,7 @@ export class PluginsPageComponent implements OnInit {
 
   /** Loads a reusable plugin definition into its editor. */
   editPluginProfile(profile: PluginProfile): void {
+    this.blueprintExportInstanceId.set("");
     this.editingProfileId.set(profile.id);
     this.editingProfileConfiguredSecrets.set(profile.configuredSecrets ?? []);
     this.profileName.set(profile.name);

@@ -20,6 +20,56 @@
       <span class="plugin-mark">◈</span>
     </div>
 
+    <section class="blueprint-panel" [attr.aria-label]="'PLUGINS.BLUEPRINTS' | translate">
+      <div class="blueprint-heading">
+        <div><h3>{{ 'PLUGINS.BLUEPRINTS' | translate }}</h3><p>{{ 'PLUGINS.BLUEPRINTS_HELP' | translate }}</p></div>
+      </div>
+      <div class="blueprint-grid">
+        <div class="blueprint-action-card">
+          <b>{{ 'PLUGINS.BLUEPRINT_EXPORT' | translate }}</b>
+          <label>{{ 'PLUGINS.BLUEPRINT_INSTANCE_TEMPLATE' | translate }}
+            <select [ngModel]="blueprintExportInstanceId()" (ngModelChange)="blueprintExportInstanceId.set($event)">
+              <option value="">{{ 'PLUGINS.BLUEPRINT_PROFILE_ONLY' | translate }}</option>
+              @for (instance of currentProfileInstances(); track instance.id) { <option [value]="instance.id">{{ instance.name }}</option> }
+            </select>
+          </label>
+          <button type="button" class="button secondary" [disabled]="!editingProfileId()" (click)="exportPluginBlueprint()">{{ 'PLUGINS.BLUEPRINT_EXPORT_BUTTON' | translate }}</button>
+        </div>
+        <div class="blueprint-action-card">
+          <b>{{ 'PLUGINS.BLUEPRINT_IMPORT' | translate }}</b>
+          <label>{{ 'PLUGINS.BLUEPRINT_FILE' | translate }}
+            <input type="file" accept=".json,application/json" (change)="selectBlueprintFile($event)">
+          </label>
+          @if (previewingBlueprint()) { <small>{{ 'PLUGINS.BLUEPRINT_VALIDATING' | translate }}</small> }
+          @if (blueprintPreview(); as preview) {
+            <div class="blueprint-preview" role="status">
+              <small>{{ blueprintFileName() }}</small>
+              <b>{{ preview.pluginName }} · {{ preview.profileName }}</b>
+              <small>{{ 'PLUGINS.BLUEPRINT_PREVIEW_HELP' | translate:{ version: preview.pluginVersion } }}</small>
+              <label>{{ 'PLUGINS.BLUEPRINT_PROFILE_NAME' | translate }}<input [ngModel]="blueprintProfileName()" (ngModelChange)="blueprintProfileName.set($event)"></label>
+              @if (preview.hasInstanceTemplate) {
+                <label class="blueprint-checkbox"><input type="checkbox" [ngModel]="blueprintIncludeInstance()" (ngModelChange)="blueprintIncludeInstance.set($event)">{{ 'PLUGINS.BLUEPRINT_INCLUDE_INSTANCE' | translate }}</label>
+                @if (blueprintIncludeInstance()) {
+                  <label>{{ 'PLUGINS.BLUEPRINT_INSTANCE_NAME' | translate }}<input [ngModel]="blueprintInstanceName()" (ngModelChange)="blueprintInstanceName.set($event)"></label>
+                }
+              }
+              @if (preview.omittedSecrets.length > 0) { <small>{{ 'PLUGINS.BLUEPRINT_SECRETS_OMITTED' | translate }}: {{ preview.omittedSecrets.join(', ') }}</small> }
+              @if (preview.warnings.length > 0) {
+                <ul class="blueprint-warnings">
+                  @for (warning of preview.warnings; track warning) { <li>{{ warning }}</li> }
+                </ul>
+              }
+              @if (blueprintProfileNameConflict()) { <small class="blueprint-conflict">{{ 'PLUGINS.BLUEPRINT_PROFILE_CONFLICT' | translate }}</small> }
+              @if (blueprintInstanceNameConflict() && blueprintIncludeInstance()) { <small class="blueprint-conflict">{{ 'PLUGINS.BLUEPRINT_INSTANCE_CONFLICT' | translate }}</small> }
+              <button type="button" class="button primary" [disabled]="isBlueprintImportDisabled()" (click)="importPluginBlueprint()">{{ (importingBlueprint() ? 'PLUGINS.BLUEPRINT_IMPORTING' : 'PLUGINS.BLUEPRINT_IMPORT_BUTTON') | translate }}</button>
+            </div>
+          }
+        </div>
+      </div>
+      @if (blueprintError()) { <p class="blueprint-message blueprint-error" role="alert">{{ blueprintError() | translate }}</p> }
+      @if (blueprintNotice()) { <p class="blueprint-message" role="status">{{ blueprintNotice() | translate }}</p> }
+    </section>
+
     @if (definitions().length > 0) {
       <div class="plugin-form">
         <label>{{ 'PLUGINS.PLUGIN_TYPE' | translate }}
