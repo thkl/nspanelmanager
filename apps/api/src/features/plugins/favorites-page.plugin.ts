@@ -33,6 +33,7 @@ export class FavoritesPagePlugin implements PluginDefinition {
       maxRows: SHORTCUTS_PER_PAGE * MAX_SHORTCUT_PAGES,
       rowHeader: "Button",
       addRowLabel: "Add favorite",
+      removeRowBehavior: "clear",
       help: "Choose a label and plugin instance. Each panel page shows twelve shortcuts; swipe to move between pages.",
       columns: [
         { key: "label", label: "Favorite name" },

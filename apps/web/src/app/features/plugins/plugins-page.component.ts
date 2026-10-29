@@ -652,11 +652,16 @@ export class PluginsPageComponent implements OnInit {
     }
   }
 
-  /** Removes a table row while preserving its configured minimum row count. */
+  /** Clears or removes a table row according to its schema while preserving minimum row counts. */
   removeTableRow(field: PluginConfigField, rowIndex: number): void {
     const rows = this.tableRows(field);
-    if (rows.length <= (field.minRows ?? 0) || rowIndex < 0 || rowIndex >= rows.length) return;
-    rows.splice(rowIndex, 1);
+    if (rowIndex < 0 || rowIndex >= rows.length) return;
+    if (field.removeRowBehavior === "clear") {
+      rows[rowIndex] = Object.fromEntries((field.columns ?? []).map((column) => [column.key, ""]));
+    } else {
+      if (rows.length <= (field.minRows ?? 0)) return;
+      rows.splice(rowIndex, 1);
+    }
     this.setConfigValue(field, JSON.stringify(rows));
     if (field.rowCountKey) {
       const countField = this.selectedDefinition?.configSchema.find((candidate) => candidate.key === field.rowCountKey);

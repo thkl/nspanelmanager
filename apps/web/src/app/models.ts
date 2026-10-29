@@ -127,6 +127,8 @@ export interface PluginConfigField {
   rowCountKey?: string;
   rowHeader?: string;
   addRowLabel?: string;
+  /** Clears row cells instead of deleting the row, preserving fixed shortcut positions. */
+  removeRowBehavior?: "delete" | "clear";
 }
 
 export interface PluginConfigColumn {

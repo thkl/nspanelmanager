@@ -53,6 +53,7 @@
   "COMMON": {
     "EDIT": "Edit",
     "REMOVE": "Remove",
+    "CLEAR": "Clear",
     "CANCEL": "Cancel",
     "REFRESH": "Refresh",
     "SAVING": "Saving…",

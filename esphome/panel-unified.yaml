@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.36"
+  firmware_version: "6.0.46"
   diagnostic_ignore_music_commands: "false"
   diagnostic_skip_music_display: "false"
 
@@ -137,6 +137,21 @@ globals:
 
   - id: favorite_touch_start_ms
     type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: favorite_touch_duration_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: favorite_touch_release_x
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  - id: favorite_touch_release_y
+    type: int
     restore_value: no
     initial_value: "0"
 
@@ -1012,6 +1027,51 @@ script:
                   }
                 }
 
+  # Track live Nextion coordinates while the finger is held. Its release frame
+  # does not reliably contain the drag endpoint, so the final sampled position
+  # is used when the release event arrives.
+  - id: track_favorite_touch_coordinates
+    mode: restart
+    then:
+      - while:
+          condition:
+            lambda: return id(favorite_touch_tracking);
+          then:
+            - lambda: |-
+                id(favorite_touch_x_sensor).update();
+                id(favorite_touch_y_sensor).update();
+            - delay: 50ms
+
+  - id: play_touch_click
+    then:
+      - rtttl.play: "beep:d=32,o=5,b=200:e"
+
+  - id: evaluate_favorite_swipe
+    then:
+      - lambda: |-
+          const int horizontal_distance = id(favorite_touch_release_x) - static_cast<int>(id(favorite_touch_start_x));
+          const int vertical_distance = id(favorite_touch_release_y) - static_cast<int>(id(favorite_touch_start_y));
+          const uint32_t touch_duration_ms = id(favorite_touch_duration_ms);
+          const bool duration_valid = touch_duration_ms >= 50 && touch_duration_ms <= 1600;
+          const bool horizontal_valid = abs(horizontal_distance) >= 55;
+          const bool vertical_valid = abs(vertical_distance) <= 130;
+          const bool swipe_valid = duration_valid && horizontal_valid && vertical_valid;
+          if (!swipe_valid) {
+            if (id(currentPage) == "pageUniversal" &&
+                id(touchClickEnabled) &&
+                (millis() - id(lastRemoteDisplayUpdate)) > 1000) {
+              id(play_touch_click).execute();
+            }
+            return;
+          }
+
+          id(last_favorite_swipe_ms) = millis();
+          const char *direction = horizontal_distance < 0 ? "next" : "previous";
+          id(mqtt_client).publish(
+            (id(panel_mqtt_client).get_active_topic_prefix() + "/event/favorites/page").c_str(),
+            direction
+          );
+
   - id: handle_favShortPress
     parameters:
       button: int
@@ -1870,9 +1930,11 @@ panel_mqtt:
                     std::string title = items["name"].as<std::string>();
                     id(favoritesTitle) = title;
                     id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"%s\"", id(favoritesTitle).c_str());
+                    id(disp1).send_command_printf("p6tTitle.txt=\"%s\"", id(favoritesTitle).c_str());
                   } else {
                     id(favoritesTitle) = "Favs";
                     id(disp1).send_command_printf("pageUniversal.vPageFavTitle.txt=\"Favs\"");
+                    id(disp1).send_command_printf("p6tTitle.txt=\"Favs\"");
                   }
                   if (items["topic"].is<std::string>()) {
                     std::string topic = items["topic"].as<std::string>();
@@ -1891,6 +1953,7 @@ panel_mqtt:
                     }
                   }
                   if (!isShown) {
+                    id(currentPage) = "pageUniversal";
                     id(disp1).send_command_printf("page pageUniversal");
                   }
               }
@@ -3860,6 +3923,33 @@ binary_sensor:
 
 sensor:
 
+  # Poll Nextion's live touch coordinates while a swipe is held. The display's
+  # touch release frame may repeat the press coordinates, so the last sample
+  # captured before release is used as the swipe endpoint.
+  - platform: nextion
+    name: $device_name Favorite Touch Current X
+    id: favorite_touch_x_sensor
+    variable_name: tch0
+    internal: true
+    update_interval: never
+    on_value:
+      then:
+        - lambda: |-
+            if (!id(favorite_touch_tracking)) return;
+            id(favorite_touch_release_x) = static_cast<int>(x);
+
+  - platform: nextion
+    name: $device_name Favorite Touch Current Y
+    id: favorite_touch_y_sensor
+    variable_name: tch1
+    internal: true
+    update_interval: never
+    on_value:
+      then:
+        - lambda: |-
+            if (!id(favorite_touch_tracking)) return;
+            id(favorite_touch_release_y) = static_cast<int>(x);
+
   - platform: wifi_signal
     name: $device_name Wi-Fi Signal
     id: panel_wifi_signal
@@ -4220,16 +4310,19 @@ display:
             condition:
               lambda: |-
                 // Suppress click feedback while remote display updates are being applied.
+                const bool isSwipeableFavoritePage =
+                  id(currentPage) == "pageUniversal" && id(favorite_swipe_enabled);
                 return touch_event &&
                   component_id != 0 &&
                   id(touchClickEnabled) &&
+                  !isSwipeableFavoritePage &&
                   (millis() - id(lastRemoteDisplayUpdate)) > 1000;
             then:
               - rtttl.play: "beep:d=32,o=5,b=200:e"
     on_touch_coordinate:
       then:
         - lambda: |-
-            if (!id(favorite_swipe_enabled) || id(currentPage) != "pageUniversal") {
+            if (!id(favorite_swipe_enabled)) {
               id(favorite_touch_tracking) = false;
               return;
             }
@@ -4237,8 +4330,11 @@ display:
             if (touch_event) {
               id(favorite_touch_start_x) = x;
               id(favorite_touch_start_y) = y;
+              id(favorite_touch_release_x) = x;
+              id(favorite_touch_release_y) = y;
               id(favorite_touch_start_ms) = millis();
               id(favorite_touch_tracking) = true;
+              id(track_favorite_touch_coordinates).execute();
               return;
             }
 
@@ -4246,18 +4342,5 @@ display:
               return;
             }
             id(favorite_touch_tracking) = false;
-
-            const int horizontal_distance = static_cast<int>(x) - static_cast<int>(id(favorite_touch_start_x));
-            const int vertical_distance = abs(static_cast<int>(y) - static_cast<int>(id(favorite_touch_start_y)));
-            const uint32_t touch_duration_ms = millis() - id(favorite_touch_start_ms);
-            if (touch_duration_ms < 50 || touch_duration_ms > 900 ||
-                abs(horizontal_distance) < 90 || vertical_distance > 100) {
-              return;
-            }
-
-            id(last_favorite_swipe_ms) = millis();
-            const char *direction = horizontal_distance < 0 ? "next" : "previous";
-            id(mqtt_client).publish(
-              (id(panel_mqtt_client).get_active_topic_prefix() + "/event/favorites/page").c_str(),
-              direction
-            );
+            id(favorite_touch_duration_ms) = millis() - id(favorite_touch_start_ms);
+            id(evaluate_favorite_swipe).execute();

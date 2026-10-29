@@ -246,7 +246,7 @@
                                 </td>
                               }
                             }
-                            <td><button type="button" class="text-danger" [disabled]="tableRows(field).length <= (field.minRows ?? 0)" (click)="removeTableRow(field, rowIndex)">{{ 'COMMON.REMOVE' | translate }}</button></td>
+                            <td><button type="button" class="text-danger" [disabled]="field.removeRowBehavior !== 'clear' && tableRows(field).length <= (field.minRows ?? 0)" (click)="removeTableRow(field, rowIndex)">{{ (field.removeRowBehavior === 'clear' ? 'COMMON.CLEAR' : 'COMMON.REMOVE') | translate }}</button></td>
                           </tr>
                           @if (hasMultilineColumns(field)) {
                             <tr class="table-detail-row">

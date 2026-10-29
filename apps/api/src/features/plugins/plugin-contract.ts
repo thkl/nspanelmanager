@@ -38,6 +38,8 @@ export interface PluginConfigField {
   /** Customizes the first-column heading and row-add action in the editor. */
   rowHeader?: string;
   addRowLabel?: string;
+  /** Clears row cells instead of deleting the row, preserving fixed shortcut positions. */
+  removeRowBehavior?: "delete" | "clear";
 }
 
 /** Describes a column in a plugin-configured row table. */
