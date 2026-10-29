@@ -7,16 +7,19 @@ interface FavoritePageEntry {
   instanceId: string;
 }
 
+const SHORTCUTS_PER_PAGE = 12;
+const MAX_SHORTCUT_PAGES = 4;
+
 /**
- * Provides a reusable 12-shortcut menu that can be opened from a panel favorite.
+ * Provides a swipe-paged shortcut menu that can be opened from a panel favorite.
  * Each menu entry launches another configured plugin instance, and the runtime
- * restores this menu when the user presses Back from the launched plugin.
+ * restores this menu and its selected page when the user presses Back.
  */
 export class FavoritesPagePlugin implements PluginDefinition {
   readonly id = "favorites-page";
   readonly name = "Favorites page";
   readonly version = 1;
-  readonly description = "Opens a configurable 12-button menu of plugin instances from a panel favorite.";
+  readonly description = "Opens a configurable menu of plugin shortcuts from a panel favorite, with twelve shortcuts per page.";
   readonly capabilities = ["panel-menu", "plugin-navigation"];
   readonly favoriteFlow = true;
   readonly configSchema: readonly PluginConfigField[] = [
@@ -27,10 +30,10 @@ export class FavoritesPagePlugin implements PluginDefinition {
       type: "table",
       defaultValue: defaultEntries(),
       minRows: 0,
-      maxRows: 12,
+      maxRows: SHORTCUTS_PER_PAGE * MAX_SHORTCUT_PAGES,
       rowHeader: "Button",
       addRowLabel: "Add favorite",
-      help: "Choose a label and plugin instance for each shortcut. Empty rows are hidden on the panel.",
+      help: "Choose a label and plugin instance. Each panel page shows twelve shortcuts; swipe to move between pages.",
       columns: [
         { key: "label", label: "Favorite name" },
         { key: "topic", label: "Topic (optional)"},
@@ -39,7 +42,7 @@ export class FavoritesPagePlugin implements PluginDefinition {
     }
   ];
 
-  /** Validates title and requires each configured shortcut to have a label and target. */
+  /** Validates the page title and paired shortcut labels and plugin targets. */
   validateConfig(config: Record<string, PluginConfigValue>): string | undefined {
     const title = typeof config.title === "string" ? config.title.trim() : "";
     if (!title || title.length > 32) return "Enter a page title of 1 to 32 characters.";
@@ -61,21 +64,41 @@ export class FavoritesPagePlugin implements PluginDefinition {
   /** Opens the built-in universal menu rather than the generic eight-button page. */
   startScreen(_instance: ResolvedPluginInstance): string { return "favorites"; }
 
-  /** Supplies the title and configured shortcut labels for the firmware-native menu. */
-  renderMenuPage(instance: ResolvedPluginInstance, _context: PluginRuntimeContext): PluginMenuPage {
+  /** Returns the count of twelve-shortcut pages required by this instance. */
+  menuPageCount(instance: ResolvedPluginInstance): number {
     const entries = parseEntries(instance.config.entries) ?? [];
-    // The TFT always receives twelve slots; empty labels clear stale buttons from a previously loaded menu.
-    const page = {
-      title: stringValue(instance.config.title, "Favorites"),
-      buttons: Array.from({ length: 12 }, (_, index) => ({ label: entries[index]?.label ?? "" , topic:entries[index]?.topic ?? "" }))
-    };
-    return page;
+    return Math.max(1, Math.ceil(entries.length / SHORTCUTS_PER_PAGE));
   }
 
-  /** Opens the plugin instance configured at the selected menu index. */
-  handleMenuPageAction(instance: ResolvedPluginInstance, index: number, _context: PluginRuntimeContext): PluginMenuPageAction | undefined {
-    if (!Number.isInteger(index) || index < 0 || index > 11) return undefined;
-    const entry = (parseEntries(instance.config.entries) ?? [])[index];
+  /** Supplies the title and twelve shortcut labels for one firmware-native menu page. */
+  renderMenuPage(instance: ResolvedPluginInstance, _context: PluginRuntimeContext, pageIndex = 0): PluginMenuPage {
+    const entries = parseEntries(instance.config.entries) ?? [];
+    const pageCount = this.menuPageCount(instance);
+    const boundedPageIndex = Math.max(0, Math.min(pageCount - 1, Math.trunc(pageIndex)));
+    const firstEntryIndex = boundedPageIndex * SHORTCUTS_PER_PAGE;
+    const configuredTitle = stringValue(instance.config.title, "Favorites");
+    const pageIndicator = ` ${boundedPageIndex + 1}/${pageCount}`;
+    const pageTitle = pageCount > 1
+      ? `${configuredTitle.slice(0, Math.max(0, 32 - pageIndicator.length))}${pageIndicator}`
+      : configuredTitle;
+    // The TFT always receives twelve slots; empty labels clear stale buttons from a previously loaded menu.
+    return {
+      title: pageTitle,
+      pageIndex: boundedPageIndex,
+      pageCount,
+      buttons: Array.from({ length: SHORTCUTS_PER_PAGE }, (_, index) => {
+        const entry = entries[firstEntryIndex + index];
+        return { label: entry?.label ?? "", topic: entry?.topic ?? "" };
+      })
+    };
+  }
+
+  /** Opens the plugin instance configured at the selected slot on the active page. */
+  handleMenuPageAction(instance: ResolvedPluginInstance, index: number, _context: PluginRuntimeContext, pageIndex = 0): PluginMenuPageAction | undefined {
+    if (!Number.isInteger(index) || index < 0 || index >= SHORTCUTS_PER_PAGE) return undefined;
+    const entries = parseEntries(instance.config.entries) ?? [];
+    const selectedIndex = Math.max(0, Math.trunc(pageIndex)) * SHORTCUTS_PER_PAGE + index;
+    const entry = entries[selectedIndex];
     return entry?.instanceId ? { targetPluginInstanceId: entry.instanceId } : undefined;
   }
 
@@ -88,7 +111,7 @@ export class FavoritesPagePlugin implements PluginDefinition {
   }
 }
 
-/** Serializes twelve blank menu slots for a new Favorites page profile. */
+/** Serializes the first twelve blank menu slots for a new Favorites page profile. */
 function defaultEntries(): string {
   return JSON.stringify(Array.from({ length: 12 }, () => ({ label: "", instanceId: "" })));
 }
@@ -98,9 +121,9 @@ function parseEntries(value: PluginConfigValue | undefined): FavoritePageEntry[]
   if (typeof value !== "string") return undefined;
   try {
     const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed) || parsed.length > 12) return undefined;
+    if (!Array.isArray(parsed) || parsed.length > SHORTCUTS_PER_PAGE * MAX_SHORTCUT_PAGES) return undefined;
     const entries = parsed.map((row): FavoritePageEntry => {
-      if (!row || typeof row !== "object" || Array.isArray(row)) return { label: "", instanceId: "" , topic : ""};
+      if (!row || typeof row !== "object" || Array.isArray(row)) return { label: "", instanceId: "", topic: "" };
       const source = row as Record<string, unknown>;
       return {
         label: typeof source.label === "string" ? source.label : "",
@@ -108,7 +131,6 @@ function parseEntries(value: PluginConfigValue | undefined): FavoritePageEntry[]
         instanceId: typeof source.instanceId === "string" ? source.instanceId : ""
       };
     });
-    while (entries.length < 12) entries.push({ label: "", instanceId: "", topic : ""});
     return entries;
   } catch {
     return undefined;

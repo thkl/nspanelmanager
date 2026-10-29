@@ -1181,6 +1181,11 @@ class Nextion final : public NextionBase, public PollingComponent, public uart::
     this->touch_callback_.add(std::forward<F>(callback));
   }
 
+  /** Add a callback for raw touch-coordinate press and release events. */
+  template<typename F> void add_touch_coordinate_callback(F &&callback) {
+    this->touch_coordinate_callback_.add(std::forward<F>(callback));
+  }
+
   /** Add a callback to be notified when the nextion reports a buffer overflow.
    *
    * @param callback The void() callback.
@@ -1597,6 +1602,7 @@ class Nextion final : public NextionBase, public PollingComponent, public uart::
   CallbackManager<void()> wake_callback_{};
   CallbackManager<void(uint8_t)> page_callback_{};
   CallbackManager<void(uint8_t, uint8_t, bool)> touch_callback_{};
+  CallbackManager<void(uint16_t, uint16_t, bool)> touch_coordinate_callback_{};
   CallbackManager<void()> buffer_overflow_callback_{};
 #ifdef USE_NEXTION_TRIGGER_CUSTOM_BINARY_SENSOR
   CallbackManager<void(StringRef, bool)> custom_binary_sensor_callback_{};

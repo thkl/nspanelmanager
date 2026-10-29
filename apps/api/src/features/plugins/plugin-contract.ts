@@ -59,9 +59,11 @@ export interface PluginInstanceVariableField {
   optionSource?: "home-assistant-entities";
 }
 
-/** Firmware-native 12-button menu page shown by a plugin favorite. */
+/** Firmware-native 12-button shortcut page shown by a plugin favorite. */
 export interface PluginMenuPage {
   title: string;
+  pageIndex?: number;
+  pageCount?: number;
   buttons: Array<{ label: string }>;
 }
 
@@ -298,16 +300,18 @@ export interface PluginDefinition {
   startScreen?(instance: ResolvedPluginInstance): string;
   /** Builds a display model for the requested flow screen. */
   renderScreen(instance: ResolvedPluginInstance, state: PluginState, screen: string, context: PluginRuntimeContext): PluginScreen | void | Promise<PluginScreen | void>;
-  /** Builds a firmware-native 12-button menu page for the active favorite flow. */
-  renderMenuPage?(instance: ResolvedPluginInstance, context: PluginRuntimeContext): PluginMenuPage | void | Promise<PluginMenuPage | void>;
+  /** Builds one firmware-native shortcut page for the active favorite flow. */
+  renderMenuPage?(instance: ResolvedPluginInstance, context: PluginRuntimeContext, pageIndex?: number): PluginMenuPage | void | Promise<PluginMenuPage | void>;
+  /** Returns the number of swipe-navigable shortcut pages for a firmware-native menu. */
+  menuPageCount?(instance: ResolvedPluginInstance): number;
   /** Reports whether a directly assigned favorite should show its active indicator. */
   favoriteStateActive?(instance: ResolvedPluginInstance, state: PluginState, context: PluginRuntimeContext): boolean | undefined | Promise<boolean | undefined>;
   /** Handles a directly bound favorite press without opening a plugin screen. */
   handleFavoritePress?(instance: ResolvedPluginInstance, panel: Panel, binding: PanelBinding, state: PluginState, context: PluginRuntimeContext): PluginFavoritePressResult | void | Promise<PluginFavoritePressResult | void>;
   /** Handles a long press on a directly bound favorite, optionally opening a native light page. */
   handleFavoriteLongPress?(instance: ResolvedPluginInstance, panel: Panel, binding: PanelBinding, state: PluginState, context: PluginRuntimeContext): PluginFavoriteLongPressResult | void | Promise<PluginFavoriteLongPressResult | void>;
-  /** Maps a native menu selection to a configured plugin instance to open. */
-  handleMenuPageAction?(instance: ResolvedPluginInstance, index: number, context: PluginRuntimeContext): PluginMenuPageAction | void | Promise<PluginMenuPageAction | void>;
+  /** Maps a shortcut selection to a plugin instance on the displayed menu page. */
+  handleMenuPageAction?(instance: ResolvedPluginInstance, index: number, context: PluginRuntimeContext, pageIndex?: number): PluginMenuPageAction | void | Promise<PluginMenuPageAction | void>;
   /** Opens a native favorite page, including its page navigation and initial configuration. */
   openFavoritePanelPage?(instance: ResolvedPluginInstance, panel: Panel, binding: PanelBinding, state: PluginState): PluginFavoritePanelPageResult | Promise<PluginFavoritePanelPageResult>;
   /** Handles query and control messages from a native favorite page. */

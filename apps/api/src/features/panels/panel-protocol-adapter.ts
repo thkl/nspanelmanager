@@ -7,6 +7,7 @@ export type PanelInputEvent =
   | { type: "hardware-button"; index: 0 | 1; action: "press" | "doubleClick" }
   | { type: "favorite"; index: number }
   | { type: "favorite-longpress"; index: number }
+  | { type: "favorite-menu-page"; direction: "next" | "previous" }
   | { type: "favorite-menu-button"; index: number; bindingId: string }
   | { type: "info-button"; index: number; bindingId: string; action: string }
   | { type: "info-back"; bindingId: string };
@@ -37,10 +38,12 @@ export class PanelProtocolAdapter {
   }
 
   /** Shows a plugin-owned 12-button page using the firmware's universal menu screen. */
-  showMenuPage(panel: Panel, page: { title: string; buttons: Array<{ label: string, topic?:string }> }): boolean {
+  showMenuPage(panel: Panel, page: { title: string; pageIndex?: number; pageCount?: number; buttons: Array<{ label: string, topic?:string }> }): boolean {
     const buttons = Array.from({ length: 12 }, (_, index) => ({ label: page.buttons[index]?.label ?? "",topic: page.buttons[index]?.topic ?? "" }));
     return this.publish(`${panelTopicRoot(panel)}/cmnd/menupage`, JSON.stringify({
-      page: { name: page.title, topic: "", buttons }
+      page: { name: page.title, topic: "", buttons },
+      page_index: page.pageIndex ?? 0,
+      page_count: page.pageCount ?? 1
     }));
   }
 
@@ -86,6 +89,9 @@ export class PanelProtocolAdapter {
     const favoriteMatch = /^favorites\/(\d+)$/.exec(eventTopic);
     if (favoriteMatch && payload === "press") return { type: "favorite", index: Number(favoriteMatch[1]) - 1 };
     if (favoriteMatch && payload === "longpress") return { type: "favorite-longpress", index: Number(favoriteMatch[1]) - 1 };
+    if (eventTopic === "favorites/page" && (payload === "next" || payload === "previous")) {
+      return { type: "favorite-menu-page", direction: payload };
+    }
     if (eventTopic === "menupage") {
       let menuEvent: Record<string, unknown>;
       try {

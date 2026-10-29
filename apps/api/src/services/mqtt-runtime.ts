@@ -2275,7 +2275,13 @@ export class MqttRuntime {
   /** Opens the configured plugin instance selected from a plugin-owned menu. */
   private async openMenuTarget(panel: Panel, session: PanelFlowSession, binding: PanelBinding, source: ResolvedPluginInstance, sourceDefinition: PluginDefinition, index: number, instances: ResolvedPluginInstance[]): Promise<void> {
     if (!Number.isInteger(index) || index < 0 || index > 11 || !sourceDefinition.handleMenuPageAction || (session.ancestors?.length ?? 0) >= 8) return;
-    const result = await sourceDefinition.handleMenuPageAction(source, index, this.createPluginContext(panel, binding, source));
+    const pageIndex = session.menuPageIndex ?? 0;
+    const result = await sourceDefinition.handleMenuPageAction(
+      source,
+      index,
+      this.createPluginContext(panel, binding, source),
+      pageIndex
+    );
     const target = result?.targetPluginInstanceId && instances.find((candidate) => candidate.id === result.targetPluginInstanceId && candidate.enabled);
     const targetDefinition = target && this.plugins.get(target.pluginId);
     if (!target || !targetDefinition || !targetDefinition.favoriteFlow || targetDefinition.nativePanelPage) return;
@@ -2293,6 +2299,7 @@ export class MqttRuntime {
       pluginInstanceId: session.pluginInstanceId,
       screen: session.screen,
       ...(session.menuPageActive ? { menuPageActive: session.menuPageActive } : {}),
+      ...(session.menuPageIndex !== undefined ? { menuPageIndex: session.menuPageIndex } : {}),
       ...(session.favoritePanelPage ? { favoritePanelPage: session.favoritePanelPage } : {}),
       history: session.history ?? [],
       ...(session.flowBinding ? { flowBinding: session.flowBinding } : {})
@@ -2303,6 +2310,7 @@ export class MqttRuntime {
       pluginInstanceId: target.id,
       screen,
       ...(targetDefinition.renderMenuPage ? { menuPageActive: true } : {}),
+      ...(targetDefinition.renderMenuPage ? { menuPageIndex: 0 } : {}),
         ...(this.favoritePanelPageFor(targetDefinition, target) ? { favoritePanelPage: this.favoritePanelPageFor(targetDefinition, target) } : {}),
       history: [],
       flowBinding: targetBinding,
@@ -2420,7 +2428,59 @@ export class MqttRuntime {
     return Boolean(instance && this.plugins.get(instance.pluginId)?.renderMenuPage);
   }
 
+  /** Renders the previous or next shortcut page for the active plugin menu. */
+  private async changeFavoriteMenuPage(
+    panel: Panel,
+    direction: "next" | "previous",
+    bindings: PanelBinding[],
+    instances: ResolvedPluginInstance[]
+  ): Promise<void> {
+    const session = this.runtimeState.getPanelSession(panel.id);
+    if (!session?.menuPageActive) return;
+
+    const instance = instances.find((candidate) => candidate.id === session.pluginInstanceId && candidate.enabled);
+    const definition = instance && this.plugins.get(instance.pluginId);
+    const binding = this.resolveSessionBinding(panel, session, bindings);
+    if (!instance || !definition?.renderMenuPage || !definition.menuPageCount || !binding) return;
+
+    const pageCount = Math.max(1, Math.trunc(definition.menuPageCount(instance)));
+    if (pageCount < 2) return;
+
+    const currentPage = Math.max(0, Math.min(pageCount - 1, session.menuPageIndex ?? 0));
+    const nextPage = direction === "next"
+      ? (currentPage + 1) % pageCount
+      : (currentPage + pageCount - 1) % pageCount;
+    const updatedSession = { ...session, menuPageIndex: nextPage };
+    await this.runtimeState.setPanelSession(panel.id, updatedSession);
+
+    try {
+      const page = await definition.renderMenuPage(
+        instance,
+        this.createPluginContext(panel, binding, instance),
+        nextPage
+      );
+      const activeSession = this.runtimeState.getPanelSession(panel.id);
+      if (!page || activeSession?.bindingId !== updatedSession.bindingId ||
+          activeSession.pluginInstanceId !== updatedSession.pluginInstanceId ||
+          activeSession.menuPageIndex !== nextPage) {
+        return;
+      }
+      this.panelProtocol.showMenuPage(panel, page);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.lastError = detail;
+      this.logger.error("Plugin shortcut page navigation failed.", {
+        component: "plugin", instance: instance.name, panel: panel.name, phase: "menu navigation", detail
+      });
+    }
+  }
+
   private async handlePanelInput(panel: Panel, event: PanelInputEvent, bindings: PanelBinding[], instances: ResolvedPluginInstance[]): Promise<void> {
+    if (event.type === "favorite-menu-page") {
+      await this.changeFavoriteMenuPage(panel, event.direction, bindings, instances);
+      return;
+    }
+
     if (event.type === "hardware-button") {
       if (event.action !== "press") return;
       const pluginInstanceId = panel.hardwareButtonPluginInstances?.[String(event.index) as "0" | "1"];
@@ -2473,6 +2533,7 @@ export class MqttRuntime {
         pluginInstanceId: instance.id,
         screen: startScreen,
         ...(definition.renderMenuPage ? { menuPageActive: true } : {}),
+        ...(definition.renderMenuPage ? { menuPageIndex: 0 } : {}),
         ...(this.favoritePanelPageFor(definition, instance) ? { favoritePanelPage: this.favoritePanelPageFor(definition, instance) } : {}),
         history: []
       });
@@ -2511,6 +2572,7 @@ export class MqttRuntime {
         pluginInstanceId: instance.id,
         screen: startScreen,
         ...(definition.renderMenuPage ? { menuPageActive: true } : {}),
+        ...(definition.renderMenuPage ? { menuPageIndex: 0 } : {}),
         ...(this.favoritePanelPageFor(definition, instance) ? { favoritePanelPage: this.favoritePanelPageFor(definition, instance) } : {}),
         history: []
       });
@@ -2687,7 +2749,8 @@ export class MqttRuntime {
     }
     if (definition.renderMenuPage) {
       try {
-        const menu = await definition.renderMenuPage(instance, context);
+        const menuPageIndex = this.runtimeState.getPanelSession(panel.id)?.menuPageIndex ?? 0;
+        const menu = await definition.renderMenuPage(instance, context, menuPageIndex);
         if (menu && isCurrentSession()) this.panelProtocol.showMenuPage(panel, menu);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);

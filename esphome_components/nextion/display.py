@@ -29,6 +29,7 @@ from .base_component import (
     CONF_ON_PAGE,
     CONF_ON_SETUP,
     CONF_ON_SLEEP,
+    CONF_ON_TOUCH_COORDINATE,
     CONF_ON_WAKE,
     CONF_SKIP_CONNECTION_HANDSHAKE,
     CONF_START_UP_PAGE,
@@ -118,6 +119,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ON_SETUP): automation.validate_automation({}),
             cv.Optional(CONF_ON_SLEEP): automation.validate_automation({}),
             cv.Optional(CONF_ON_TOUCH): automation.validate_automation({}),
+            cv.Optional(CONF_ON_TOUCH_COORDINATE): automation.validate_automation({}),
             cv.Optional(CONF_ON_WAKE): automation.validate_automation({}),
             cv.Optional(CONF_SKIP_CONNECTION_HANDSHAKE, default=False): cv.boolean,
             cv.Optional(CONF_STARTUP_OVERRIDE_MS, default="8000ms"): cv.All(
@@ -183,6 +185,15 @@ _CALLBACK_AUTOMATIONS = (
         [
             (cg.uint8, "page_id"),
             (cg.uint8, "component_id"),
+            (cg.bool_, "touch_event"),
+        ],
+    ),
+    automation.CallbackAutomation(
+        CONF_ON_TOUCH_COORDINATE,
+        "add_touch_coordinate_callback",
+        [
+            (cg.uint16, "x"),
+            (cg.uint16, "y"),
             (cg.bool_, "touch_event"),
         ],
     ),

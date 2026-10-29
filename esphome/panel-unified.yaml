@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.31"
+  firmware_version: "6.0.36"
   diagnostic_ignore_music_commands: "false"
   diagnostic_skip_music_display: "false"
 
@@ -96,6 +96,56 @@ globals:
     initial_value: "-1"
 
   - id: touchClickEnabled
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: panel_wifi_connected
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: panel_mqtt_connected
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: panel_diagnostics_open
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: diagnostics_update_message
+    type: std::string
+    restore_value: no
+    initial_value: '"Tap CLEAR UPDATE to clear a pending prompt."'
+
+  - id: favorite_touch_tracking
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: favorite_touch_start_x
+    type: uint16_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: favorite_touch_start_y
+    type: uint16_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: favorite_touch_start_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: last_favorite_swipe_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: favorite_swipe_enabled
     type: bool
     restore_value: no
     initial_value: "false"
@@ -430,6 +480,10 @@ script:
             if (id(panel_uptime).has_state()) root["uptime_seconds"] = id(panel_uptime).state;
             if (id(panel_night_mode) >= 0) root["nightmode"] = id(panel_night_mode);
             if (id(panel_display_brightness) >= 0) root["brightness"] = id(panel_display_brightness);
+            root["wifi_connected"] = id(panel_wifi_connected);
+            root["mqtt_connected"] = id(panel_mqtt_connected);
+            if (id(panel_ip_address).has_state()) root["ip_address"] = id(panel_ip_address).state;
+            if (id(panel_wifi_signal).has_state()) root["wifi_rssi_dbm"] = id(panel_wifi_signal).state;
             if (id(debug_heap_free).has_state()) root["free_heap_bytes"] = id(debug_heap_free).state;
             if (id(debug_heap_min_free).has_state()) root["min_free_heap_bytes"] = id(debug_heap_min_free).state;
             if (id(debug_heap_block).has_state()) root["largest_free_block_bytes"] = id(debug_heap_block).state;
@@ -684,28 +738,231 @@ script:
       - script.execute: update_time
       - lambda: |-
                 if (id(currentPage)=="page0") {
-                  id(disp1).send_command_printf("page0.vaInfo.txt=\"%s\"", id(mqtt_favText).state.c_str());
+                  const char *status = id(mqtt_favText).state.c_str();
+                  if (!id(panel_wifi_connected)) {
+                    status = "Wi-Fi offline";
+                  } else if (!id(panel_mqtt_connected)) {
+                    status = "MQTT offline";
+                  }
+                  id(disp1).send_command_printf("page0.vaInfo.txt=\"%s\"", status);
                   id(disp1).send_command_printf("page0.bInfo.pco=65535");
                 }
 
                 if (id(currentPage)=="pageUniversal") {
-                  id(disp1).send_command_printf("p6tTitle.txt=\"%s\"", id(favoritesTitle).c_str());
+                  const char *title = id(favoritesTitle).c_str();
+                  if (!id(panel_wifi_connected)) {
+                    title = "Wi-Fi offline";
+                  } else if (!id(panel_mqtt_connected)) {
+                    title = "MQTT offline";
+                  }
+                  id(disp1).send_command_printf("p6tTitle.txt=\"%s\"", title);
                 }
+
+  - id: show_home_action_feedback
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: return id(currentPage) == "page0";
+          then:
+            - lambda: |-
+                const char *message = "Sending...";
+                if (!id(panel_wifi_connected)) message = "Wi-Fi offline";
+                else if (!id(panel_mqtt_connected)) message = "MQTT offline";
+                id(disp1).send_command_printf("page0.vaInfo.txt=\"%s\"", message);
+            - delay: 700ms
+            - if:
+                condition:
+                  lambda: return id(currentPage) == "page0";
+                then:
+                  - script.execute: update_display
+
+  - id: show_favorite_action_feedback
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: return id(currentPage) == "pageUniversal";
+          then:
+            - lambda: |-
+                const char *message = "Sending...";
+                if (!id(panel_wifi_connected)) message = "Wi-Fi offline";
+                else if (!id(panel_mqtt_connected)) message = "MQTT offline";
+                id(disp1).send_command_printf("p6tTitle.txt=\"%s\"", message);
+            - delay: 700ms
+            - if:
+                condition:
+                  lambda: return id(currentPage) == "pageUniversal";
+                then:
+                  - script.execute: update_display
+
+  - id: show_panel_diagnostics
+    mode: restart
+    then:
+      - lambda: |-
+          id(sleeping) = false;
+          id(panel_diagnostics_open) = true;
+          id(currentPage) = "pageList";
+          id(infoReturn) = "page0";
+          id(infoTopic).clear();
+          id(levelTopic).clear();
+
+          const std::string ip_address = id(panel_ip_address).has_state()
+            ? id(panel_ip_address).state
+            : "pending";
+          const std::string hmi_hash = id(hmi_version).empty() ? "unknown" : id(hmi_version).substr(0, 12);
+          const int uptime_seconds = id(panel_uptime).has_state()
+            ? static_cast<int>(id(panel_uptime).state)
+            : 0;
+          const int uptime_hours = uptime_seconds / 3600;
+          const int uptime_minutes = (uptime_seconds % 3600) / 60;
+          const int wifi_rssi = id(panel_wifi_signal).has_state()
+            ? static_cast<int>(id(panel_wifi_signal).state)
+            : 0;
+          const char *update_state = "none";
+          if (id(hmi_update_pending)) {
+            update_state = "HMI update running";
+          } else if (id(firmware_update_waiting_for_confirmation) || id(hmiupdate) == 1 ||
+                     !id(requested_firmware_job_id).empty() || !id(requested_firmware_url).empty() ||
+                     !id(pending_hmi_job_id).empty() || !id(pending_hmi_version).empty() ||
+                     !id(pending_firmware_job_id).empty() || !id(pending_firmware_version).empty()) {
+            update_state = "update pending";
+          }
+          char wifi_status[48];
+          if (!id(panel_wifi_connected)) {
+            snprintf(wifi_status, sizeof(wifi_status), "offline");
+          } else if (id(panel_wifi_signal).has_state()) {
+            snprintf(wifi_status, sizeof(wifi_status), "connected (%d dBm)", wifi_rssi);
+          } else {
+            snprintf(wifi_status, sizeof(wifi_status), "connected (RSSI pending)");
+          }
+
+          char message[256];
+          snprintf(
+            message,
+            sizeof(message),
+            "FW: %s\r\nHMI: %s\r\nIP: %s\r\nWi-Fi: %s\r\nMQTT: %s\r\nUp: %dh %02dm\r\nUpdate: %s\r\n%s",
+            "$firmware_version",
+            hmi_hash.c_str(),
+            ip_address.c_str(),
+            wifi_status,
+            id(panel_mqtt_connected) ? "connected" : "offline",
+            uptime_hours,
+            uptime_minutes,
+            update_state,
+            id(diagnostics_update_message).c_str()
+          );
+
+          id(disp1).send_command_printf("pageList.vaMessage.txt=\"%s\"", message);
+          id(disp1).send_command_printf("pageList.vaInfoTitle.txt=\"Panel diagnostics\"");
+          id(disp1).send_command_printf("pageList.tTitle.txt=\"Panel diagnostics\"");
+          id(disp1).send_command_printf("pageList.vLevel.val=0");
+          id(disp1).send_command_printf("pageList.vMaxLevel.val=0");
+          for (int index = 0; index < 8; index++) {
+            id(disp1).send_command_printf("pageList.b%d.txt=\"\"", index);
+            id(disp1).send_command_printf("vis pageList.b%d,0", index);
+          }
+          id(disp1).send_command_printf("pageList.b0.txt=\"CLEAR UPDATE\"");
+          id(disp1).send_command_printf("vis pageList.b0,1");
+          id(disp1).send_command_printf("page pageList");
+
+  # Clears stale update prompts while leaving an active display or firmware transfer intact.
+  - id: clear_pending_update_state
+    mode: restart
+    then:
+      - lambda: |-
+          if (id(hmi_update_pending)) {
+            id(diagnostics_update_message) = "An HMI update is running; its state was left intact.";
+            return;
+          }
+          if (!id(pending_firmware_job_id).empty()) {
+            id(diagnostics_update_message) = "Firmware installation is active; its state was left intact.";
+            return;
+          }
+
+          bool cleared = false;
+          if (!id(pending_firmware_version).empty()) {
+            cleared = true;
+          }
+          if (id(firmware_update_waiting_for_confirmation)) {
+            id(publish_firmware_update_status)->execute(
+              id(requested_firmware_job_id),
+              "cancelled",
+              id(requested_firmware_version),
+              "The pending firmware prompt was cleared on the panel.",
+              -1
+            );
+            cleared = true;
+          }
+          if (id(hmiupdate) == 1 || !id(pending_hmi_job_id).empty() || !id(pending_hmi_version).empty()) {
+            if (!id(pending_hmi_job_id).empty()) {
+              id(publish_hmi_update_status)->execute(
+                id(pending_hmi_job_id),
+                "cancelled",
+                id(pending_hmi_version),
+                "The pending HMI prompt was cleared on the panel."
+              );
+            }
+            cleared = true;
+          }
+          if (!id(requested_firmware_job_id).empty() || !id(requested_firmware_url).empty() ||
+              !id(requested_firmware_md5).empty() || !id(requested_firmware_version).empty()) {
+            if (!id(firmware_update_waiting_for_confirmation) && !id(requested_firmware_job_id).empty()) {
+              id(publish_firmware_update_status)->execute(
+                id(requested_firmware_job_id),
+                "cancelled",
+                id(requested_firmware_version),
+                "The pending firmware request was cleared on the panel.",
+                -1
+              );
+            }
+            cleared = true;
+          }
+
+          id(firmware_update_waiting_for_confirmation) = false;
+          id(hmiupdate) = 0;
+          id(requested_firmware_url).clear();
+          id(requested_firmware_md5).clear();
+          id(requested_firmware_version).clear();
+          id(requested_firmware_job_id).clear();
+          id(pending_hmi_version).clear();
+          id(pending_hmi_job_id).clear();
+          id(pending_firmware_version).clear();
+          id(pending_firmware_job_id).clear();
+          pending_hmi_version->update();
+          pending_hmi_job_id->update();
+          pending_firmware_version->update();
+          pending_firmware_job_id->update();
+          esphome::global_preferences->sync();
+
+          id(diagnostics_update_message) = cleared
+            ? "Pending update state cleared."
+            : "No pending update state was found.";
+      - script.execute: show_panel_diagnostics
 
   - id: update_favstate
     then:
+      - script.execute:
+          id: render_favorites_state
+          while_hidden: false
+          force: false
+
+  - id: render_favorites_state
+    parameters:
+      while_hidden: bool
+      force: bool
+    then:
       - lambda: |-
-                ESP_LOGD("custom","Updating pageUniversal favorite state");
+                if (!while_hidden && id(currentPage) != "pageUniversal") {
+                  return;
+                }
                 const int fs = (int)id(favState).state;
                 if (id(lastFavoriteStateSent) != fs) {
                   id(disp1).send_command_printf("pageUniversal.va0.val=%d", fs);
                   id(lastFavoriteStateSent) = fs;
                 }
-                if (id(currentPage) != "pageUniversal") {
-                  return;
-                }
                 const int previousState = id(renderedFavoriteState);
-                const int changedBits = previousState < 0 ? 0x0FFF : previousState ^ fs;
+                const int changedBits = force || previousState < 0 ? 0x0FFF : previousState ^ fs;
                 if (changedBits == 0) {
                   return;
                 }
@@ -760,7 +1017,12 @@ script:
       button: int
       index: int
     then:
+      - script.execute: show_favorite_action_feedback
+      - delay: 100ms
       - lambda: |-
+              if (id(last_favorite_swipe_ms) != 0 && (millis() - id(last_favorite_swipe_ms)) < 400) {
+                return;
+              }
               char buf[50];
 
               if (id(menuPageTopic) != "") {
@@ -806,7 +1068,12 @@ script:
     parameters:
       button: int
     then:
+      - script.execute: show_favorite_action_feedback
+      - delay: 100ms
       - lambda: |-
+                if (id(last_favorite_swipe_ms) != 0 && (millis() - id(last_favorite_swipe_ms)) < 400) {
+                  return;
+                }
                 char buf[50];
                 sprintf(buf, (id(panel_mqtt_client).get_active_topic_prefix() + "/event/favorites/%d").c_str(),(button+1));
                 id(mqtt_client).publish(buf, "longpress");
@@ -816,6 +1083,10 @@ script:
       index: int
     then:
       - lambda: |-
+          if (id(panel_diagnostics_open) && index == 0) {
+            id(clear_pending_update_state).execute();
+            return;
+          }
           if ((index==3) && id(firmware_update_waiting_for_confirmation)) {
             id(start_firmware_update).execute();
           }
@@ -832,6 +1103,7 @@ script:
     parameters:
       index: int
     then:
+      - script.execute: show_home_action_feedback
       - lambda: |-
               ESP_LOGD("custom","handle_mainButtons",id(mainModes)[index]);
               if (id(mainModes)[index] == 1){
@@ -849,6 +1121,7 @@ script:
     parameters:
       index: int
     then:
+      - script.execute: show_home_action_feedback
       - lambda: |-
                 char buf[50];
                 sprintf(buf, (id(panel_mqtt_client).get_active_topic_prefix() + "/event/item/%d").c_str(),index);
@@ -875,6 +1148,7 @@ script:
     parameters:
       index: int
     then:
+      - script.execute: show_home_action_feedback
       - lambda: |-
               char buf[128];
               if (id(hwButtonMode)[index]==0) {
@@ -891,6 +1165,7 @@ script:
     parameters:
       index: int
     then:
+      - script.execute: show_home_action_feedback
       - lambda: |-
               char buf[128];
               if (id(hwButtonMode)[index]==0) {
@@ -1127,7 +1402,9 @@ mqtt:
   discover_ip: true
   on_connect:
     then:
+      - lambda: id(panel_mqtt_connected) = true;
       - delay: 500ms
+      - script.execute: update_display
       - mqtt.publish_json:
           topic: !lambda |-
             return id(mqtt_client).get_topic_prefix() + "/event/init";
@@ -1175,6 +1452,10 @@ mqtt:
                 pending_firmware_job_id->update();
                 pending_firmware_version->update();
                 esphome::global_preferences->sync();
+  on_disconnect:
+    then:
+      - lambda: id(panel_mqtt_connected) = false;
+      - script.execute: update_display
 
 panel_mqtt:
   id: panel_mqtt_client
@@ -1536,6 +1817,7 @@ panel_mqtt:
     - topic: cmnd/colorpage
       then:
         - lambda: |-
+              id(favorite_swipe_enabled) = false;
               if (x.containsKey("page")) {
                   JsonObjectConst favorites = x["page"];
                   if (favorites.containsKey("buttons")){
@@ -1564,6 +1846,7 @@ panel_mqtt:
     - topic: cmnd/menupage
       then:
         - lambda: |-
+              id(favorite_swipe_enabled) = x["page_count"].is<int>() && x["page_count"].as<int>() > 1;
               bool isShown = (id(currentPage)=="pageUniversal");
               if (x.containsKey("page")) {
                   JsonObjectConst items = x["page"];
@@ -1602,9 +1885,9 @@ panel_mqtt:
                     id(favState).state = favoriteState;
                     if (isShown) {
                       id(update_favstate).execute();
-                    } else if (id(lastFavoriteStateSent) != favoriteState) {
-                      id(disp1).send_command_printf("pageUniversal.va0.val=%d", favoriteState);
-                      id(lastFavoriteStateSent) = favoriteState;
+                    } else {
+                      // Paint all active markers before the page is revealed to avoid a visible second pass.
+                      id(render_favorites_state)->execute(true, true);
                     }
                   }
                   if (!isShown) {
@@ -1704,6 +1987,7 @@ panel_mqtt:
     - topic: cmnd/updatehmi
       then:
         - lambda: |-
+              id(panel_diagnostics_open) = false;
               if (id(firmware_update_waiting_for_confirmation) || !id(pending_firmware_job_id).empty() || !id(requested_firmware_job_id).empty()) {
                 ESP_LOGW("hmi", "Rejected HMI update while a firmware update is pending");
                 return;
@@ -1776,6 +2060,7 @@ panel_mqtt:
     - topic: cmnd/updatefirmware
       then:
         - lambda: |-
+              id(panel_diagnostics_open) = false;
               if (id(hmiupdate) == 1 || id(hmi_update_pending) || !id(pending_hmi_job_id).empty()) {
                 ESP_LOGW("firmware", "Rejected firmware update while an HMI update is pending");
                 return;
@@ -1862,6 +2147,7 @@ panel_mqtt:
     - topic: cmnd/info
       then:
         - lambda: |-
+              id(panel_diagnostics_open) = false;
               if (id(firmware_update_waiting_for_confirmation)) {
                 id(cancel_firmware_update_prompt).execute();
               }
@@ -2178,16 +2464,22 @@ binary_sensor:
       then:
         - lambda: id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/info").c_str(), "press");
 
-# same on the time at the main page
+# Keep the title-area info action limited to short taps; long taps open diagnostics.
   - platform: nextion
     internal: true
     name: $device_name ClockMainPage
     id: nsp_clock_main_page
     page_id: 0
     component_id: 2
-    on_release:
-      then:
-        - lambda: id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/info").c_str(), "press");
+    on_click:
+      - min_length: 10ms
+        max_length: 499ms
+        then:
+          - lambda: |-
+              id(mqtt_client).publish(
+                (id(panel_mqtt_client).get_active_topic_prefix() + "/event/info").c_str(),
+                "press"
+              );
 
 #screensaver shows up
   - platform: nextion
@@ -2218,6 +2510,7 @@ binary_sensor:
       then:
         - lambda: |-
             id(currentPage) = "page0";
+            id(panel_diagnostics_open) = false;
             id(homeDisplayCacheValid) = false;
             id(homeSongCacheValid) = false;
         - lambda: |-
@@ -2245,14 +2538,14 @@ binary_sensor:
     component_id: 15
     on_click:
       - min_length: 10ms
-        max_length: 300ms
+        max_length: 499ms
         then:
           - script.execute:
                 id: handle_mainButtons
                 index: 0
 
       - min_length: 500ms
-        max_length: 2000ms
+        max_length: 5000ms
         then:
           - script.execute:
                 id: handle_mainButtonsLongPress
@@ -2417,14 +2710,22 @@ binary_sensor:
     id: nsp_button_title_dn
     page_id: 0
     component_id: 2
-    on_release:
-      then:
-        - lambda: |-
+    on_click:
+      - min_length: 10ms
+        max_length: 499ms
+        then:
+          - lambda: |-
+              id(panel_diagnostics_open) = false;
               id(mainPageIndex) = id(mainPageIndex) + 1;
               if (id(mainPageIndex) > 1) {
                 id(mainPageIndex) = 0;
               }
               id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/page/main").c_str(), esphome::to_string((int)id(mainPageIndex)).c_str());
+      - min_length: 500ms
+        max_length: 5000ms
+        then:
+          # A long press on the panel title opens diagnostics without requiring MQTT.
+          - script.execute: show_panel_diagnostics
 
   - platform: nextion
     internal: true
@@ -3422,6 +3723,7 @@ binary_sensor:
     on_release:
       then:
         - lambda:  |-
+                id(panel_diagnostics_open) = false;
                 if (id(infoReturn)!="") {
                   ESP_LOGD("--", "infoReturn set: %s",id(infoReturn).c_str());
                   id(disp1).send_command_printf("page %s", id(infoReturn).c_str());
@@ -3558,6 +3860,12 @@ binary_sensor:
 
 sensor:
 
+  - platform: wifi_signal
+    name: $device_name Wi-Fi Signal
+    id: panel_wifi_signal
+    internal: true
+    update_interval: 30s
+
   - platform: debug
     free:
       name: $device_name Free Heap
@@ -3672,6 +3980,12 @@ sensor:
 
 
 text_sensor:
+
+  - platform: wifi_info
+    ip_address:
+      name: $device_name IP Address
+      id: panel_ip_address
+      internal: true
 
   - platform: debug
     reset_reason:
@@ -3874,6 +4188,7 @@ display:
                 id(roomstatus).state = 0;
                 id(renderedFavoriteState) = -1;
                 id(lastFavoriteStateSent) = -1;
+                id(disp1).send_command("sendxy=1");
         - if:
             condition:
               lambda: return id(hmi_update_pending) && !id(pending_hmi_version).empty();
@@ -3911,3 +4226,38 @@ display:
                   (millis() - id(lastRemoteDisplayUpdate)) > 1000;
             then:
               - rtttl.play: "beep:d=32,o=5,b=200:e"
+    on_touch_coordinate:
+      then:
+        - lambda: |-
+            if (!id(favorite_swipe_enabled) || id(currentPage) != "pageUniversal") {
+              id(favorite_touch_tracking) = false;
+              return;
+            }
+
+            if (touch_event) {
+              id(favorite_touch_start_x) = x;
+              id(favorite_touch_start_y) = y;
+              id(favorite_touch_start_ms) = millis();
+              id(favorite_touch_tracking) = true;
+              return;
+            }
+
+            if (!id(favorite_touch_tracking)) {
+              return;
+            }
+            id(favorite_touch_tracking) = false;
+
+            const int horizontal_distance = static_cast<int>(x) - static_cast<int>(id(favorite_touch_start_x));
+            const int vertical_distance = abs(static_cast<int>(y) - static_cast<int>(id(favorite_touch_start_y)));
+            const uint32_t touch_duration_ms = millis() - id(favorite_touch_start_ms);
+            if (touch_duration_ms < 50 || touch_duration_ms > 900 ||
+                abs(horizontal_distance) < 90 || vertical_distance > 100) {
+              return;
+            }
+
+            id(last_favorite_swipe_ms) = millis();
+            const char *direction = horizontal_distance < 0 ? "next" : "previous";
+            id(mqtt_client).publish(
+              (id(panel_mqtt_client).get_active_topic_prefix() + "/event/favorites/page").c_str(),
+              direction
+            );

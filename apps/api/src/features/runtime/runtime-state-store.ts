@@ -22,6 +22,8 @@ export interface PanelFlowSession {
   screen?: string;
   /** Marks a visible firmware-native Favorites menu while its script screen is unset. */
   menuPageActive?: boolean;
+  /** Zero-based page currently visible in a multi-page plugin shortcut menu. */
+  menuPageIndex?: number;
   /** Firmware page currently owned by a favorite flow after navigation leaves its script screen. */
   favoritePanelPage?: "level";
   /** Parent pages used to implement the firmware Back action for nested pages. */
@@ -39,6 +41,8 @@ export interface PanelFlowFrame {
   screen?: string;
   /** Restores a menu page after returning from a nested plugin flow. */
   menuPageActive?: boolean;
+  /** Restores the selected shortcut page when returning to a nested menu. */
+  menuPageIndex?: number;
   /** Firmware page to reopen when restoring a native favorite-flow parent. */
   favoritePanelPage?: "level";
   history?: string[];
