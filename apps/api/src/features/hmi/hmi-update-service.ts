@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { HmiArtifactRecord, HmiUpdateJob, Panel, PanelTelemetry } from "../../types.js";
+import type { HmiArtifactRecord, HmiRollout, HmiUpdateJob, Panel, PanelTelemetry } from "../../types.js";
 import type { Logger } from "../../services/logger.js";
+import type { ConfigStore } from "../../services/config-store.js";
+import type { MqttRuntime } from "../../services/mqtt-runtime.js";
+import type { HmiArtifactService } from "./hmi-artifact-service.js";
 import type { RuntimeStateStore } from "../runtime/runtime-state-store.js";
 
 const MAX_PENDING_ACK_MS = 2 * 60 * 1000;
@@ -20,11 +23,17 @@ export class HmiUpdateService {
   private expiryTimer?: ReturnType<typeof setInterval>;
   private readonly startingPanels = new Set<string>();
   private expiryRun?: Promise<void>;
+  private startingRollout = false;
+  private artifactUploadInProgress = false;
 
   constructor(
     private readonly runtimeState: RuntimeStateStore,
     private readonly publishJob: (job: HmiUpdateJob) => void,
-    private readonly logger: Logger
+    private readonly publishRollout: (rollout: HmiRollout | null) => void,
+    private readonly logger: Logger,
+    private readonly store: ConfigStore,
+    private readonly artifacts: HmiArtifactService,
+    private readonly mqttRuntime: MqttRuntime
   ) {}
 
   /** Starts server-side expiry handling so abandoned updates settle without browser polling. */
@@ -49,6 +58,80 @@ export class HmiUpdateService {
   /** Returns one update record for immediate REST responses. */
   getJob(jobId: string): HmiUpdateJob | undefined {
     return this.runtimeState.getHmiUpdateJobs().find((job) => job.id === jobId);
+  }
+
+  /** Returns the persisted rollout state for the initial WebSocket snapshot. */
+  getRolloutForSnapshot(): HmiRollout | null {
+    return this.runtimeState.getHmiRollout();
+  }
+
+  /** Indicates whether a canary-first rollout currently owns the HMI update queue. */
+  hasActiveRollout(): boolean {
+    return this.startingRollout || this.runtimeState.getHmiRollout()?.status === "updating";
+  }
+
+  /** Reserves the single staged rollout slot while its first panel job is created. */
+  reserveRolloutStart(): boolean {
+    if (this.hasActiveRollout() || this.artifactUploadInProgress) return false;
+    this.startingRollout = true;
+    return true;
+  }
+
+  /** Releases the rollout reservation when request validation or publication fails. */
+  releaseRolloutStart(): void {
+    this.startingRollout = false;
+  }
+
+  /** Prevents a new HMI upload from racing with a staged rollout's artifact selection. */
+  reserveArtifactUpload(): boolean {
+    if (this.hasActiveRollout() || this.artifactUploadInProgress) return false;
+    this.artifactUploadInProgress = true;
+    return true;
+  }
+
+  /** Releases the upload lock after the artifact has been saved or rejected. */
+  releaseArtifactUpload(): void {
+    this.artifactUploadInProgress = false;
+  }
+
+  /** Begins a sequential rollout, waiting for this canary job before any target is sent. */
+  async startRollout(canaryJob: HmiUpdateJob, targetPanelIds: string[], force: boolean): Promise<HmiRollout> {
+    if (!this.startingRollout) throw new HmiUpdateError("Reserve the staged HMI rollout before starting it.");
+    const pendingPanelIds = [...new Set(targetPanelIds.filter((panelId) => panelId !== canaryJob.panelId))];
+    if (pendingPanelIds.length === 0) throw new HmiUpdateError("Choose at least one target panel after the canary.");
+    const now = Date.now();
+    const rollout: HmiRollout = {
+      id: randomUUID(),
+      artifactId: canaryJob.artifactId,
+      hmiVersion: canaryJob.hmiVersion,
+      canaryPanelId: canaryJob.panelId,
+      canaryPanelName: canaryJob.panelName,
+      currentPanelId: canaryJob.panelId,
+      currentJobId: canaryJob.id,
+      pendingPanelIds,
+      force,
+      status: "updating",
+      startedAt: now,
+      updatedAt: now,
+      message: `Waiting for ${canaryJob.panelName} to confirm HMI ${canaryJob.hmiVersion.slice(0, 12)}.`
+    };
+    await this.saveRollout(rollout, true);
+    this.startingRollout = false;
+    return rollout;
+  }
+
+  /** Stops the queue while allowing the current panel update to finish. */
+  async cancelRollout(): Promise<HmiRollout | null> {
+    const rollout = this.runtimeState.getHmiRollout();
+    if (!rollout || rollout.status !== "updating") return rollout;
+    const cancelled: HmiRollout = {
+      ...rollout,
+      status: "cancelled",
+      updatedAt: Date.now(),
+      message: "Staged HMI rollout cancelled. The current panel update may finish; queued panels will not be updated."
+    };
+    await this.saveRollout(cancelled);
+    return this.runtimeState.getHmiRollout();
   }
 
   /** Returns whether the panel is waiting on or performing an HMI update. */
@@ -159,6 +242,7 @@ export class HmiUpdateService {
       ...(update.message ? { message: update.message } : {})
     };
     await this.save(next);
+    await this.handleRolloutJobUpdate(next);
   }
 
   private async save(job: HmiUpdateJob): Promise<void> {
@@ -175,9 +259,121 @@ export class HmiUpdateService {
     });
   }
 
+  private async handleRolloutJobUpdate(job: HmiUpdateJob): Promise<void> {
+    let rollout = this.runtimeState.getHmiRollout();
+    if (!rollout || rollout.status !== "updating" || rollout.currentJobId !== job.id || isActive(job.status)) return;
+    if (job.status !== "succeeded") {
+      await this.failRollout(rollout, `HMI rollout stopped because ${job.panelName} ${statusPhrase(job.status)}: ${job.message ?? job.status}.`);
+      return;
+    }
+
+    if (rollout.pendingPanelIds.length === 0) {
+      await this.saveRollout({
+        ...rollout,
+        status: "completed",
+        updatedAt: Date.now(),
+        message: `The canary and all selected panels report HMI ${rollout.hmiVersion.slice(0, 12)}.`
+      });
+      return;
+    }
+
+    const nextPanelId = rollout.pendingPanelIds[0];
+    const panel = this.store.get().panels.find((candidate) => candidate.id === nextPanelId);
+    if (!panel) {
+      await this.failRollout(rollout, "HMI rollout stopped because a queued panel was removed from configuration.");
+      return;
+    }
+    const artifact = this.artifacts.currentArtifact();
+    if (!artifact || artifact.id !== rollout.artifactId) {
+      await this.failRollout(rollout, "The HMI artifact changed or is unavailable. Upload the intended TFT and start a new rollout.");
+      return;
+    }
+    if (!isArtifactCompatibleWithPanel(artifact, panel)) {
+      await this.failRollout(rollout, `HMI rollout stopped because ${panel.name} is not compatible with the uploaded TFT.`);
+      return;
+    }
+    if (!this.mqttRuntime.status().connected) {
+      await this.failRollout(rollout, "HMI rollout stopped because the MQTT broker is disconnected.");
+      return;
+    }
+    if (this.hasActiveJob(panel.id)) {
+      await this.failRollout(rollout, `HMI rollout stopped because ${panel.name} already has another HMI update in progress.`);
+      return;
+    }
+
+    try {
+      const download = await this.artifacts.createDownloadUrl();
+      if (download.artifact.id !== rollout.artifactId) throw new Error("The uploaded HMI artifact changed before this panel was updated.");
+      const job = await this.begin(panel, download.artifact, rollout.force, download.expiresAt, "Staged HMI rollout");
+      rollout = {
+        ...rollout,
+        currentPanelId: panel.id,
+        currentJobId: job.id,
+        pendingPanelIds: rollout.pendingPanelIds.slice(1),
+        updatedAt: Date.now(),
+        message: `Sent HMI ${rollout.hmiVersion.slice(0, 12)} to ${panel.name}; waiting for confirmation.`
+      };
+      await this.saveRollout(rollout);
+      if (!this.isCurrentActiveRollout(rollout.id)) return;
+      if (!this.mqttRuntime.publishHmiUpdate(panel, download.url, download.artifact.sha256, job.id, rollout.force)) {
+        await this.markPublishFailed(job.id, "The MQTT broker disconnected before the staged HMI request could be sent.");
+        return;
+      }
+      await this.markPublished(job.id);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.failRollout(rollout, `Could not start the HMI update for ${panel.name}: ${detail}`);
+    }
+  }
+
+  private async reconcileRollout(): Promise<void> {
+    const rollout = this.runtimeState.getHmiRollout();
+    if (!rollout || rollout.status !== "updating" || !rollout.currentJobId) return;
+    const job = this.findJob(rollout.currentJobId);
+    if (!job || isActive(job.status)) return;
+    if (job.status === "succeeded" && rollout.pendingPanelIds.length > 0 && !this.mqttRuntime.status().connected) return;
+    await this.handleRolloutJobUpdate(job);
+  }
+
+  private async failRollout(rollout: HmiRollout, message: string): Promise<void> {
+    if (rollout.status !== "updating") return;
+    await this.saveRollout({ ...rollout, status: "failed", updatedAt: Date.now(), message });
+    this.logger.warn("Staged HMI rollout stopped.", {
+      component: "hmi",
+      rolloutId: rollout.id,
+      hmiVersion: rollout.hmiVersion,
+      message
+    });
+  }
+
+  private isCurrentActiveRollout(rolloutId: string): boolean {
+    const current = this.runtimeState.getHmiRollout();
+    return current?.id === rolloutId && current.status === "updating";
+  }
+
+  private async saveRollout(rollout: HmiRollout, replaceTerminal = false): Promise<void> {
+    const current = this.runtimeState.getHmiRollout();
+    if (current && current.id !== rollout.id && (!replaceTerminal || current.status === "updating")) return;
+    if (current?.id === rollout.id && current.status !== "updating" && rollout.status === "updating") return;
+    await this.runtimeState.setHmiRollout(rollout);
+    await this.runtimeState.flush();
+    const persisted = this.runtimeState.getHmiRollout();
+    if (!persisted || persisted.id !== rollout.id || persisted.updatedAt !== rollout.updatedAt || persisted.status !== rollout.status) return;
+    this.publishRollout(rollout);
+    this.logger.info("Staged HMI rollout status changed.", {
+      component: "hmi",
+      rolloutId: rollout.id,
+      hmiVersion: rollout.hmiVersion,
+      status: rollout.status,
+      currentPanelId: rollout.currentPanelId ?? ""
+    });
+  }
+
   private async expireJobs(): Promise<void> {
     if (this.expiryRun) return this.expiryRun;
-    this.expiryRun = this.expireStaleJobs().finally(() => { this.expiryRun = undefined; });
+    this.expiryRun = this.expireStaleJobs()
+      .then(() => this.reconcileRollout())
+      .finally(() => { this.expiryRun = undefined; });
     return this.expiryRun;
   }
 
@@ -216,6 +412,20 @@ function isActive(status: HmiUpdateJob["status"]): boolean {
 
 function isTerminal(status: HmiUpdateJob["status"]): boolean { return !isActive(status); }
 
+function isArtifactCompatibleWithPanel(artifact: HmiArtifactRecord, panel: Panel): boolean {
+  const profile = panel.unifiedFirmware === true ? "unified" : "legacy";
+  return artifact.compatibleProfiles.includes(profile);
+}
+
 function statusPhrase(status: HmiUpdateJob["status"]): string {
-  return status === "uploading" ? "updating" : status === "awaiting_confirmation" ? "waiting for confirmation" : "in progress";
+  switch (status) {
+    case "uploading": return "was updating";
+    case "awaiting_confirmation": return "was waiting for confirmation";
+    case "failed": return "failed";
+    case "cancelled": return "was cancelled";
+    case "timed_out": return "timed out";
+    case "succeeded": return "succeeded";
+    case "sending":
+    case "sent": return "was still in progress";
+  }
 }

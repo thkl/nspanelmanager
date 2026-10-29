@@ -91,7 +91,15 @@ async function startServer(): Promise<void> {
   const pluginRegistry = createDefaultPluginRegistry(logger);
   const mqttRuntime = new MqttRuntime(store, pluginRegistry, runtimeState, logger);
   let realtimeServer: RealtimeWebSocketServer | undefined;
-  const hmiUpdateService = new HmiUpdateService(runtimeState, (job) => realtimeServer?.broadcast({ type: "hmi-job", job }), logger);
+  const hmiUpdateService = new HmiUpdateService(
+    runtimeState,
+    (job) => realtimeServer?.broadcast({ type: "hmi-job", job }),
+    (rollout) => realtimeServer?.broadcast({ type: "hmi-rollout", rollout }),
+    logger,
+    store,
+    hmiService,
+    mqttRuntime
+  );
   const firmwareUpdateService = new FirmwareUpdateService(
     runtimeState,
     (job) => realtimeServer?.broadcast({ type: "firmware-job", job }),
@@ -108,6 +116,7 @@ async function startServer(): Promise<void> {
     discoveredPanels: mqttRuntime.discoveredPanelStatuses(),
     pluginActivities: mqttRuntime.pluginActivityStatuses(),
     hmiJobs: await hmiUpdateService.getJobsForSnapshot(),
+    hmiRollout: hmiUpdateService.getRolloutForSnapshot(),
     firmwareJobs: await firmwareUpdateService.getJobsForSnapshot(),
     firmwareRollout: firmwareUpdateService.getRolloutForSnapshot(),
     mqtt: mqttRuntime.status()

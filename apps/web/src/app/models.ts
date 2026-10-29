@@ -301,6 +301,27 @@ export interface HmiArtifact {
   size: number;
   sha256: string;
   uploadedAt: string;
+  compatibleProfiles: HmiCompatibilityProfile[];
+}
+
+export type HmiCompatibilityProfile = "legacy" | "unified";
+
+export type HmiRolloutStatus = "updating" | "completed" | "failed" | "cancelled";
+
+export interface HmiRollout {
+  id: string;
+  artifactId: string;
+  hmiVersion: string;
+  canaryPanelId: string;
+  canaryPanelName: string;
+  currentPanelId?: string;
+  currentJobId?: string;
+  pendingPanelIds: string[];
+  force: boolean;
+  status: HmiRolloutStatus;
+  startedAt: number;
+  updatedAt: number;
+  message: string;
 }
 
 export type HmiUpdateJobStatus = "sending" | "sent" | "awaiting_confirmation" | "uploading" | "succeeded" | "failed" | "cancelled" | "timed_out";
@@ -366,11 +387,12 @@ export interface FirmwareUpdateJob {
 }
 
 export type ManagerRealtimeEvent =
-  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; pluginActivities: PluginInstanceActivity[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: MqttStatus }
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; pluginActivities: PluginInstanceActivity[]; hmiJobs: HmiUpdateJob[]; hmiRollout: HmiRollout | null; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: MqttStatus }
   | { type: "panels"; panels: PanelConnectionStatus[] }
   | { type: "discovered-panels"; panels: DiscoveredPanel[] }
   | { type: "plugin-activity"; activity: PluginInstanceActivity }
   | { type: "hmi-job"; job: HmiUpdateJob }
+  | { type: "hmi-rollout"; rollout: HmiRollout | null }
   | { type: "firmware-job"; job: FirmwareUpdateJob }
   | { type: "firmware-rollout"; rollout: FirmwareRollout | null }
   | { type: "core-dump"; dump: CoreDumpRecord }

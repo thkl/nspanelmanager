@@ -162,6 +162,7 @@ export function createFirmwareRouter(
     const force = forceValue === true;
     const panel = store.get().panels.find((item) => item.id === request.params.panelId);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
+    if (hmiUpdateService.hasActiveRollout()) return response.status(409).json({ error: "A staged HMI rollout is active. Cancel it or wait for it to finish before starting a firmware update." });
     if (!mqttRuntime.status().connected) return response.status(503).json({ error: "The MQTT broker is not connected." });
     if (hmiUpdateService.hasActiveJob(panel.id)) return response.status(409).json({ error: `An HMI update for ${panel.name} is already in progress.` });
 

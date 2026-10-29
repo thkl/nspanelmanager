@@ -1,0 +1,38 @@
+<section class="help-page" [attr.aria-label]="'HELP.PAGE_TITLE' | translate">
+  <header class="help-heading">
+    <p class="eyebrow">{{ 'HELP.EYEBROW' | translate }}</p>
+    <h2>{{ 'HELP.PAGE_TITLE' | translate }}</h2>
+    <p>{{ 'HELP.INTRO' | translate }}</p>
+  </header>
+
+  <div class="help-grid">
+    <article class="help-card">
+      <h3>{{ 'HELP.PANELS_TITLE' | translate }}</h3>
+      <p>{{ 'HELP.PANELS_BODY' | translate }}</p>
+    </article>
+    <article class="help-card">
+      <h3>{{ 'HELP.PLUGINS_TITLE' | translate }}</h3>
+      <p>{{ 'HELP.PLUGINS_BODY' | translate }}</p>
+    </article>
+    <article class="help-card">
+      <h3>{{ 'HELP.ROUTES_TITLE' | translate }}</h3>
+      <p>{{ 'HELP.ROUTES_BODY' | translate }}</p>
+    </article>
+    <article class="help-card">
+      <h3>{{ 'HELP.BACKUPS_TITLE' | translate }}</h3>
+      <p>{{ 'HELP.BACKUPS_BODY' | translate }}</p>
+    </article>
+    <article class="help-card help-wide">
+      <h3>{{ 'HELP.HEALTH_TITLE' | translate }}</h3>
+      <p>{{ 'HELP.HEALTH_BODY' | translate }}</p>
+      <p class="help-event-list">{{ 'HELP.HEALTH_EVENTS' | translate }}</p>
+      <p class="help-topic-label">{{ 'HELP.MQTT_TOPIC' | translate }}</p>
+      <code>nspanelmanager/event/health</code>
+      <pre><code>{{ healthEventExample }}</code></pre>
+    </article>
+    <article class="help-card">
+      <h3>{{ 'HELP.UPDATES_TITLE' | translate }}</h3>
+      <p>{{ 'HELP.UPDATES_BODY' | translate }}</p>
+    </article>
+  </div>
+</section>

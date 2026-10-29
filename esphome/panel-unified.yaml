@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.29"
+  firmware_version: "6.0.31"
   diagnostic_ignore_music_commands: "false"
   diagnostic_skip_music_display: "false"
 
@@ -104,6 +104,11 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
+
+  - id: lastRemoteDisplayUpdate
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
 
   - id: favoritesTitle
     type: std::string
@@ -1197,6 +1202,7 @@ panel_mqtt:
       then:
         - lambda: |-
                if (x.containsKey("night")){
+                  id(lastRemoteDisplayUpdate) = millis();
                   int night = x["night"]; 
                   id(panel_night_mode) = night;
                   id(disp1).send_command_printf("page0.vaNightMode.val=%d",night);
@@ -1220,6 +1226,7 @@ panel_mqtt:
             if (has_brightness && (!x["brightness"].is<int>() || x["brightness"].as<int>() < 0 || x["brightness"].as<int>() > 100)) return;
             const int night = has_night ? x["night"].as<int>() : 0;
             const int brightness = has_brightness ? x["brightness"].as<int>() : 0;
+            id(lastRemoteDisplayUpdate) = millis();
             id(apply_panel_group_settings)->execute(request_id, has_night, night, has_brightness, brightness);
     
     - topic: cmnd/weather
@@ -1348,6 +1355,7 @@ panel_mqtt:
       then:
         - lambda: |-
               const bool identity_only = x.size() == 1 && x["mqtt_alias"].is<const char*>();
+              if (!identity_only) id(lastRemoteDisplayUpdate) = millis();
               id(initial) = true;
               if (x["mqtt_alias"].is<const char*>()) {
                 const std::string mqtt_alias = x["mqtt_alias"].as<std::string>();
@@ -3895,6 +3903,11 @@ display:
       then:
         - if:
             condition:
-              lambda: return touch_event && component_id != 0 && id(touchClickEnabled);
+              lambda: |-
+                // Suppress click feedback while remote display updates are being applied.
+                return touch_event &&
+                  component_id != 0 &&
+                  id(touchClickEnabled) &&
+                  (millis() - id(lastRemoteDisplayUpdate)) > 1000;
             then:
               - rtttl.play: "beep:d=32,o=5,b=200:e"

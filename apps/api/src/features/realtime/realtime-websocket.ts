@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AuthService } from "../auth/auth-service.js";
-import type { DiscoveredPanel, FirmwareRollout, FirmwareUpdateJob, HmiUpdateJob, PanelConnectionStatus, PluginInstanceActivity } from "../../types.js";
+import type { DiscoveredPanel, FirmwareRollout, FirmwareUpdateJob, HmiRollout, HmiUpdateJob, PanelConnectionStatus, PluginInstanceActivity } from "../../types.js";
 import type { CoreDumpRecord } from "../firmware/core-dump-store.js";
 import type { Logger } from "../../services/logger.js";
 
@@ -17,17 +17,19 @@ export interface RealtimeSnapshot {
   discoveredPanels: DiscoveredPanel[];
   pluginActivities: PluginInstanceActivity[];
   hmiJobs: HmiUpdateJob[];
+  hmiRollout: HmiRollout | null;
   firmwareJobs: FirmwareUpdateJob[];
   firmwareRollout: FirmwareRollout | null;
   mqtt: { connected: boolean; error: string };
 }
 
 export type RealtimeEvent =
-  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; pluginActivities: PluginInstanceActivity[]; hmiJobs: HmiUpdateJob[]; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: { connected: boolean; error: string } }
+  | { type: "snapshot"; panels: PanelConnectionStatus[]; discoveredPanels: DiscoveredPanel[]; pluginActivities: PluginInstanceActivity[]; hmiJobs: HmiUpdateJob[]; hmiRollout: HmiRollout | null; firmwareJobs: FirmwareUpdateJob[]; firmwareRollout: FirmwareRollout | null; mqtt: { connected: boolean; error: string } }
   | { type: "panels"; panels: PanelConnectionStatus[] }
   | { type: "discovered-panels"; panels: DiscoveredPanel[] }
   | { type: "plugin-activity"; activity: PluginInstanceActivity }
   | { type: "hmi-job"; job: HmiUpdateJob }
+  | { type: "hmi-rollout"; rollout: HmiRollout | null }
   | { type: "firmware-job"; job: FirmwareUpdateJob }
   | { type: "firmware-rollout"; rollout: FirmwareRollout | null }
   | { type: "core-dump"; dump: CoreDumpRecord }

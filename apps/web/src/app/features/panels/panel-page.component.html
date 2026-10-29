@@ -1,4 +1,8 @@
 <div class="content-grid" [class.mobile-detail-open]="mobileDetailsOpen()">
+  <details class="context-help">
+    <summary>{{ 'HELP.PANEL_CONTEXT_TITLE' | translate }}</summary>
+    <p>{{ 'HELP.PANEL_CONTEXT_BODY' | translate }}</p>
+  </details>
   <section class="health-alerts-card card" aria-labelledby="panel-health-heading" aria-live="polite">
     <div class="health-alerts-heading">
       <div><h2 id="panel-health-heading">{{ 'PANEL.HEALTH_TITLE' | translate }}</h2><p>{{ 'PANEL.HEALTH_DESCRIPTION' | translate }}</p></div>

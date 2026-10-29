@@ -1,4 +1,8 @@
 <section class="plugin-layout" [class.plugin-only-layout]="screen() === 'plugins'" [class.instances-layout]="screen() === 'instances'">
+  <details class="context-help">
+    <summary>{{ 'HELP.PLUGINS_CONTEXT_TITLE' | translate }}</summary>
+    <p>{{ 'HELP.PLUGINS_CONTEXT_BODY' | translate }}</p>
+  </details>
   @if (screen() === 'plugins') {
   <nav class="plugin-profile-nav card" [attr.aria-label]="'PLUGINS.PROFILES' | translate">
     <button type="button" class="plugin-profile-button new-profile-button" [class.active]="!editingProfileId()" [attr.aria-pressed]="!editingProfileId()" (click)="cancelProfileEdit()">

@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import type { Logger } from "../../services/logger.js";
 import type { ConfigStore } from "../../services/config-store.js";
 import type { MqttRuntime } from "../../services/mqtt-runtime.js";
+import type { HmiCompatibilityProfile, Panel } from "../../types.js";
 import { HmiArtifactError, HmiArtifactService, MAX_HMI_FILE_BYTES } from "./hmi-artifact-service.js";
 import { HmiUpdateError, HmiUpdateService } from "./hmi-update-service.js";
 import { panelBootstrapTopicRoot } from "../../domain/panel-topics.js";
@@ -15,9 +16,21 @@ export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService
   router.get("/", (_request, response) => response.json({ artifact: hmiService.currentArtifact(), maxUploadBytes: MAX_HMI_FILE_BYTES }));
 
   router.post("/upload", express.raw({ type: "application/octet-stream", limit: MAX_HMI_FILE_BYTES }), async (request, response, next) => {
+    if (!hmiUpdateService.reserveArtifactUpload()) {
+      return response.status(409).json({ error: "A staged HMI rollout or another HMI upload is active. Wait for it to finish before replacing the HMI file." });
+    }
     try {
       if (!Buffer.isBuffer(request.body)) return response.status(415).json({ error: "Upload the TFT file as application/octet-stream." });
-      const artifact = await hmiService.upload(request.body, decodeFilenameHeader(request.get("x-hmi-filename") ?? ""));
+      const profileHeader = request.get("x-hmi-compatible-profiles");
+      const compatibleProfiles = profileHeader === undefined
+        ? ["legacy", "unified"] as HmiCompatibilityProfile[]
+        : parseCompatibilityProfiles(profileHeader);
+      if (!compatibleProfiles) return response.status(400).json({ error: "Choose one or both supported HMI profiles: legacy, unified." });
+      const artifact = await hmiService.upload(
+        request.body,
+        decodeFilenameHeader(request.get("x-hmi-filename") ?? ""),
+        compatibleProfiles
+      );
       logger.info("HMI artifact uploaded.", {
         component: "hmi",
         artifactId: artifact.id,
@@ -29,7 +42,72 @@ export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService
     } catch (error) {
       if (error instanceof HmiArtifactError) response.status(error.statusCode).json({ error: error.message });
       else next(error);
+    } finally {
+      hmiUpdateService.releaseArtifactUpload();
     }
+  });
+
+  router.post("/rollout", async (request, response, next) => {
+    const canaryPanelId = request.body?.canaryPanelId;
+    const requestedTargetIds: unknown = request.body?.targetPanelIds;
+    const forceValue: unknown = request.body?.force;
+    if (typeof canaryPanelId !== "string" || !Array.isArray(requestedTargetIds)
+      || requestedTargetIds.length === 0 || requestedTargetIds.some((id) => typeof id !== "string")
+      || (forceValue !== undefined && typeof forceValue !== "boolean")) {
+      return response.status(400).json({ error: "Choose a canary, at least one target panel, and a boolean force option." });
+    }
+    const targetPanelIds = [...new Set(requestedTargetIds as string[])];
+    if (targetPanelIds.includes(canaryPanelId)) return response.status(400).json({ error: "The canary cannot also be a rollout target." });
+    const force = forceValue === true;
+    const panels = store.get().panels;
+    const canary = panels.find((panel) => panel.id === canaryPanelId);
+    if (!canary) return response.status(404).json({ error: "Canary panel not found." });
+    const targets = targetPanelIds.map((panelId) => panels.find((panel) => panel.id === panelId));
+    if (targets.some((panel) => !panel)) return response.status(404).json({ error: "One or more target panels were not found." });
+    const artifact = hmiService.currentArtifact();
+    if (!artifact) return response.status(409).json({ error: "Upload an HMI file before starting a staged rollout." });
+    for (const panel of [canary, ...targets as Panel[]]) {
+      if (!isCompatible(artifact.compatibleProfiles, panel)) {
+        return response.status(409).json({ error: `${panel.name} is not compatible with the uploaded HMI file.` });
+      }
+      if (hmiUpdateService.hasActiveJob(panel.id) || firmwareUpdateService.hasActiveJob(panel.id)) {
+        return response.status(409).json({ error: `Wait for the current update on ${panel.name} to finish before starting a staged HMI rollout.` });
+      }
+    }
+    if (!mqttRuntime.status().connected) return response.status(503).json({ error: "The MQTT broker is not connected." });
+    if (!hmiUpdateService.reserveRolloutStart()) return response.status(409).json({ error: "A staged HMI rollout is already active." });
+
+    try {
+      const download = await hmiService.createDownloadUrl();
+      if (download.artifact.id !== artifact.id) {
+        throw new HmiUpdateError("The uploaded HMI file changed while the staged rollout was starting. Start the rollout again with the current file.");
+      }
+      const canaryJob = await hmiUpdateService.begin(canary, download.artifact, force, download.expiresAt, request.authUser?.email);
+      const rollout = await hmiUpdateService.startRollout(canaryJob, targetPanelIds, force);
+      if (!mqttRuntime.publishHmiUpdate(canary, download.url, download.artifact.sha256, canaryJob.id, force)) {
+        await hmiUpdateService.markPublishFailed(canaryJob.id, "The MQTT broker disconnected before the canary HMI request could be sent.");
+        return response.status(503).json({ error: "The MQTT broker disconnected before the canary update could be sent.", rollout: hmiUpdateService.getRolloutForSnapshot() });
+      }
+      await hmiUpdateService.markPublished(canaryJob.id);
+      logger.info("Staged HMI rollout started.", {
+        component: "hmi",
+        rolloutId: rollout.id,
+        canary: canary.name,
+        artifactId: artifact.id,
+        targetCount: String(targetPanelIds.length),
+        requestedBy: request.authUser?.email ?? "unknown"
+      });
+      return response.status(201).json({ rollout: hmiUpdateService.getRolloutForSnapshot() ?? rollout });
+    } catch (error) {
+      hmiUpdateService.releaseRolloutStart();
+      if (error instanceof HmiArtifactError) response.status(error.statusCode).json({ error: error.message });
+      else if (error instanceof HmiUpdateError) response.status(error.statusCode).json({ error: error.message });
+      else next(error);
+    }
+  });
+
+  router.post("/rollout/cancel", async (_request, response) => {
+    response.json({ rollout: await hmiUpdateService.cancelRollout() });
   });
 
   router.post("/panels/:panelId/update", async (request, response, next) => {
@@ -39,10 +117,15 @@ export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService
     const panelId = request.params.panelId;
     const panel = store.get().panels.find((item) => item.id === panelId);
     if (!panel) return response.status(404).json({ error: "Panel not found." });
+    if (hmiUpdateService.hasActiveRollout()) return response.status(409).json({ error: "A staged HMI rollout is active. Cancel it or wait for it to finish before starting a separate update." });
     if (firmwareUpdateService.hasActiveJob(panel.id)) return response.status(409).json({ error: `A firmware update for ${panel.name} is already in progress.` });
     if (!mqttRuntime.status().connected) return response.status(503).json({ error: "The MQTT broker is not connected." });
 
     try {
+      const activeArtifact = hmiService.currentArtifact();
+      if (activeArtifact && !isCompatible(activeArtifact.compatibleProfiles, panel)) {
+        return response.status(409).json({ error: `${panel.name} is not compatible with the uploaded HMI file.` });
+      }
       const download = await hmiService.createDownloadUrl();
       const topic = `${panelBootstrapTopicRoot(panel)}/cmnd/updatehmi`;
       const job = await hmiUpdateService.begin(panel, download.artifact, force, download.expiresAt, request.authUser?.email);
@@ -70,6 +153,17 @@ export function createHmiRouter(hmiService: HmiArtifactService, hmiUpdateService
   });
 
   return router;
+}
+
+function parseCompatibilityProfiles(value: string): HmiCompatibilityProfile[] | null {
+  const requested = value.split(",").map((profile) => profile.trim()).filter(Boolean);
+  if (requested.length === 0 || requested.some((profile) => profile !== "legacy" && profile !== "unified")) return null;
+  return [...new Set(requested as HmiCompatibilityProfile[])];
+}
+
+function isCompatible(profiles: HmiCompatibilityProfile[], panel: Panel): boolean {
+  const profile = panel.unifiedFirmware === true ? "unified" : "legacy";
+  return profiles.includes(profile);
 }
 
 function decodeFilenameHeader(value: string): string {

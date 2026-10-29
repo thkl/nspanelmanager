@@ -1,4 +1,8 @@
 <section class="hmi-page" [attr.aria-label]="'HMI.PAGE_LABEL' | translate">
+  <details class="context-help">
+    <summary>{{ 'HELP.UPDATES_CONTEXT_TITLE' | translate }}</summary>
+    <p>{{ 'HELP.UPDATES_CONTEXT_BODY' | translate }}</p>
+  </details>
   <div class="hmi-heading">
     <div>
       <p class="eyebrow">{{ 'HMI.EYEBROW' | translate }}</p>
@@ -140,6 +144,12 @@
         @if (selectedFile(); as file) {
           <div class="selected-file"><span>{{ file.name }}</span><span>{{ formatSize(file.size) }}</span></div>
         }
+        <fieldset class="compatibility-options">
+          <legend>{{ 'HMI.COMPATIBILITY_LABEL' | translate }}</legend>
+          <label><input type="checkbox" [checked]="selectedCompatibilityProfiles().includes('legacy')" (change)="setCompatibilityProfile('legacy', $event)"> {{ 'HMI.PROFILE_LEGACY' | translate }}</label>
+          <label><input type="checkbox" [checked]="selectedCompatibilityProfiles().includes('unified')" (change)="setCompatibilityProfile('unified', $event)"> {{ 'HMI.PROFILE_UNIFIED' | translate }}</label>
+          <small>{{ 'HMI.COMPATIBILITY_HELP' | translate }}</small>
+        </fieldset>
         <button class="primary-button" type="button" [disabled]="!selectedFile() || uploading()" (click)="upload()">
           {{ (uploading() ? 'HMI.UPLOADING' : 'HMI.UPLOAD_TFT') | translate }}
         </button>
@@ -160,8 +170,47 @@
       </div>
       <dl class="artifact-details">
         <div><dt>{{ 'HMI.HMI_VERSION_ID' | translate }}</dt><dd>{{ currentArtifact.sha256 }}</dd></div>
+        <div><dt>{{ 'HMI.COMPATIBILITY_LABEL' | translate }}</dt><dd>@if (currentArtifact.compatibleProfiles.includes('legacy')) { {{ 'HMI.PROFILE_LEGACY' | translate }} } @if (currentArtifact.compatibleProfiles.includes('legacy') && currentArtifact.compatibleProfiles.includes('unified')) { · } @if (currentArtifact.compatibleProfiles.includes('unified')) { {{ 'HMI.PROFILE_UNIFIED' | translate }} }</dd></div>
       </dl>
     </article>
+
+    <section class="hmi-rollout-card" aria-labelledby="hmi-rollout-title">
+      <div class="hmi-rollout-heading">
+        <div><h3 id="hmi-rollout-title">{{ 'HMI.HMI_ROLLOUT_TITLE' | translate }}</h3><p>{{ 'HMI.HMI_ROLLOUT_HELP' | translate }}</p></div>
+      </div>
+      @if (manager.hmiRollout(); as rollout) {
+        <div class="hmi-rollout-status" [class]="'hmi-rollout-status status-' + rollout.status" aria-live="polite">
+          <b>{{ ('HMI.HMI_ROLLOUT_' + rollout.status.toUpperCase()) | translate }}</b>
+          <p>{{ rollout.message }}</p>
+          <small>{{ 'HMI.HMI_ROLLOUT_CANARY' | translate }}: {{ rollout.canaryPanelName }} · {{ 'HMI.HMI_ROLLOUT_CURRENT' | translate }}: {{ hmiRolloutPanelName(rollout.currentPanelId) }}</small>
+          @if (rollout.pendingPanelIds.length > 0) { <small>{{ 'HMI.HMI_ROLLOUT_PENDING' | translate }}: {{ hmiRolloutPendingNames() }}</small> }
+          @if (rollout.status === 'updating') {
+            <button class="button secondary" type="button" [disabled]="cancellingHmiRollout()" (click)="cancelHmiRollout()">{{ (cancellingHmiRollout() ? 'HMI.CANCELLING_ROLLOUT' : 'HMI.CANCEL_HMI_ROLLOUT') | translate }}</button>
+          }
+        </div>
+      }
+      <div class="hmi-rollout-selectors">
+        <label>{{ 'HMI.HMI_ROLLOUT_CANARY' | translate }}
+          <select [value]="hmiCanaryPanelId()" (change)="setHmiCanary($event)" [disabled]="hmiRolloutActive()">
+            <option value="">{{ 'HMI.HMI_ROLLOUT_CHOOSE_CANARY' | translate }}</option>
+            @for (panel of manager.config().panels; track panel.id) {
+              @if (isHmiCompatible(panel)) { <option [value]="panel.id">{{ panel.name }}</option> }
+            }
+          </select>
+        </label>
+        <fieldset>
+          <legend>{{ 'HMI.HMI_ROLLOUT_TARGETS' | translate }}</legend>
+          @for (panel of manager.config().panels; track panel.id) {
+            @if (panel.id !== hmiCanaryPanelId() && isHmiCompatible(panel)) {
+              <label><input type="checkbox" [checked]="hmiRolloutTargetPanelIds().includes(panel.id)" [disabled]="hmiRolloutActive()" (change)="setHmiRolloutTarget(panel.id, $event)"> {{ panel.name }}</label>
+            }
+          }
+        </fieldset>
+      </div>
+      <button class="primary-button" type="button" [disabled]="!canStartHmiRollout()" (click)="startHmiRollout()">
+        {{ (startingHmiRollout() ? 'HMI.STARTING_HMI_ROLLOUT' : 'HMI.START_HMI_ROLLOUT') | translate }}
+      </button>
+    </section>
 
     <section class="panel-section" aria-labelledby="panel-targets-title">
       <div class="section-heading">
@@ -182,12 +231,13 @@
               <div class="panel-copy">
                 <h4>{{ panel.name }}</h4>
                 <p>{{ updateCommandTopic(panel, 'updatehmi') }}</p>
+                @if (!isHmiCompatible(panel)) { <p class="incompatible-note">{{ 'HMI.INCOMPATIBLE_PROFILE' | translate }}</p> }
                 <p class="panel-hmi-version" [class.current-version]="hmiVersionMatches(panel)">{{ hmiVersionLabel(panel) }}</p>
                 @if (latestUpdate(panel); as job) {
                   <p class="panel-job-status" [class]="'panel-job-status status-' + job.status">{{ updateStatusLabel(job) }} · {{ formatJobTime(job.updatedAt) }}</p>
                 }
               </div>
-              <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || updatingPanelId() !== '' || updateInProgress(panel)" (click)="requestUpdate(panel)">
+              <button class="send-button" type="button" [disabled]="!manager.mqtt().connected || !isHmiCompatible(panel) || hmiRolloutActive() || updatingPanelId() !== '' || updateInProgress(panel)" (click)="requestUpdate(panel)">
                 {{ (updateInProgress(panel) ? 'HMI.UPDATE_IN_PROGRESS' : updatingPanelId() === panel.id ? 'HMI.SENDING' : forceUpdate() ? 'HMI.FORCE_UPDATE_NOW' : 'HMI.SEND_UPDATE_PROMPT') | translate }}
               </button>
             </article>

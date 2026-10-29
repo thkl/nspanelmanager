@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { HmiArtifactRecord } from "../../types.js";
+import type { HmiArtifactRecord, HmiCompatibilityProfile } from "../../types.js";
 
 export const MAX_HMI_FILE_BYTES = 32 * 1024 * 1024;
 
@@ -87,13 +87,19 @@ export class HmiArtifactService {
   }
 
   /** Validates and atomically saves a `.tft` upload as the latest HMI artifact. */
-  async upload(bytes: Buffer, originalFilename: string): Promise<HmiArtifactRecord> {
+  async upload(
+    bytes: Buffer,
+    originalFilename: string,
+    compatibleProfiles: HmiCompatibilityProfile[] = ["legacy", "unified"]
+  ): Promise<HmiArtifactRecord> {
     return this.serialize(async () => {
       this.ensureInitialized();
       if (!Buffer.isBuffer(bytes) || bytes.length === 0) throw new HmiArtifactError("Choose a non-empty TFT file to upload.");
       if (bytes.length > MAX_HMI_FILE_BYTES) throw new HmiArtifactError("The TFT file exceeds the 32 MB upload limit.");
       const filename = safeFilename(originalFilename);
       if (!filename || path.extname(filename).toLowerCase() !== ".tft") throw new HmiArtifactError("Upload a file with the .tft extension.");
+      const profiles = normalizeCompatibilityProfiles(compatibleProfiles);
+      if (profiles.length === 0) throw new HmiArtifactError("Choose at least one compatible panel firmware profile.");
       await this.pruneAndPersist();
       if ((await this.storedArtifactBytes()) + bytes.length > MAX_HMI_STORAGE_BYTES) {
         throw new HmiArtifactError("Active panel download links are keeping older HMI files. Wait for those links to expire before uploading more files.", 409);
@@ -115,7 +121,8 @@ export class HmiArtifactService {
         filename,
         size: bytes.length,
         sha256: createHash("sha256").update(bytes).digest("hex"),
-        uploadedAt: new Date().toISOString()
+        uploadedAt: new Date().toISOString(),
+        compatibleProfiles: profiles
       };
       this.state = { ...this.state, artifact };
       await this.persistState();
@@ -192,7 +199,8 @@ export class HmiArtifactService {
         filename: "hmi.tft",
         size: metadata.size,
         sha256: "",
-        uploadedAt: metadata.mtime.toISOString()
+        uploadedAt: metadata.mtime.toISOString(),
+        compatibleProfiles: ["legacy", "unified"]
       };
     } catch (error) {
       if (isMissingFile(error)) return null;
@@ -289,8 +297,15 @@ function parseArtifact(value: unknown): HmiArtifactRecord | null {
     filename: safeFilename(artifact["filename"]),
     size: artifact["size"],
     sha256: artifact["sha256"],
-    uploadedAt: artifact["uploadedAt"]
+    uploadedAt: artifact["uploadedAt"],
+    compatibleProfiles: normalizeCompatibilityProfiles(artifact["compatibleProfiles"])
   };
+}
+
+function normalizeCompatibilityProfiles(value: unknown): HmiCompatibilityProfile[] {
+  if (!Array.isArray(value)) return ["legacy", "unified"];
+  const profiles = [...new Set(value.filter((item): item is HmiCompatibilityProfile => item === "legacy" || item === "unified"))];
+  return profiles;
 }
 
 function safeFilename(value: string): string {

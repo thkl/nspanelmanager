@@ -54,6 +54,8 @@ export class MqttRuntime {
   private readonly publishedPanelFavoriteStates = new Map<string, string>();
   private readonly panelFirmwareVersions = new Map<string, string>();
   private readonly panelConnections = new Map<string, { status: "online" | "offline"; lastSeenAt: number | null; telemetry: PanelTelemetry | null }>();
+  private readonly panelHeapAlertStates = new Map<string, "free_heap" | "minimum_heap">();
+  private readonly panelResetNotificationLastSent = new Map<string, { reason: string; sentAt: number }>();
   private readonly discoveredPanels = new Map<string, DiscoveredPanel>();
   private readonly panelIps = new Map<string, { ip: string; macAddress: string; name: string }>();
   private readonly pluginActivities = new Map<string, PluginInstanceActivity>();
@@ -1116,6 +1118,7 @@ export class MqttRuntime {
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/reset_reason`) {
       await this.recordPanelResetReport(eventPanel, payload, message.receivedAt);
+      this.publishUnexpectedPanelReset(eventPanel, payload, message.receivedAt);
       this.notifyPanelConnectionsChanged();
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/hmi/update`) {
@@ -1458,6 +1461,15 @@ export class MqttRuntime {
     if (topic === `${root}/status`) {
       const normalized = payload.trim().toLowerCase();
       if (normalized !== "online" && normalized !== "offline") return false;
+      if (previous && previous.status !== normalized) {
+        this.publishPanelHealthEvent(
+          panel,
+          normalized === "offline" ? "panel.offline" : "panel.online",
+          normalized === "offline" ? "warning" : "info",
+          receivedAt,
+          { status: normalized }
+        );
+      }
       this.panelConnections.set(panel.nodeName, {
         status: normalized,
         lastSeenAt: normalized === "online" ? receivedAt : previous?.lastSeenAt ?? null,
@@ -1466,12 +1478,84 @@ export class MqttRuntime {
       return true;
     }
 
+    if (previous?.status === "offline") {
+      this.publishPanelHealthEvent(panel, "panel.online", "info", receivedAt, { status: "online", source: "heartbeat" });
+    }
+    const telemetry = readPanelTelemetry(payload, receivedAt) ?? previous?.telemetry ?? null;
     this.panelConnections.set(panel.nodeName, {
       status: "online",
       lastSeenAt: receivedAt,
-      telemetry: readPanelTelemetry(payload, receivedAt) ?? previous?.telemetry ?? null
+      telemetry
     });
+    this.publishPanelHeapHealth(panel, telemetry, receivedAt);
     return true;
+  }
+
+  /** Publishes panel health transitions on a stable manager-owned MQTT topic. */
+  private publishPanelHealthEvent(
+    panel: Panel,
+    event: string,
+    severity: "info" | "warning" | "critical",
+    occurredAt: number,
+    details: Record<string, string | number | boolean | null>
+  ): void {
+    if (panel.healthNotificationsEnabled === false || !this.client?.connected) return;
+    const payload = JSON.stringify({
+      schema_version: 1,
+      event_id: randomUUID(),
+      event,
+      severity,
+      timestamp: new Date(occurredAt).toISOString(),
+      panel: {
+        id: panel.id,
+        name: panel.name,
+        node_name: panel.nodeName,
+        ...(panel.macAddress ? { mac_address: panel.macAddress } : {}),
+        ...(panel.groupName ? { group: panel.groupName } : {})
+      },
+      details
+    });
+    this.client.publish("nspanelmanager/event/health", payload, { qos: 1, retain: false }, (error) => {
+      if (error) {
+        this.logger.warn("Could not publish a panel health notification.", {
+          component: "mqtt",
+          panel: panel.name,
+          topic: "nspanelmanager/event/health",
+          event,
+          detail: error.message
+        });
+      }
+    });
+  }
+
+  /** Sends low-memory events only when a panel enters or leaves an alert state. */
+  private publishPanelHeapHealth(panel: Panel, telemetry: PanelTelemetry | null, receivedAt: number): void {
+    if (panel.healthNotificationsEnabled === false) {
+      this.panelHeapAlertStates.delete(panel.id);
+      return;
+    }
+    const state = telemetry?.freeHeapBytes !== undefined && telemetry.freeHeapBytes < 32 * 1024
+      ? "free_heap"
+      : telemetry?.minFreeHeapBytes !== undefined && telemetry.minFreeHeapBytes < 20 * 1024
+        ? "minimum_heap"
+        : undefined;
+    const previousState = this.panelHeapAlertStates.get(panel.id);
+    if (state === previousState) return;
+    if (state) {
+      this.panelHeapAlertStates.set(panel.id, state);
+      this.publishPanelHealthEvent(panel, "panel.low_memory", "warning", receivedAt, {
+        metric: state,
+        free_heap_bytes: telemetry?.freeHeapBytes ?? null,
+        min_free_heap_bytes: telemetry?.minFreeHeapBytes ?? null
+      });
+    } else if (previousState) {
+      this.panelHeapAlertStates.delete(panel.id);
+      this.publishPanelHealthEvent(panel, "panel.memory_recovered", "info", receivedAt, {
+        previous_metric: previousState,
+        free_heap_bytes: telemetry?.freeHeapBytes ?? null,
+        min_free_heap_bytes: telemetry?.minFreeHeapBytes ?? null
+      });
+    }
   }
 
   private notifyPanelConnectionsChanged(): void {
@@ -1558,6 +1642,16 @@ export class MqttRuntime {
     const reason = payload.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 80);
     if (!reason) return;
     await this.runtimeState.setPanelResetReport(panel.id, { reason, reportedAt: receivedAt });
+  }
+
+  /** Publishes abnormal reboot reports once, even if firmware repeats its startup event. */
+  private publishUnexpectedPanelReset(panel: Panel, payload: string, receivedAt: number): void {
+    const reason = payload.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 80);
+    if (!/(panic|watchdog|brownout|assert|abort|crash)/i.test(reason)) return;
+    const previous = this.panelResetNotificationLastSent.get(panel.id);
+    if (previous?.reason === reason && receivedAt - previous.sentAt < 10_000) return;
+    this.panelResetNotificationLastSent.set(panel.id, { reason, sentAt: receivedAt });
+    this.publishPanelHealthEvent(panel, "panel.unexpected_reboot", "critical", receivedAt, { reset_reason: reason });
   }
 
   /** Asks compatible panel firmware to replay its latest reset reason report. */

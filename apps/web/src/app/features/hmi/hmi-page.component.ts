@@ -2,7 +2,7 @@ import { HttpErrorResponse } from "@angular/common/http";
 import { Component, ElementRef, OnInit, signal, viewChild } from "@angular/core";
 import { TranslatePipe } from "@ngx-translate/core";
 import { ManagerStore } from "../../manager-store.service";
-import type { FirmwareArtifact, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiUpdateJob, Panel } from "../../models";
+import type { FirmwareArtifact, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiCompatibilityProfile, HmiUpdateJob, Panel } from "../../models";
 
 type UpdateTab = "firmware" | "hmi";
 
@@ -34,6 +34,11 @@ export class HmiPageComponent implements OnInit {
   readonly stagingFirmwarePanelId = signal("");
   readonly forceUpdate = signal(false);
   readonly forceFirmwareUpdate = signal(false);
+  readonly selectedCompatibilityProfiles = signal<HmiCompatibilityProfile[]>(["legacy", "unified"]);
+  readonly hmiCanaryPanelId = signal("");
+  readonly hmiRolloutTargetPanelIds = signal<string[]>([]);
+  readonly startingHmiRollout = signal(false);
+  readonly cancellingHmiRollout = signal(false);
   readonly maxUploadBytes = signal(32 * 1024 * 1024);
   readonly maxFirmwareUploadBytes = signal(8 * 1024 * 1024 + 64 * 1024);
   readonly fileInput = viewChild<ElementRef<HTMLInputElement>>("fileInput");
@@ -235,7 +240,7 @@ export class HmiPageComponent implements OnInit {
     const file = this.selectedFile();
     if (!file || this.uploading()) return;
     this.uploading.set(true);
-    this.manager.uploadHmi(file).subscribe({
+    this.manager.uploadHmi(file, this.selectedCompatibilityProfiles()).subscribe({
       next: ({ artifact }) => {
         this.artifact.set(artifact);
         this.uploading.set(false);
@@ -423,6 +428,108 @@ export class HmiPageComponent implements OnInit {
   formatJobTime(value: number): string {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? this.manager.translateText("HMI.UNKNOWN_TIME") : date.toLocaleString();
+  }
+
+  /** Updates the firmware profiles that the uploaded TFT is known to support. */
+  setCompatibilityProfile(profile: HmiCompatibilityProfile, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    this.selectedCompatibilityProfiles.update((profiles) => {
+      const next = target.checked
+        ? [...new Set([...profiles, profile])]
+        : profiles.filter((item) => item !== profile);
+      return next.length > 0 ? next : profiles;
+    });
+  }
+
+  /** Reports whether an artifact can be safely sent to the selected panel family. */
+  isHmiCompatible(panel: Panel): boolean {
+    const profile = panel.unifiedFirmware === true ? "unified" : "legacy";
+    return this.artifact()?.compatibleProfiles.includes(profile) ?? false;
+  }
+
+  /** Changes the canary and removes it from the queued target selection. */
+  setHmiCanary(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement)) return;
+    this.hmiCanaryPanelId.set(target.value);
+    this.hmiRolloutTargetPanelIds.update((panelIds) => panelIds.filter((panelId) => panelId !== target.value));
+  }
+
+  /** Adds or removes a target from the staged HMI rollout panel queue. */
+  setHmiRolloutTarget(panelId: string, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    this.hmiRolloutTargetPanelIds.update((panelIds) => target.checked
+      ? [...new Set([...panelIds, panelId])]
+      : panelIds.filter((item) => item !== panelId));
+  }
+
+  /** Starts a rollout that waits for each panel to confirm the exact TFT version. */
+  startHmiRollout(): void {
+    const canaryPanelId = this.hmiCanaryPanelId();
+    const targetPanelIds = this.hmiRolloutTargetPanelIds();
+    if (!canaryPanelId || targetPanelIds.length === 0 || !this.canStartHmiRollout()) return;
+    this.startingHmiRollout.set(true);
+    this.manager.startHmiRollout(canaryPanelId, targetPanelIds, this.forceUpdate()).subscribe({
+      next: ({ rollout }) => {
+        this.startingHmiRollout.set(false);
+        this.manager.hmiRollout.set(rollout);
+        this.manager.inform("HMI.NOTICE_HMI_ROLLOUT_STARTED", "success", {
+          canary: rollout.canaryPanelName,
+          count: String(targetPanelIds.length)
+        });
+      },
+      error: (error: unknown) => {
+        this.startingHmiRollout.set(false);
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+  }
+
+  /** Cancels the queue so the manager does not start another panel update. */
+  cancelHmiRollout(): void {
+    if (!this.hmiRolloutActive() || this.cancellingHmiRollout()) return;
+    this.cancellingHmiRollout.set(true);
+    this.manager.cancelHmiRollout().subscribe({
+      next: () => {
+        this.cancellingHmiRollout.set(false);
+        this.manager.inform("HMI.NOTICE_HMI_ROLLOUT_CANCELLED");
+      },
+      error: (error: unknown) => {
+        this.cancellingHmiRollout.set(false);
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+  }
+
+  /** Checks that selected panels are compatible and have no other update in progress. */
+  canStartHmiRollout(): boolean {
+    if (!this.artifact() || !this.manager.mqtt().connected || this.startingHmiRollout() || this.hmiRolloutActive()) return false;
+    const canaryPanelId = this.hmiCanaryPanelId();
+    const targets = this.hmiRolloutTargetPanelIds();
+    if (!canaryPanelId || targets.length === 0 || targets.includes(canaryPanelId)) return false;
+    return [canaryPanelId, ...targets].every((panelId) => {
+      const panel = this.manager.config().panels.find((candidate) => candidate.id === panelId);
+      return Boolean(panel && this.isHmiCompatible(panel) && !this.updateInProgress(panel) && !this.firmwareUpdateInProgress(panel));
+    });
+  }
+
+  /** Returns whether the staged HMI rollout currently owns the update queue. */
+  hmiRolloutActive(): boolean {
+    return this.manager.hmiRollout()?.status === "updating";
+  }
+
+  /** Resolves a panel identifier for a readable rollout progress summary. */
+  hmiRolloutPanelName(panelId: string | undefined): string {
+    return this.manager.config().panels.find((panel) => panel.id === panelId)?.name ?? "panel";
+  }
+
+  /** Returns names for panels still waiting in the rollout queue. */
+  hmiRolloutPendingNames(): string {
+    const rollout = this.manager.hmiRollout();
+    if (!rollout) return "";
+    return rollout.pendingPanelIds.map((panelId) => this.hmiRolloutPanelName(panelId)).join(", ");
   }
 
   /** Updates whether the next panel request should bypass the on-panel confirmation. */

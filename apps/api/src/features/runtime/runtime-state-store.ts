@@ -1,5 +1,5 @@
 import type { PluginState, PluginStorageScope } from "../plugins/plugin-contract.js";
-import type { FirmwareRollout, FirmwareUpdateJob, HmiUpdateJob, PanelResetReport } from "../../types.js";
+import type { FirmwareRollout, FirmwareUpdateJob, HmiRollout, HmiUpdateJob, PanelResetReport } from "../../types.js";
 import type { Logger } from "../../services/logger.js";
 import type { SqliteStore } from "../../services/sqlite-store.js";
 
@@ -57,6 +57,7 @@ interface RuntimeSnapshot {
   panelResetReports: Record<string, PanelResetReport>;
   panelGroupSettings: Record<string, PanelGroupRuntimeSettings>;
   hmiUpdateJobs: HmiUpdateJob[];
+  hmiRollout: HmiRollout | null;
   firmwareUpdateJobs: FirmwareUpdateJob[];
   firmwareRollout: FirmwareRollout | null;
   values: Record<string, unknown>;
@@ -103,6 +104,7 @@ export class RuntimeStateStore {
     const panelResetReports = normalizePanelResetReports(value.panelResetReports);
     const panelGroupSettings = normalizePanelGroupSettings(value.panelGroupSettings);
     const hmiUpdateJobs = normalizeHmiUpdateJobs(value.hmiUpdateJobs);
+    const hmiRollout = normalizeHmiRollout(value.hmiRollout);
     const firmwareUpdateJobs = normalizeFirmwareUpdateJobs(value.firmwareUpdateJobs);
     const firmwareRollout = normalizeFirmwareRollout(value.firmwareRollout);
     this.snapshot = {
@@ -111,6 +113,7 @@ export class RuntimeStateStore {
       panelResetReports,
       panelGroupSettings,
       hmiUpdateJobs,
+      hmiRollout,
       firmwareUpdateJobs,
       firmwareRollout,
       values: isRecord(value.values) ? value.values : {},
@@ -129,6 +132,8 @@ export class RuntimeStateStore {
       || JSON.stringify(value.panelGroupSettings) !== JSON.stringify(panelGroupSettings)
       || !Array.isArray(value.hmiUpdateJobs)
       || JSON.stringify(value.hmiUpdateJobs) !== JSON.stringify(hmiUpdateJobs)
+      || !Object.hasOwn(value, "hmiRollout")
+      || JSON.stringify(value.hmiRollout) !== JSON.stringify(hmiRollout)
       || !Array.isArray(value.firmwareUpdateJobs)
       || JSON.stringify(value.firmwareUpdateJobs) !== JSON.stringify(firmwareUpdateJobs)
       || !Object.hasOwn(value, "firmwareRollout")
@@ -283,6 +288,17 @@ export class RuntimeStateStore {
     this.persist();
   }
 
+  /** Returns the active or most recently completed staged HMI rollout. */
+  getHmiRollout(): HmiRollout | null {
+    return this.snapshot.hmiRollout ? structuredClone(this.snapshot.hmiRollout) : null;
+  }
+
+  /** Persists the canary-first HMI rollout and its queued panel identifiers. */
+  async setHmiRollout(rollout: HmiRollout | null): Promise<void> {
+    this.snapshot.hmiRollout = rollout ? structuredClone(rollout) : null;
+    this.persist();
+  }
+
   /** Returns recent durable firmware update jobs, newest activity first. */
   getFirmwareUpdateJobs(): FirmwareUpdateJob[] { return structuredClone(this.snapshot.firmwareUpdateJobs); }
 
@@ -433,7 +449,7 @@ export class RuntimeStateStore {
   }
 }
 
-function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, panelGroupSettings: {}, hmiUpdateJobs: [], firmwareUpdateJobs: [], firmwareRollout: null, values: {}, pluginStates: {} }; }
+function emptySnapshot(): RuntimeSnapshot { return { version: 1, panelSessions: {}, panelResetReports: {}, panelGroupSettings: {}, hmiUpdateJobs: [], hmiRollout: null, firmwareUpdateJobs: [], firmwareRollout: null, values: {}, pluginStates: {} }; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 
 function normalizePanelGroupSettings(value: unknown): Record<string, PanelGroupRuntimeSettings> {
@@ -495,6 +511,45 @@ function normalizeHmiUpdateJobs(value: unknown): HmiUpdateJob[] {
     }];
   });
   return jobs.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_PERSISTED_HMI_UPDATE_JOBS);
+}
+
+function normalizeHmiRollout(value: unknown): HmiRollout | null {
+  if (!isRecord(value)
+    || typeof value.id !== "string" || !/^[0-9a-f-]{36}$/i.test(value.id)
+    || typeof value.artifactId !== "string" || !/^[0-9a-f-]{36}$/i.test(value.artifactId)
+    || typeof value.hmiVersion !== "string" || !/^[0-9a-f]{64}$/i.test(value.hmiVersion)
+    || typeof value.canaryPanelId !== "string" || !value.canaryPanelId
+    || typeof value.canaryPanelName !== "string" || !value.canaryPanelName
+    || typeof value.force !== "boolean"
+    || typeof value.startedAt !== "number" || !Number.isFinite(value.startedAt) || value.startedAt < 0
+    || typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt) || value.updatedAt < 0
+    || typeof value.status !== "string" || !["updating", "completed", "failed", "cancelled"].includes(value.status)
+    || !Array.isArray(value.pendingPanelIds)
+    || typeof value.message !== "string") return null;
+  const pendingPanelIds = value.pendingPanelIds
+    .filter((panelId): panelId is string => typeof panelId === "string" && panelId.length > 0)
+    .slice(0, 512);
+  const currentPanelId = typeof value.currentPanelId === "string" && value.currentPanelId
+    ? value.currentPanelId.slice(0, 80)
+    : undefined;
+  const currentJobId = typeof value.currentJobId === "string" && /^[0-9a-f-]{36}$/i.test(value.currentJobId)
+    ? value.currentJobId
+    : undefined;
+  return {
+    id: value.id,
+    artifactId: value.artifactId,
+    hmiVersion: value.hmiVersion.toLowerCase(),
+    canaryPanelId: value.canaryPanelId.slice(0, 80),
+    canaryPanelName: value.canaryPanelName.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120),
+    ...(currentPanelId ? { currentPanelId } : {}),
+    ...(currentJobId ? { currentJobId } : {}),
+    pendingPanelIds,
+    force: value.force,
+    status: value.status as HmiRollout["status"],
+    startedAt: value.startedAt,
+    updatedAt: value.updatedAt,
+    message: value.message.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 240)
+  };
 }
 
 function normalizeFirmwareUpdateJobs(value: unknown): FirmwareUpdateJob[] {

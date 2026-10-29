@@ -86,6 +86,120 @@
   background: var(--paper);
 }
 
+.compatibility-options,
+.hmi-rollout-selectors fieldset {
+  display: grid;
+  gap: 9px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.compatibility-options legend,
+.hmi-rollout-selectors legend {
+  padding: 0 5px;
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.compatibility-options label,
+.hmi-rollout-selectors fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 0.875rem;
+}
+
+.compatibility-options input,
+.hmi-rollout-selectors input {
+  accent-color: var(--green);
+}
+
+.compatibility-options small {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.hmi-rollout-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px 21px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.hmi-rollout-heading h3 {
+  margin: 0 0 5px;
+  color: var(--ink);
+  font-size: 1.0625rem;
+}
+
+.hmi-rollout-heading p,
+.hmi-rollout-status p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.hmi-rollout-selectors {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.5fr);
+  gap: 12px;
+}
+
+.hmi-rollout-selectors > label {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.hmi-rollout-selectors select {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.hmi-rollout-status {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.hmi-rollout-status b {
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+
+.hmi-rollout-status small,
+.incompatible-note {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.hmi-rollout-status.status-failed {
+  border-color: var(--red, #cc4b4b);
+}
+
+.incompatible-note {
+  color: var(--red, #a83232) !important;
+}
+
 .rollout-settings-card {
   display: grid;
   gap: 15px;
@@ -704,6 +818,14 @@
 }
 
 @media (max-width: 640px) {
+  .hmi-rollout-selectors {
+    grid-template-columns: 1fr;
+  }
+
+  .hmi-rollout-card {
+    padding: 16px;
+  }
+
   .hmi-card {
     padding: 16px;
   }

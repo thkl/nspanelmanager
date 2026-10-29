@@ -2,7 +2,7 @@ import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { TranslateService } from "@ngx-translate/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PluginBlueprintImportDraft, PluginBlueprintPreview, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel, HmiArtifact } from "./models";
+import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiCompatibilityProfile, HmiRollout, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PluginBlueprintImportDraft, PluginBlueprintPreview, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -33,6 +33,7 @@ export class ManagerStore {
   readonly discoveredPanels = signal<DiscoveredPanel[]>([]);
   readonly pluginActivities = signal<Record<string, PluginInstanceActivity>>({});
   readonly hmiUpdateJobs = signal<HmiUpdateJob[]>([]);
+  readonly hmiRollout = signal<HmiRollout | null>(null);
   readonly firmwareUpdateJobs = signal<FirmwareUpdateJob[]>([]);
   readonly firmwareRollout = signal<FirmwareRollout | null>(null);
   readonly panelCoreDumps = signal<Record<string, CoreDumpRecord>>({});
@@ -139,11 +140,12 @@ export class ManagerStore {
   }
 
   /** Uploads the selected `.tft` file as a binary request body. */
-  uploadHmi(file: File): Observable<{ artifact: HmiArtifact }> {
+  uploadHmi(file: File, compatibleProfiles: HmiCompatibilityProfile[] = ["legacy", "unified"]): Observable<{ artifact: HmiArtifact }> {
     return this.http.post<{ artifact: HmiArtifact }>("/api/hmi/upload", file, {
       headers: {
         "Content-Type": "application/octet-stream",
-        "X-Hmi-Filename": encodeURIComponent(file.name)
+        "X-Hmi-Filename": encodeURIComponent(file.name),
+        "X-Hmi-Compatible-Profiles": compatibleProfiles.join(",")
       }
     });
   }
@@ -151,6 +153,22 @@ export class ManagerStore {
   /** Sends an HMI update request, optionally bypassing the panel's confirmation screen. */
   requestHmiUpdate(panelId: string, force = false): Observable<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string; job: HmiUpdateJob }> {
     return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; hmiVersion: string; job: HmiUpdateJob }>(`/api/hmi/panels/${panelId}/update`, { force }).pipe(tap(({ job }) => this.upsertHmiUpdateJob(job)));
+  }
+
+  /** Starts a canary-first sequential HMI rollout for the selected panel set. */
+  startHmiRollout(canaryPanelId: string, targetPanelIds: string[], force = false): Observable<{ rollout: HmiRollout }> {
+    return this.http.post<{ rollout: HmiRollout }>("/api/hmi/rollout", {
+      canaryPanelId,
+      targetPanelIds,
+      force
+    }).pipe(tap(({ rollout }) => this.hmiRollout.set(rollout)));
+  }
+
+  /** Cancels a staged HMI rollout and leaves any update already sent to a panel alone. */
+  cancelHmiRollout(): Observable<{ rollout: HmiRollout | null }> {
+    return this.http.post<{ rollout: HmiRollout | null }>("/api/hmi/rollout/cancel", {}).pipe(tap(({ rollout }) => {
+      this.hmiRollout.set(rollout);
+    }));
   }
 
   /** Loads the latest stored ESPHome OTA binary metadata and upload limit. */
@@ -315,6 +333,7 @@ export class ManagerStore {
       this.discoveredPanels.set(Array.isArray(event.discoveredPanels) ? event.discoveredPanels : []);
       this.pluginActivities.set(Object.fromEntries((Array.isArray(event.pluginActivities) ? event.pluginActivities : []).map((activity) => [activity.instanceId, activity])));
       this.mergeHmiUpdateJobs(event.hmiJobs);
+      this.hmiRollout.set(event.hmiRollout ?? null);
       this.mergeFirmwareUpdateJobs(event.firmwareJobs);
       this.firmwareRollout.set(event.firmwareRollout ?? null);
       this.mqtt.set(event.mqtt);
@@ -326,6 +345,8 @@ export class ManagerStore {
       this.pluginActivities.update((activities) => ({ ...activities, [event.activity.instanceId]: event.activity }));
     } else if (event.type === "hmi-job") {
       this.upsertHmiUpdateJob(event.job);
+    } else if (event.type === "hmi-rollout") {
+      this.hmiRollout.set(event.rollout);
     } else if (event.type === "firmware-job") {
       this.upsertFirmwareUpdateJob(event.job);
     } else if (event.type === "firmware-rollout") {

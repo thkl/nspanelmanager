@@ -9,10 +9,11 @@ import { UsersPageComponent } from "./app/features/auth/users-page.component";
 import { LogsPageComponent } from "./app/features/logs/logs-page.component";
 import { BackupsPageComponent } from "./app/features/backups/backups-page.component";
 import { HmiPageComponent } from "./app/features/hmi/hmi-page.component";
+import { HelpPageComponent } from "./app/features/help/help-page.component";
 import { TranslatePipe } from "@ngx-translate/core";
 import { LocaleService } from "./app/i18n/locale.service";
 
-type WorkspaceView = "panels" | "plugins" | "instances" | "routes" | "broker" | "users" | "logs" | "backups" | "hmi";
+type WorkspaceView = "panels" | "plugins" | "instances" | "routes" | "broker" | "users" | "logs" | "backups" | "hmi" | "help";
 
 /**
  * Provides the persistent workspace shell and coordinates manager feature
@@ -23,7 +24,7 @@ type WorkspaceView = "panels" | "plugins" | "instances" | "routes" | "broker" | 
 @Component({
   selector: "nspanel-app",
   standalone: true,
-  imports: [AuthPageComponent, PanelPageComponent, PluginsPageComponent, RoutesPageComponent, BrokerPageComponent, UsersPageComponent, LogsPageComponent, BackupsPageComponent, HmiPageComponent, TranslatePipe],
+  imports: [AuthPageComponent, PanelPageComponent, PluginsPageComponent, RoutesPageComponent, BrokerPageComponent, UsersPageComponent, LogsPageComponent, BackupsPageComponent, HmiPageComponent, HelpPageComponent, TranslatePipe],
   templateUrl: "./app.component.html",
   styleUrl: "./app.component.css"
 })
@@ -93,7 +94,7 @@ export class AppComponent implements OnInit {
 
   /** Identifies views grouped under the Settings menu. */
   isSettingsView(view: WorkspaceView = this.view()): boolean {
-    return view === "broker" || view === "users" || view === "logs" || view === "backups" || view === "hmi";
+    return view === "broker" || view === "users" || view === "logs" || view === "backups" || view === "hmi" || view === "help";
   }
 
   /**
@@ -112,6 +113,7 @@ export class AppComponent implements OnInit {
       case "users": this.usersPage()?.refresh(); break;
       case "logs": this.logsPage()?.refresh(); break;
       case "hmi": this.hmiPage()?.refresh(); break;
+      case "help": break;
     }
   }
 
@@ -126,6 +128,7 @@ export class AppComponent implements OnInit {
       case "logs": return "PAGE.LOGS";
       case "backups": return "PAGE.BACKUPS";
       case "hmi": return "PAGE.UPDATES";
+      case "help": return "PAGE.HELP";
       default: return "PAGE.BROKER";
     }
   }
@@ -140,7 +143,8 @@ export class AppComponent implements OnInit {
       case "users": return "SECTION.ACCESS";
       case "logs":
       case "backups":
-      case "hmi": return "SECTION.SYSTEM";
+      case "hmi":
+      case "help": return "SECTION.SYSTEM";
       default: return "SECTION.SETUP";
     }
   }

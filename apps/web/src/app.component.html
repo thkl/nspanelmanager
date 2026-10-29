@@ -44,6 +44,9 @@
         <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.PANEL_UPDATES' | translate" [class.active]="view() === 'hmi'" [attr.aria-current]="view() === 'hmi' ? 'page' : null" (click)="show('hmi')">
           <span>▧</span> {{ 'APP.PANEL_UPDATES' | translate }}
         </button>
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.HELP' | translate" [class.active]="view() === 'help'" [attr.aria-current]="view() === 'help' ? 'page' : null" (click)="show('help')">
+          <span>?</span> {{ 'APP.HELP' | translate }}
+        </button>
       </div>
     </div>
     <div class="sidebar-bottom">
@@ -96,6 +99,8 @@
       <nspanel-logs-page #logsPage />
     } @else if (view() === 'hmi') {
       <nspanel-hmi-page #hmiPage />
+    } @else if (view() === 'help') {
+      <nspanel-help-page />
     } @else {
       <nspanel-backups-page />
     }

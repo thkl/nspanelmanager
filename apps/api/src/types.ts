@@ -51,6 +51,9 @@ export interface Panel {
   healthNotificationsEnabled?: boolean;
 }
 
+/** Firmware family used to prevent an incompatible TFT from being sent to a panel. */
+export type HmiCompatibilityProfile = "legacy" | "unified";
+
 /** Global settings for manually-started canary firmware rollouts. */
 export interface FirmwareRolloutSettings {
   enabled: boolean;
@@ -161,6 +164,8 @@ export interface HmiArtifactRecord {
   size: number;
   sha256: string;
   uploadedAt: string;
+  /** Firmware families whose panel page/component layout matches this TFT. */
+  compatibleProfiles: HmiCompatibilityProfile[];
 }
 
 export type HmiUpdateJobStatus = "sending" | "sent" | "awaiting_confirmation" | "uploading" | "succeeded" | "failed" | "cancelled" | "timed_out";
@@ -181,6 +186,25 @@ export interface HmiUpdateJob {
   expiresAt: number;
   message?: string;
   requestedBy?: string;
+}
+
+export type HmiRolloutStatus = "updating" | "completed" | "failed" | "cancelled";
+
+/** Persists a canary-first, one-panel-at-a-time HMI rollout. */
+export interface HmiRollout {
+  id: string;
+  artifactId: string;
+  hmiVersion: string;
+  canaryPanelId: string;
+  canaryPanelName: string;
+  currentPanelId?: string;
+  currentJobId?: string;
+  pendingPanelIds: string[];
+  force: boolean;
+  status: HmiRolloutStatus;
+  startedAt: number;
+  updatedAt: number;
+  message: string;
 }
 
 /** Metadata for the latest ESPHome OTA binary uploaded to the manager. */

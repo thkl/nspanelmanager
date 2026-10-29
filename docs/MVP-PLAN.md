@@ -172,7 +172,7 @@ Add an authenticated firmware and HMI workspace for administrators to upload art
 
 - Upload and version `.tft` assets independently from ESP firmware, associate each asset with compatible panel/HMI profiles, and select target panels for an update.
 - The manager now sends a runtime URL; firmware sets the Nextion driver's URL with `set_tft_url()` before its existing `upload_tft()` flow. The current static URL remains a fallback for legacy update commands; see the [ESPHome Nextion upload documentation](https://esphome.io/components/display/nextion/).
-- Implemented single-panel HMI update tracking: the workspace stores the latest `.tft`, sends a six-hour capability URL and job ID over MQTT, and retains up to 200 update records in runtime state. Panel5 reports confirmation, update start, cancellation, and transfer failure; matching heartbeat checksum confirms success. The authenticated same-origin WebSocket sends initial panel/job state and live changes, so panel and HMI status views do not poll. The HMI page shows recent outcomes and supports retries after terminal failures. Reported hashes cover manager-delivered updates and do not detect TFT files flashed outside the manager. Remaining work includes associating HMI versions with panel profiles and staged multi-panel rollouts.
+- Implemented HMI profile compatibility metadata and staged multi-panel rollouts: select a canary and targets, then the manager starts each next panel only after the previous panel reports the requested hash. Rollout state and per-panel jobs persist in runtime state and are sent over the authenticated WebSocket. The manager blocks updates to panels outside the artifact's selected legacy/unified profiles. Reported hashes cover manager-delivered updates and do not detect TFT files flashed outside the manager.
 
 ### Rollout and Recovery
 
@@ -184,16 +184,15 @@ Add an authenticated firmware and HMI workspace for administrators to upload art
 
 ### Panel Health Notifications
 
-- Add manager health notifications for offline panels, unexpected reboots, firmware/HMI mismatches, and configurable resource thresholds such as low free heap.
+- Implemented outbound health events on `nspanelmanager/event/health` for panel offline/online transitions, unexpected reboot reasons, low-memory entry, and memory recovery. Events are versioned JSON with severity, timestamp, panel identity, and details, published QoS 1 without retain. The per-panel health-notification opt-out suppresses its events. Automation and notification delivery are intentionally configured by subscribers in the user's MQTT platform.
 - Implemented a per-panel opt-out for the in-manager health alert list. Existing panels default to enabled; opted-out panels remain visible in status and diagnostics.
-- Apply the same opt-out when outbound notification channels are introduced. A test panel that is routinely powered off should not produce health alerts or notifications.
-- Make notification state and recent outcomes visible in the manager, with delivery over the configured notification channels.
+- Subscribe to the health topic from Home Assistant, Node-RED, or another automation system to create notifications and custom policies.
 
 ### Localization and Help
 
 - Add locale selection for the web UI and move user-visible labels, errors, confirmations, and empty states into translation resources. Keep English as the fallback for missing translations.
 - Implemented ngx-translate with its HTTP loader, a server-served language catalog, English and German JSON resources, English fallback, and per-browser language preference. The app shell, sign-in/setup flow, and feature pages are localized. Dynamic plugin schema metadata, user-authored labels, and raw integration errors remain in their source language.
-- Add contextual help for configuration fields and workflows, with examples and links to focused documentation for MQTT topics, plugin variables, panel assignments, backups, and updates.
+- Implemented a Help page and expandable contextual guidance for panels, plugins, MQTT routes, backups, and HMI/firmware updates. The help documents health-event MQTT payloads, plugin profiles and instances, panel assignment, and backup key handling in English and German.
 
 ### Mobile Layout
 
