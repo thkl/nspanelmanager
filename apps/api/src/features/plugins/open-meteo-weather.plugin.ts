@@ -117,6 +117,7 @@ export class OpenMeteoWeatherPlugin implements PluginDefinition {
     url.searchParams.set("wind_speed_unit", "ms");
     url.searchParams.set("timezone", timezone);
 
+    // A timeout keeps a slow public forecast service from blocking the runtime poll cycle indefinitely.
     const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error(`Open-Meteo returned HTTP ${response.status}.`);
     const weather = normalizeWeather(await response.json());

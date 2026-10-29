@@ -1,6 +1,8 @@
 # NSPanel Manager MVP Plan
 
-**Status:** Active implementation plan
+**Status:** Historical planning document; implementation has moved beyond this plan.
+
+Use the [Developer Guide](developer-guide.md) for the current architecture and supported workflows. The original milestone notes below are kept as product-history context; they do not represent the current feature status. Runtime process separation is deferred while the combined API and MQTT runtime continues to operate reliably.
 
 **Stage 1 — Scripted plugin:** Working
 

@@ -67,6 +67,7 @@ export class ScriptEditorComponent implements ControlValueAccessor, AfterViewIni
           EditorView.contentAttributes.of({ "aria-label": this.ariaLabel() }),
           EditorView.updateListener.of((update) => {
             if (!update.docChanged || this.synchronizing) return;
+            // Ignore Angular-driven document replacements; only user edits should call the form callback.
             this.value = update.state.doc.toString();
             this.onChange(this.value);
           }),
@@ -98,6 +99,7 @@ export class ScriptEditorComponent implements ControlValueAccessor, AfterViewIni
     this.value = typeof value === "string" ? value : "";
     if (!this.editor || this.editor.state.doc.toString() === this.value) return;
     this.synchronizing = true;
+    // writeValue() is a model-to-view update, so suppress the editor listener to avoid a feedback loop.
     this.editor.dispatch({ changes: { from: 0, to: this.editor.state.doc.length, insert: this.value } });
     this.synchronizing = false;
   }

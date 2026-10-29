@@ -53,6 +53,7 @@ export class AppComponent implements OnInit {
           ? saved
           : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       } catch {
+        // Storage can be disabled by browser privacy settings; still honor the operating-system theme.
         theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       }
     }

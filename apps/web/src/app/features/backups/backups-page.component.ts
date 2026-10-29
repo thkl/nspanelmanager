@@ -92,6 +92,7 @@ export class BackupsPageComponent implements OnInit {
     if (!this.manager.confirm("BACKUPS.CONFIRM_RESTORE", { createdAt })) return;
     this.restoringRevisionId.set(revision.id);
     this.manager.restoreConfigRevision(revision.id).subscribe({
+      // The revision endpoint saves the restored state; refresh the page draft from that canonical response.
       next: () => this.manager.refresh().subscribe({
         next: ({ config }) => {
           this.draft.set(structuredClone(config.backupSettings));

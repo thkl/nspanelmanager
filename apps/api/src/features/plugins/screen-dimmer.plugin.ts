@@ -79,6 +79,7 @@ export class ScreenDimmerPlugin implements PluginDefinition {
     const pageId = message.topic.slice(pagePrefix.length);
     if (!/^[A-Za-z0-9_-]+$/.test(pageId)) return [];
 
+    // Ignore unknown page IDs and invalid brightness rather than issuing a raw Nextion command.
     const rule = readRules(instance.config.pageRules)?.find((candidate) => candidate.page.trim() === pageId);
     if (!rule) return [];
     const brightness = Number(rule.brightness);

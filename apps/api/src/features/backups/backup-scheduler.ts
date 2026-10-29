@@ -77,6 +77,7 @@ export class BackupScheduler {
     const now = new Date();
     if (!matchesCron(this.schedule, now)) return;
     const minuteKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;
+    // Polling more than once in a matching minute must not duplicate archives or overlap a slow backup.
     if (this.lastScheduledMinute === minuteKey || this.activeBackup) return;
     this.lastScheduledMinute = minuteKey;
 

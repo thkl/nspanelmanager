@@ -10,6 +10,7 @@ import { TranslatePipe } from "@ngx-translate/core";
   styleUrl: "./help-page.component.css"
 })
 export class HelpPageComponent {
+  /** Example of the versioned health event published for external notification consumers. */
   readonly healthEventExample = `{
   "schema_version": 1,
   "event_id": "9cb7c74f-1c0f-487b-9836-6113f479e82c",

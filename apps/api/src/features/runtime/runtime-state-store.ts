@@ -99,6 +99,7 @@ export class RuntimeStateStore {
     }
     const value: unknown = JSON.parse(serialized);
     if (!isRecord(value)) throw new Error("The saved runtime state is invalid; refusing to replace it.");
+    // Normalize each persisted collection before merging so older snapshots gain defaults safely.
     const rawPluginStates = isRecord(value.pluginStates) ? value.pluginStates : {};
     const pluginStates = normalizePluginStates(rawPluginStates);
     const panelResetReports = normalizePanelResetReports(value.panelResetReports);

@@ -35,6 +35,7 @@ export interface FirmwareDownload {
 /** Indicates an invalid firmware upload or manager download URL setup error. */
 export class FirmwareArtifactError extends Error {
   constructor(message: string, readonly statusCode: 400 | 404 | 409 | 503 = 400) {
+    // Route handlers use the typed status and return only this user-safe message.
     super(message);
     this.name = "FirmwareArtifactError";
   }
@@ -95,6 +96,7 @@ export class FirmwareArtifactService {
       let filename = uploadFilename;
       let firmwareVersion = version.trim();
       if (path.extname(uploadFilename).toLowerCase() === ".zip") {
+        // The package manifest is authoritative; do not let a form value mislabel the uploaded image.
         const bundle = extractFirmwareBundle(bytes);
         firmwareBytes = bundle.firmware;
         filename = bundle.filename;

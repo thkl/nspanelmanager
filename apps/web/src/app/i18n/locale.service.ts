@@ -30,6 +30,7 @@ export class LocaleService {
       const catalog = await firstValueFrom(this.http.get<unknown>(LANGUAGE_CATALOG_URL));
       languages = normalizeLanguageCatalog(catalog);
     } catch (error) {
+      // The catalog is an optional extension point; the bundled English UI remains usable if it is unavailable.
       console.error("Could not load the UI language catalog; continuing with English.", error);
     }
 
@@ -43,6 +44,7 @@ export class LocaleService {
     } catch (error) {
       console.error(`Could not load UI translations for '${language}'.`, error);
       if (language === ENGLISH.code) throw error;
+      // Recover from a stale browser preference by loading the required English fallback.
       await firstValueFrom(this.translate.use(ENGLISH.code));
       this.currentLanguage.set(ENGLISH.code);
       this.setDocumentLanguage(ENGLISH.code);

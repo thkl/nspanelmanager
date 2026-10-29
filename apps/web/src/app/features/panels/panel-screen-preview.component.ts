@@ -53,6 +53,7 @@ export class PanelScreenPreviewComponent {
       const panelId = this.panel()?.id ?? null;
       if (panelId !== this.previousPanelId) {
         this.previousPanelId = panelId;
+        // Simulated navigation and device values belong to one panel and should not leak to the next.
         untracked(() => this.reset());
       }
     });
@@ -144,6 +145,7 @@ export class PanelScreenPreviewComponent {
     const context = this.instanceContext(favorite.instanceId);
     if (!context) { this.notice("PREVIEW.FAVORITE_INSTANCE_UNAVAILABLE"); return; }
     const pluginId = context.profile.pluginId;
+    // Mirror each plugin's native page type so the preview follows the same user path as the panel.
     if (pluginId === "favorites-page") this.navigate({ screen: "favorites", instanceId: favorite.instanceId });
     else if (pluginId === "mqtt-cover") this.navigate({ screen: "level", instanceId: favorite.instanceId, title: favorite.label });
     else if (pluginId === "mqtt-scripted" || pluginId === "mqtt-fan") {

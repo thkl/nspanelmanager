@@ -11,8 +11,10 @@ const MAX_UPLOAD_MS = 30 * 60 * 1000;
 const EXPIRY_SCAN_INTERVAL_MS = 15 * 1000;
 const JOB_ID_PATTERN = /^[0-9a-f-]{36}$/i;
 
+/** Carries a safe HTTP status for expected HMI update conflicts and validation failures. */
 export class HmiUpdateError extends Error {
   constructor(message: string, readonly statusCode: 409 = 409) {
+    // Routes map this domain error without inferring the failure from message text.
     super(message);
     this.name = "HmiUpdateError";
   }
@@ -189,6 +191,7 @@ export class HmiUpdateService {
   async handlePanelReport(panel: Panel, payload: string, receivedAt: number): Promise<void> {
     const report = parsePanelReport(payload);
     if (!report) return;
+    // A valid job ID is insufficient by itself; the report must belong to this panel's active attempt.
     const job = this.findJob(report.jobId);
     if (!job || job.panelId !== panel.id || isTerminal(job.status)) return;
 

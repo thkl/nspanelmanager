@@ -75,6 +75,7 @@ export class UsersPageComponent implements OnInit {
 
   /** Removes a local account after confirmation; the final enabled administrator is protected by the API. */
   removeUser(user: AuthUser): void {
+    // Ask before removal; the API remains authoritative about the final enabled administrator.
     if (!this.manager.confirm("USERS.CONFIRM_REMOVE", { email: user.email })) return;
     this.error.set("");
     this.manager.removeUser(user.id).subscribe({

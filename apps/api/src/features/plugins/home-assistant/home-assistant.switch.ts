@@ -10,6 +10,7 @@ export class HomeAssistantSwitchControls {
   /** Toggles one entity and returns the resulting state for the manager cache. */
   async toggle(instance: ResolvedPluginInstance, entityId: string): Promise<PluginFavoritePressResult> {
     await callHomeAssistantService(instance, "homeassistant", "toggle", entityId);
+    // Read the entity back after HA applies the service so cached state reflects the integration's actual result.
     const entity = await getHomeAssistantEntity(instance, entityId);
     return { statePatch: entityStatePatch(entity) };
   }

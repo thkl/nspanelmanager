@@ -87,6 +87,7 @@ export class MqttThermostatPlugin implements PluginDefinition {
   /** Decodes a current or target value from the configured MQTT status topic. */
   decodeMessage(instance: ResolvedPluginInstance, message: MqttMessageEnvelope): PluginState | undefined {
     const topics = temperatureTopics(instance);
+    // The wildcard subscription may include unrelated devices, so only resolved current/target topics update state.
     const key = message.topic === topics.current ? "currentTemperature" : message.topic === topics.target ? "targetTemperature" : undefined;
     if (!key) return undefined;
     const value = readTemperatureValue(message.payload, configString(instance, "valuePath", "val"));

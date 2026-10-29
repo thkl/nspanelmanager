@@ -50,6 +50,7 @@ export class HomeAssistantFanControls {
     const buttons: PluginScreen["buttons"] = [
       { label: state["isOn"] === true ? "Turn off" : "Turn on", action: "fan:toggle" }
     ];
+    // HA fan entities expose different features, so never offer controls that the selected device cannot handle.
     if (state["fanSupportsPercentage"] === true || percentage !== undefined) {
       buttons.push({ label: "Slower", action: "fan:percentage:down" });
       buttons.push({ label: "Faster", action: "fan:percentage:up" });

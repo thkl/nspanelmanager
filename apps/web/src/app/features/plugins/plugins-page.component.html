@@ -1,4 +1,4 @@
-<section class="plugin-layout" [class.plugin-only-layout]="screen() === 'plugins'" [class.instances-layout]="screen() === 'instances'">
+<section class="plugin-layout" [class.plugin-only-layout]="screen() === 'plugins'" [class.instances-layout]="screen() === 'instances'" [class.mobile-instance-editor-open]="mobileInstanceEditorOpen()">
   <details class="context-help">
     <summary>{{ 'HELP.PLUGINS_CONTEXT_TITLE' | translate }}</summary>
     <p>{{ 'HELP.PLUGINS_CONTEXT_BODY' | translate }}</p>
@@ -385,7 +385,10 @@
   <article class="card instance-list-card">
     <div class="card-heading">
       <div><h2>{{ 'PLUGINS.INSTANCES_TITLE' | translate }}</h2><p>{{ 'PLUGINS.INSTANCES_DESCRIPTION' | translate }}</p></div>
-      <span class="count-badge">{{ manager.config().pluginInstances.length }}</span>
+      <div class="instance-list-heading-actions">
+        <span class="count-badge">{{ manager.config().pluginInstances.length }}</span>
+        <button type="button" class="button secondary mobile-new-instance" (click)="startNewInstance()">＋ {{ 'PLUGINS.NEW_INSTANCE' | translate }}</button>
+      </div>
     </div>
     @if (manager.config().pluginInstances.length > 0) {
     <div class="instance-tree-tools">
@@ -448,7 +451,8 @@
   <article class="card instance-editor-card">
     <div class="card-heading">
       <div><h2>{{ (editingInstanceId() ? 'PLUGINS.EDIT_INSTANCE' : 'PLUGINS.CREATE_INSTANCE') | translate }}</h2><p>{{ 'PLUGINS.INSTANCE_EDITOR_HELP' | translate }}</p></div>
-      @if (editingInstanceId()) { <button type="button" class="text-action" [disabled]="savingInstance()" (click)="cancelEdit()">＋ {{ 'PLUGINS.NEW_INSTANCE' | translate }}</button> }
+      <button type="button" class="text-action mobile-instance-back" (click)="showInstanceList()">← {{ 'PLUGINS.INSTANCES_TITLE' | translate }}</button>
+      @if (editingInstanceId()) { <button type="button" class="text-action editor-new-instance" [disabled]="savingInstance()" (click)="cancelEdit()">＋ {{ 'PLUGINS.NEW_INSTANCE' | translate }}</button> }
     </div>
     @if (manager.config().pluginProfiles.length > 0) {
     <div class="instance-form">

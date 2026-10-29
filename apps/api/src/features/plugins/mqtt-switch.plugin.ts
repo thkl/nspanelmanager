@@ -109,6 +109,7 @@ export class MqttSwitchPlugin implements PluginDefinition {
   private setPower(instance: ResolvedPluginInstance, power: boolean): PluginFavoritePressResult | undefined {
     const topic = interpolatePluginTemplate(tileConfigString(instance, "commandTopic"), instance.variables);
     if (!isTopicTemplateValid(topic)) return undefined;
+    // Return an optimistic patch so the favorite responds immediately while the broker state report catches up.
     return {
       commands: [{ topic, payload: tileConfigString(instance, power ? "onPayload" : "offPayload") }],
       statePatch: { power }

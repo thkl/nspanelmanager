@@ -71,11 +71,13 @@ export class BackupArchiveService {
     archive.append(Buffer.alloc(0), { name: "data/", type: "directory", date: rootMetadata.mtime, mode: rootMetadata.mode });
     const archiveEntries = await this.listEntries(rootPath, this.excludedBackupDirectory);
     for (const entry of archiveEntries) {
+      // SQLite WAL mode requires a coordinated backup image; never archive the live database file alongside it.
       if (entry.type === "file" && isLiveSqliteFile(rootPath, entry.absolutePath)) continue;
       if (entry.type === "directory") archive.append(Buffer.alloc(0), { name: entry.archivePath, type: "directory", date: entry.date, mode: entry.mode });
       else archive.file(entry.absolutePath, { name: entry.archivePath, date: entry.date, mode: entry.mode });
     }
     if (this.createSqliteSnapshot) {
+      // The snapshot replaces the skipped live file so the ZIP contains one consistent database state.
       const snapshot = await this.createSqliteSnapshot();
       archive.append(snapshot, { name: "data/manager.sqlite", date: new Date(), mode: 0o600 });
     }

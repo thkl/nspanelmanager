@@ -39,6 +39,7 @@ export class HomeAssistantVacuumControls {
 
   /** Renders vacuum status and available actions in the manager's info screens. */
   renderScreen(instance: ResolvedPluginInstance, state: PluginState, screen: string): PluginScreen | undefined {
+    // Area screens are separate paginated views so a large area registry does not overflow the panel button limit.
     if (screen.startsWith("areas")) return this.renderAreasScreen(instance, state, screen);
     if (screen !== "overview") return undefined;
 

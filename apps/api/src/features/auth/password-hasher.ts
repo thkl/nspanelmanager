@@ -22,6 +22,7 @@ export class PasswordHasher {
 
   /** Verifies a stored Argon2id PHC hash and treats malformed records as invalid credentials. */
   async verify(password: string, encoded: string): Promise<boolean> {
+    // Older accounts remain sign-in capable; AuthService replaces this hash after a successful login.
     if (encoded.startsWith("scrypt$")) return verifyLegacyScrypt(password, encoded);
     if (!encoded.startsWith("$argon2id$")) return false;
     try {

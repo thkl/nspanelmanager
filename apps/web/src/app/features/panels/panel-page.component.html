@@ -66,6 +66,46 @@
           <span class="connection-dot"></span>{{ (manager.panelConnections()[panel.nodeName]?.status === 'online' ? 'PANEL.ONLINE' : 'PANEL.OFFLINE') | translate }}
         </span><span class="row-arrow">›</span>
       </button>
+      <details class="mobile-panel-diagnostics">
+        <summary>{{ 'PANEL.DIAGNOSTICS' | translate }}</summary>
+        @if (manager.panelConnections()[panel.nodeName]; as connection) {
+          <dl class="mobile-diagnostics-list">
+            <div>
+              <dt>{{ 'PANEL.CONNECTION_STATUS' | translate }}</dt>
+              <dd>
+                {{ (connection.status === 'online' ? 'PANEL.ONLINE' : 'PANEL.OFFLINE') | translate }}
+                @if (connection.lastSeenAt; as lastSeenAt) { · {{ lastSeenAt | date:'shortTime' }} }
+              </dd>
+            </div>
+            @if (connection.ip; as ip) {
+              <div><dt>{{ 'PANEL.IP_ADDRESS' | translate }}</dt><dd>{{ ip }}</dd></div>
+            }
+            @if (connection.lastResetReport; as report) {
+              <div>
+                <dt>{{ 'PANEL.REBOOT_REASON' | translate }}</dt>
+                <dd>{{ report.reason }} · {{ 'PANEL.CHECKED' | translate }} {{ report.reportedAt | date:'short' }}</dd>
+              </div>
+            }
+            @if (connection.telemetry; as telemetry) {
+              <div>
+                <dt>{{ 'PANEL.TELEMETRY' | translate }}</dt>
+                <dd>{{ formatTelemetry(telemetry) }}</dd>
+              </div>
+            }
+            @if (connection.groupSettings; as groupSettings) {
+              <div>
+                <dt>{{ 'PANEL.GROUP' | translate }}</dt>
+                <dd>{{ formatGroupSettings(groupSettings) }}</dd>
+              </div>
+            }
+          </dl>
+          @if (!connection.ip && !connection.lastResetReport && !connection.telemetry && !connection.groupSettings) {
+            <p class="mobile-diagnostics-empty">{{ 'PANEL.NO_DIAGNOSTICS' | translate }}</p>
+          }
+        } @else {
+          <p class="mobile-diagnostics-empty">{{ 'PANEL.NO_DIAGNOSTICS' | translate }}</p>
+        }
+      </details>
     }
     @if (addingPanel()) {
       <div class="add-panel-box">

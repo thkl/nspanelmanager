@@ -117,6 +117,7 @@ export class AuthService {
       const normalized = normalizeEmail(email);
       const user = this.users.findByEmail(normalized);
       const passwordInRange = password.length <= 1024;
+      // Unknown accounts still verify against a real hash so lookup success does not reveal whether an email exists.
       const valid = await this.hasher.verify(passwordInRange ? password : password.slice(0, 1024), user?.passwordHash ?? this.dummyPasswordHash);
       if (!passwordInRange || !user || !user.enabled || !valid) {
         this.recordFailedLogin(remoteAddress, attempt);
@@ -370,12 +371,18 @@ export class InvalidCredentialsError extends Error {}
 
 /** Raised when repeated local login failures exceed the per-address allowance. */
 export class LoginRateLimitError extends Error {
-  constructor(readonly retryAfterSeconds: number) { super("Too many sign-in attempts."); }
+  constructor(readonly retryAfterSeconds: number) {
+    // The auth route forwards this duration as Retry-After without parsing the message.
+    super("Too many sign-in attempts.");
+  }
 }
 
 /** Raised when first-user setup is attempted without the runtime-generated onboarding token. */
 export class InvalidInitialSetupTokenError extends Error {
-  constructor() { super("A valid setup token is required."); }
+  constructor() {
+    // A distinct type lets the public setup route return a safe authorization response.
+    super("A valid setup token is required.");
+  }
 }
 
 /** Reads an HTTP(S) URL from a server-side setting and rejects embedded credentials. */

@@ -76,6 +76,7 @@ export class MqttDimmableLightPlugin implements PluginDefinition {
     const zeroLevel = tileConfigNumber(instance, "zeroLevel", 0);
     const onLevel = tileConfigNumber(instance, "onLevel", 254);
     const factor = resolveLevelFactor(instance, zeroLevel, onLevel);
+    // Normalize broker-specific numeric ranges once so the UI and step actions use percentages consistently.
     const brightness = clampPercent((rawLevel - zeroLevel) * factor);
     return { power: rawLevel > zeroLevel, brightness };
   }

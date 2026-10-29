@@ -30,6 +30,7 @@ export interface LogSink {
 export class ConsoleLogSink implements LogSink {
   /** Prints an ISO timestamp, severity, context fields, and message. */
   write(record: LogRecord): void {
+    // JSON-quote context values so embedded spaces and punctuation remain distinguishable in plain-text output.
     const context = Object.entries(record.context).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(" ");
     const line = `[${record.timestamp}] [${record.level.toUpperCase()}]${context ? ` [${context}]` : ""} ${record.message}`;
     if (record.level === "debug") console.debug(line);
@@ -53,6 +54,7 @@ export class WinstonFileLogSink implements LogSink {
   }
 
   private constructor(directory: string) {
+    // Keep rotation bounded and files private because integration logs can contain user-configured values.
     const transport = new winston.transports.DailyRotateFile({
       dirname: directory,
       filename: "manager-%DATE%.log",
@@ -148,6 +150,7 @@ export class Logger {
       context: { ...context }
     };
     for (const sink of this.sinks) {
+      // Logging is best-effort: a disk failure should not turn the original request or MQTT handler into a failure.
       try {
         const result = sink.write(record);
         if (result && typeof result.then === "function") {

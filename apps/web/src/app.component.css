@@ -10,8 +10,12 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   min-height: 100vh;
   padding: 27px 16px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   background: var(--sidebar);
   color: var(--sidebar-ink);
 }
@@ -358,6 +362,7 @@ h1 {
   }
   .sidebar {
     align-items: center;
+    min-height: 100dvh;
     padding: 18px 7px 14px;
   }
   .brand {
@@ -407,6 +412,15 @@ h1 {
   .main-content {
     padding: 0 18px 34px;
   }
+  .topbar {
+    flex-wrap: wrap;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+  .top-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 540px) {
@@ -416,6 +430,7 @@ h1 {
   .sidebar {
     padding-right: 5px;
     padding-left: 5px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
   }
   .brand-mark {
     width: 32px;
@@ -430,25 +445,50 @@ h1 {
     padding-left: 12px;
   }
   .topbar {
-    min-height: 101px;
+    min-height: 0;
+    align-items: stretch;
+    flex-direction: column;
+    justify-content: center;
+    gap: 11px;
+    padding: 15px 0;
     margin-bottom: 17px;
   }
   .top-actions {
+    width: 100%;
+    flex-wrap: wrap;
     gap: 7px;
   }
+  .signed-in-user {
+    display: none;
+  }
   .connection-pill {
-    padding: 7px 8px;
-    font-size: 0.75rem;
+    width: 40px;
+    height: 40px;
+    justify-content: center;
+    padding: 0;
+  }
+  .connection-label {
+    display: none;
+  }
+  .language-picker select,
+  .theme-button,
+  .signout-button,
+  .icon-button {
+    min-height: 40px;
+  }
+  .language-picker select {
+    padding-right: 24px;
+    padding-left: 9px;
   }
   .theme-button {
-    width: 35px;
+    width: 40px;
     padding: 0;
   }
   .theme-label {
     display: none;
   }
   .icon-button {
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
   }
 }

@@ -372,13 +372,26 @@ label small {
     grid-column: auto;
   }
   .route-direction {
-    width: 63px;
+    width: auto;
     font-size: 0.625rem;
   }
   .route-row {
-    gap: 7px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+  }
+  .route-details {
+    grid-column: 1 / -1;
+    align-items: flex-start;
+  }
+  .route-actions {
+    grid-column: 2;
+    grid-row: 1;
+    gap: 8px;
   }
   .route-details code {
-    max-width: 40%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 }

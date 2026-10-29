@@ -78,6 +78,7 @@ export class AuthPageComponent {
         this.confirmPassword.set("");
         this.signingIn.set(false);
         if (error.status === 409) {
+          // Another browser may have completed first-run setup while this form was open.
           this.manager.loadAuthStatus().subscribe({ error: () => undefined });
           this.error.set("AUTH.ERROR_SETUP_COMPLETE");
         }

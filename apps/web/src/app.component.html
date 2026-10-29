@@ -7,44 +7,44 @@
 } @else {
 <div class="app-shell">
   <aside class="sidebar">
-    <a class="brand" href="#" (click)="$event.preventDefault(); show('panels')">
+    <a class="brand" href="#" [attr.aria-label]="'APP.PANELS' | translate" [title]="'APP.PANELS' | translate" (click)="$event.preventDefault(); show('panels')">
       <span class="brand-mark">N</span>
       <span class="brand-copy"><b>panel manager</b><small>{{ 'APP.BRAND_TAGLINE' | translate }}</small></span>
     </a>
     <p class="nav-label">{{ 'APP.WORKSPACE' | translate }}</p>
-    <button class="nav-item" [class.active]="view() === 'panels'" [attr.aria-current]="view() === 'panels' ? 'page' : null" (click)="show('panels')">
+    <button class="nav-item" [class.active]="view() === 'panels'" [attr.aria-label]="'APP.PANELS' | translate" [title]="'APP.PANELS' | translate" [attr.aria-current]="view() === 'panels' ? 'page' : null" (click)="show('panels')">
       <span>▦</span> {{ 'APP.PANELS' | translate }} <em>{{ manager.config().panels.length }}</em>
     </button>
-    <button class="nav-item" [class.active]="view() === 'plugins'" [attr.aria-current]="view() === 'plugins' ? 'page' : null" (click)="show('plugins')">
+    <button class="nav-item" [class.active]="view() === 'plugins'" [attr.aria-label]="'APP.PLUGINS' | translate" [title]="'APP.PLUGINS' | translate" [attr.aria-current]="view() === 'plugins' ? 'page' : null" (click)="show('plugins')">
       <span>◈</span> {{ 'APP.PLUGINS' | translate }} <em>{{ manager.config().pluginProfiles.length }}</em>
     </button>
-    <button class="nav-item" [class.active]="view() === 'instances'" [attr.aria-current]="view() === 'instances' ? 'page' : null" (click)="show('instances')">
+    <button class="nav-item" [class.active]="view() === 'instances'" [attr.aria-label]="'APP.INSTANCES' | translate" [title]="'APP.INSTANCES' | translate" [attr.aria-current]="view() === 'instances' ? 'page' : null" (click)="show('instances')">
       <span>⌁</span> {{ 'APP.INSTANCES' | translate }} <em>{{ manager.config().pluginInstances.length }}</em>
     </button>
-    <button class="nav-item" [class.active]="view() === 'routes'" [attr.aria-current]="view() === 'routes' ? 'page' : null" (click)="show('routes')">
+    <button class="nav-item" [class.active]="view() === 'routes'" [attr.aria-label]="'APP.MQTT_ROUTES' | translate" [title]="'APP.MQTT_ROUTES' | translate" [attr.aria-current]="view() === 'routes' ? 'page' : null" (click)="show('routes')">
       <span>↔</span> {{ 'APP.MQTT_ROUTES' | translate }} <em>{{ manager.config().routes.length }}</em>
     </button>
     <div class="settings-nav">
-      <button class="nav-item" type="button" [class.active]="isSettingsView() || settingsExpanded()" [attr.aria-expanded]="settingsExpanded()" aria-controls="settings-menu" (click)="toggleSettings()">
+      <button class="nav-item" type="button" [class.active]="isSettingsView() || settingsExpanded()" [attr.aria-label]="'APP.SETTINGS' | translate" [title]="'APP.SETTINGS' | translate" [attr.aria-expanded]="settingsExpanded()" aria-controls="settings-menu" (click)="toggleSettings()">
         <span>⚙</span> {{ 'APP.SETTINGS' | translate }} <span class="settings-chevron" [class.expanded]="settingsExpanded()" aria-hidden="true">⌄</span>
       </button>
       <div id="settings-menu" class="settings-submenu" role="group" [attr.aria-label]="'APP.SETTINGS' | translate" [hidden]="!settingsExpanded()">
-        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.CONNECTION' | translate" [class.active]="view() === 'broker'" [attr.aria-current]="view() === 'broker' ? 'page' : null" (click)="show('broker')">
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.CONNECTION' | translate" [title]="'APP.CONNECTION' | translate" [class.active]="view() === 'broker'" [attr.aria-current]="view() === 'broker' ? 'page' : null" (click)="show('broker')">
           <span>⌁</span> {{ 'APP.CONNECTION' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.USERS' | translate" [class.active]="view() === 'users'" [attr.aria-current]="view() === 'users' ? 'page' : null" (click)="show('users')">
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.USERS' | translate" [title]="'APP.USERS' | translate" [class.active]="view() === 'users'" [attr.aria-current]="view() === 'users' ? 'page' : null" (click)="show('users')">
           <span>♙</span> {{ 'APP.USERS' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.LOGS' | translate" [class.active]="view() === 'logs'" [attr.aria-current]="view() === 'logs' ? 'page' : null" (click)="show('logs')">
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.LOGS' | translate" [title]="'APP.LOGS' | translate" [class.active]="view() === 'logs'" [attr.aria-current]="view() === 'logs' ? 'page' : null" (click)="show('logs')">
           <span>≋</span> {{ 'APP.LOGS' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.BACKUP' | translate" [class.active]="view() === 'backups'" [attr.aria-current]="view() === 'backups' ? 'page' : null" (click)="show('backups')">
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.BACKUP' | translate" [title]="'APP.BACKUP' | translate" [class.active]="view() === 'backups'" [attr.aria-current]="view() === 'backups' ? 'page' : null" (click)="show('backups')">
           <span>↓</span> {{ 'APP.BACKUP' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.PANEL_UPDATES' | translate" [class.active]="view() === 'hmi'" [attr.aria-current]="view() === 'hmi' ? 'page' : null" (click)="show('hmi')">
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.PANEL_UPDATES' | translate" [title]="'APP.PANEL_UPDATES' | translate" [class.active]="view() === 'hmi'" [attr.aria-current]="view() === 'hmi' ? 'page' : null" (click)="show('hmi')">
           <span>▧</span> {{ 'APP.PANEL_UPDATES' | translate }}
         </button>
-        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.HELP' | translate" [class.active]="view() === 'help'" [attr.aria-current]="view() === 'help' ? 'page' : null" (click)="show('help')">
+        <button class="nav-item settings-child" type="button" [attr.aria-label]="'APP.HELP' | translate" [title]="'APP.HELP' | translate" [class.active]="view() === 'help'" [attr.aria-current]="view() === 'help' ? 'page' : null" (click)="show('help')">
           <span>?</span> {{ 'APP.HELP' | translate }}
         </button>
       </div>
@@ -59,7 +59,7 @@
     <header class="topbar">
       <div><div class="eyebrow">{{ 'APP.SMART_HOME' | translate }} / {{ viewLabel | translate }}</div><h1>{{ pageTitle | translate }}</h1></div>
       <div class="top-actions">
-        <span class="connection-pill" [class.is-connected]="manager.mqtt().connected"><i></i>{{ (manager.mqtt().connected ? 'APP.MQTT_ONLINE' : 'APP.MQTT_OFFLINE') | translate }}</span>
+        <span class="connection-pill" role="status" [class.is-connected]="manager.mqtt().connected" [attr.aria-label]="(manager.mqtt().connected ? 'APP.MQTT_ONLINE' : 'APP.MQTT_OFFLINE') | translate" [title]="(manager.mqtt().connected ? 'APP.MQTT_ONLINE' : 'APP.MQTT_OFFLINE') | translate"><i aria-hidden="true"></i><span class="connection-label">{{ (manager.mqtt().connected ? 'APP.MQTT_ONLINE' : 'APP.MQTT_OFFLINE') | translate }}</span></span>
         <span class="signed-in-user">{{ manager.authUser()?.email }}</span>
         <label class="language-picker">
           <span class="visually-hidden">{{ 'APP.LANGUAGE' | translate }}</span>

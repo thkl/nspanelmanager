@@ -81,6 +81,7 @@ export class CoreDumpStore {
   /** Processes a single dump manifest, data chunk, or completion message. */
   async receive(panel: Panel, topic: string, payload: string, receivedAt: number): Promise<string | undefined> {
     this.ensureInitialized();
+    // Transfer messages are accepted only after the manifest establishes a bounded chunk plan.
     if (!PANEL_ID_PATTERN.test(panel.id)) return undefined;
     if (topic === "manifest") {
       this.begin(panel, payload);

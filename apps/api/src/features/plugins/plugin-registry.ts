@@ -41,6 +41,7 @@ export class PluginRegistry {
   registerAlias(alias: string, pluginId: string): void {
     if (this.definitions.has(alias) || this.aliases.has(alias)) throw new Error(`Plugin alias '${alias}' is already registered.`);
     if (!this.definitions.has(pluginId)) throw new Error(`Plugin '${pluginId}' must be registered before alias '${alias}'.`);
+    // Aliases resolve old saved configurations without adding duplicate choices to the editor.
     this.aliases.set(alias, pluginId);
   }
 

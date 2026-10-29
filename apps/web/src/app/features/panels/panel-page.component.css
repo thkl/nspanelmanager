@@ -261,6 +261,10 @@ nspanel-screen-preview {
   font-weight: 650;
 }
 
+.mobile-panel-diagnostics {
+  display: none;
+}
+
 .row-arrow {
   margin-left: auto;
   color: var(--ink-faint);
@@ -1084,6 +1088,62 @@ label input::placeholder {
     display: block;
   }
 
+  .mobile-panel-diagnostics {
+    display: block;
+    margin: -2px 0 10px 46px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface-subtle);
+  }
+
+  .mobile-panel-diagnostics summary {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    padding: 0 12px;
+    color: var(--green-text);
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .mobile-panel-diagnostics[open] summary {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .mobile-diagnostics-list {
+    display: grid;
+    gap: 11px;
+    margin: 0;
+    padding: 13px 12px;
+  }
+
+  .mobile-diagnostics-list > div {
+    display: grid;
+    gap: 3px;
+  }
+
+  .mobile-diagnostics-list dt {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .mobile-diagnostics-list dd,
+  .mobile-diagnostics-empty {
+    margin: 0;
+    color: var(--ink);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-diagnostics-empty {
+    padding: 13px 12px;
+    color: var(--ink-soft);
+  }
+
   .mobile-back {
     display: inline-flex;
     align-self: flex-start;
@@ -1116,6 +1176,9 @@ label input::placeholder {
     align-items: flex-start;
     flex-direction: column;
     padding: 14px;
+  }
+  .mobile-panel-diagnostics {
+    margin-left: 0;
   }
   .editor-actions {
     width: 100%;

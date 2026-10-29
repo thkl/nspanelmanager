@@ -86,6 +86,7 @@ export class MqttLightPlugin implements PluginDefinition {
     const patch: PluginState = {};
     const power = scalarPower(readPayloadValue(message.payload, tileConfigString(instance, "powerValuePath", "state")));
     const rawBrightness = scalarNumber(readPayloadValue(message.payload, tileConfigString(instance, "brightnessValuePath", "brightness")));
+    // Convert device-native brightness before caching; panel percentages are the shared plugin state contract.
     const brightness = rawBrightness === undefined ? undefined : this.toPanelBrightness(instance, rawBrightness);
     const color = readPayloadValue(message.payload, tileConfigString(instance, "colorValuePath", "color"));
     if (power !== undefined) patch.power = power;

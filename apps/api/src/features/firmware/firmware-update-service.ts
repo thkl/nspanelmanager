@@ -14,8 +14,10 @@ const EXPIRY_SCAN_INTERVAL_MS = 15 * 1000;
 const MAX_CANARY_HEARTBEAT_GAP_MS = 180 * 1000;
 const JOB_ID_PATTERN = /^[0-9a-f-]{36}$/i;
 
+/** Represents a rejected firmware update request with an HTTP conflict status. */
 export class FirmwareUpdateError extends Error {
   constructor(message: string, readonly statusCode: 409 = 409) {
+    // Routes map this domain error without inferring the failure from message text.
     super(message);
     this.name = "FirmwareUpdateError";
   }
@@ -220,6 +222,7 @@ export class FirmwareUpdateService {
   async handlePanelReport(panel: Panel, payload: string, receivedAt: number): Promise<boolean> {
     const report = parsePanelReport(payload);
     if (!report) return false;
+    // Job ID and panel ID together prevent stale or cross-panel reports from completing another update.
     const job = this.findJob(report.jobId);
     if (!job || job.panelId !== panel.id || isTerminal(job.status)) return false;
     if (report.status === "awaiting_confirmation") {

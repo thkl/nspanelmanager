@@ -45,6 +45,7 @@ export class LogsPageComponent implements OnInit {
       ...(selectedLevel !== "all" ? { level: selectedLevel } : {})
     }).subscribe({
       next: (result) => {
+        // Filter or page changes can overlap requests; only the newest selection may replace the visible rows.
         if (requestVersion !== this.requestVersion) return;
         this.logs.set(result.logs);
         this.categories.update((current) => [...new Set([...current, ...result.categories])].sort((left, right) => left.localeCompare(right)));

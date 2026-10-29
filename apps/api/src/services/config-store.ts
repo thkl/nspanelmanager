@@ -111,6 +111,7 @@ export class ConfigStore {
     try {
       await this.save(revision);
     } catch (error) {
+      // Keep the in-memory snapshot aligned with SQLite if durable persistence rejected the mutation.
       this.config = previous;
       throw error;
     }

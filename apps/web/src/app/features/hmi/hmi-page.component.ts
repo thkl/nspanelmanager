@@ -78,6 +78,7 @@ export class HmiPageComponent implements OnInit {
 
   /** Refreshes update artifacts and the saved rollout policy. */
   refresh(): void {
+    // Fetch configuration and each artifact independently so a missing upload does not hide the other tab.
     this.manager.refresh().subscribe({
       next: ({ config }) => {
         this.rolloutEnabled.set(config.firmwareRollout.enabled);

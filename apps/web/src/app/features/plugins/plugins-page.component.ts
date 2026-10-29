@@ -66,6 +66,7 @@ export class PluginsPageComponent implements OnInit {
   readonly homeAssistantEntityTypeFilter = signal("all");
   readonly homeAssistantAreaFilter = signal("all");
   readonly editingInstanceId = signal<string | null>(null);
+  readonly mobileInstanceEditorOpen = signal(false);
   readonly instanceSearch = signal("");
   readonly expandedInstanceGroups = signal<Set<string>>(new Set());
   readonly collapsedSearchInstanceGroups = signal<Set<string>>(new Set());
@@ -776,6 +777,7 @@ export class PluginsPageComponent implements OnInit {
 
   /** Loads a saved device instance and its profile reference into the instance editor. */
   editInstance(instance: PluginInstance): void {
+    this.mobileInstanceEditorOpen.set(true);
     this.editingInstanceId.set(instance.id);
     this.expandedInstanceGroups.update((expanded) => new Set(expanded).add(instance.pluginProfileId));
     this.collapsedSearchInstanceGroups.update((collapsed) => {
@@ -785,6 +787,7 @@ export class PluginsPageComponent implements OnInit {
     });
     this.instanceName.set(instance.name);
     this.selectedPluginProfileId.set(instance.pluginProfileId);
+    // Start from this instance's variables plus schema defaults, never the previous editor's draft.
     this.instanceVariables.set(this.withProfileVariableDefaults(instance.pluginProfileId, instance.variables ?? {}));
     this.resetHomeAssistantEntityFilters();
     this.loadHomeAssistantEntitiesForProfile(instance.pluginProfileId);
@@ -793,6 +796,7 @@ export class PluginsPageComponent implements OnInit {
 
   /** Clears every field from the current instance before starting a fresh draft. */
   cancelEdit(): void {
+    this.mobileInstanceEditorOpen.set(false);
     this.editingInstanceId.set(null);
     this.instanceName.set("");
     this.selectedPluginProfileId.set("");
@@ -800,6 +804,17 @@ export class PluginsPageComponent implements OnInit {
     this.loadingHomeAssistantProfileId.set("");
     this.resetHomeAssistantEntityFilters();
     this.clearPagePreview();
+  }
+
+  /** Opens a clean instance draft from the mobile list view. */
+  startNewInstance(): void {
+    this.cancelEdit();
+    this.mobileInstanceEditorOpen.set(true);
+  }
+
+  /** Returns to the instance list while preserving the current draft. */
+  showInstanceList(): void {
+    this.mobileInstanceEditorOpen.set(false);
   }
 
   /** Selects a reusable plugin for the instance draft. */
@@ -820,6 +835,7 @@ export class PluginsPageComponent implements OnInit {
     this.manager.loadHomeAssistantEntities(profileId).subscribe({
       next: (result) => {
         const { entities } = result;
+        // Keep results keyed by profile because several profiles may load while the editor is in use.
         this.homeAssistantEntities.update((current) => ({ ...current, [profileId]: entities }));
         this.homeAssistantAreas.update((current) => ({ ...current, [profileId]: result.areas ?? [] }));
         this.homeAssistantAreasAvailable.update((current) => ({ ...current, [profileId]: result.areasAvailable }));

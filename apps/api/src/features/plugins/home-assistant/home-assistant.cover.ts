@@ -32,6 +32,7 @@ export class HomeAssistantCoverControls {
   /** Opens or closes a cover based on its last reported position. */
   async toggle(instance: ResolvedPluginInstance, entityId: string, state: PluginState): Promise<PluginHomeTileResult> {
     const position = numberValue(state, "position");
+    // Prefer the numeric position; fall back to HA's open/closed string when the entity has no position attribute.
     const isOpen = position === undefined
       ? String(state["entityState"] ?? "").toLowerCase() === "open"
       : position > 0;

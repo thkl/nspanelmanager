@@ -185,6 +185,7 @@ export class PanelPageComponent implements OnInit {
    * after saving or when deliberately discarding edits.
    */
   refresh(): void {
+    // Keep the last edited panel selected across feature navigation and configuration refreshes.
     const previousId = this.selectedPanelId() ?? this.rememberedPanelId();
     this.manager.refresh().subscribe({
       next: ({ config }) => {
@@ -198,6 +199,7 @@ export class PanelPageComponent implements OnInit {
   /** Switches the editor to a separate copy of the chosen panel. */
   selectPanel(panel: Panel): void {
     this.mobileDetailsOpen.set(true);
+    // Editing always starts from a detached draft; list selection must not mutate saved shared state.
     this.setDraft(panel);
   }
 

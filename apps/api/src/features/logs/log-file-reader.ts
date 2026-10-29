@@ -48,6 +48,7 @@ export class LogFileReader {
     let scannedLines = 0;
     let scanLimitReached = false;
 
+    // Visit files and lines newest-first so recent pages do not require loading or reversing whole log files.
     for (const file of files) {
       try {
         await visitNewestLines(file.filePath, (line) => {

@@ -152,6 +152,7 @@ export class RealtimeWebSocketServer {
   private sendEvent(client: RealtimeClient, event: RealtimeEvent, serialized: string): void {
     if (client.socket.readyState !== WebSocket.OPEN) return;
     if (!client.initialized) {
+      // Live updates must follow the snapshot; buffer the short race while that initial read is in progress.
       client.pendingEvents.push(event);
       if (client.pendingEvents.length > 100) client.socket.close(1013, "Realtime snapshot is taking too long.");
       return;

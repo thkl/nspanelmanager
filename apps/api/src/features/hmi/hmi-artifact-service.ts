@@ -30,6 +30,7 @@ export interface HmiDownload {
 /** Indicates an invalid upload or an HMI download URL setup error. */
 export class HmiArtifactError extends Error {
   constructor(message: string, readonly statusCode: 400 | 404 | 409 | 503 = 400) {
+    // Route handlers use the typed status and return only this user-safe message.
     super(message);
     this.name = "HmiArtifactError";
   }
@@ -101,6 +102,7 @@ export class HmiArtifactService {
       const profiles = normalizeCompatibilityProfiles(compatibleProfiles);
       if (profiles.length === 0) throw new HmiArtifactError("Choose at least one compatible panel firmware profile.");
       await this.pruneAndPersist();
+      // Keep old artifacts until every previously issued panel download grant has expired.
       if ((await this.storedArtifactBytes()) + bytes.length > MAX_HMI_STORAGE_BYTES) {
         throw new HmiArtifactError("Active panel download links are keeping older HMI files. Wait for those links to expire before uploading more files.", 409);
       }

@@ -49,6 +49,7 @@ export class BrokerPageComponent implements OnInit {
     this.saving.set(true);
     this.manager.saveBroker(this.draft()).subscribe({
       next: ({ config }) => {
+        // The API never echoes the stored password, so clear the secret field after a successful save.
         this.draft.set({ url: config.broker.url, username: config.broker.username, password: "" });
         this.saving.set(false);
         this.manager.inform("BROKER.NOTICE_SAVED");

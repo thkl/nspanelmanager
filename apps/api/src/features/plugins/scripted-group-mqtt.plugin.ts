@@ -84,6 +84,7 @@ export class ScriptedGroupMqttPlugin implements PluginDefinition {
     context: PluginRuntimeContext
   ): Promise<PluginSubscriptionResult | void> {
     const group: PluginGroupRuntimeContext | undefined = context.group;
+    // Run only when the runtime's resolved group context matches the configured input group.
     if (!group || group.name !== instance.variables.groupName) return undefined;
 
     const source = typeof instance.config.groupMessageCode === "string" ? instance.config.groupMessageCode : "";

@@ -83,6 +83,7 @@ export class SqliteStore {
   saveManagerConfig(payload: string, metadata: ConfigRevisionMetadata): void {
     const database = this.getDatabase();
     const hash = createHash("sha256").update(payload).digest("hex");
+    // The initial document and its baseline revision must appear together or a restart could leave history incomplete.
     database.exec("BEGIN IMMEDIATE;");
     try {
       this.writeDocumentRow(database, "manager", 1, payload);
@@ -192,6 +193,7 @@ export class SqliteStore {
     const appliedVersions = new Set((database.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>).map((row) => row.version));
     for (const migration of migrations) {
       if (appliedVersions.has(migration.version)) continue;
+      // Apply DDL and its version marker together so a restart cannot mistake a partial migration for a completed one.
       database.exec("BEGIN IMMEDIATE;");
       try {
         database.exec(migration.sql);

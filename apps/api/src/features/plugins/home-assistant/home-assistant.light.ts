@@ -34,6 +34,7 @@ export class HomeAssistantLightControls {
   /** Toggles a light and applies the configured brightness when turning it on. */
   async toggle(instance: ResolvedPluginInstance, entityId: string, state: PluginState): Promise<PluginHomeTileResult> {
     const brightness = numberValue(state, "brightness");
+    // Some HA lights report isOn=true at zero brightness; treat that combination as off for the toggle action.
     const isOn = state["isOn"] === true && (brightness === undefined || brightness > 0);
     if (isOn) {
       await callHomeAssistantService(instance, "light", "turn_off", entityId);

@@ -67,6 +67,7 @@ export class RoutesPageComponent implements OnInit {
   /** Loads a saved route into the form, including its optional payload filter. */
   editRoute(route: MqttRoute): void {
     this.editingRouteId.set(route.id);
+    // Older routes may not have a filter; normalize them to the explicit no-filter form used by the editor.
     this.draft.set({
       name: route.name,
       direction: route.direction,

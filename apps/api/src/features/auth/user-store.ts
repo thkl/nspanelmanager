@@ -169,6 +169,7 @@ export class UserStore {
   /** Resolves a browser token to an enabled user, deleting expired or invalid sessions. */
   async resolveSession(token: string): Promise<{ user: StoredUser; session: StoredSession } | undefined> {
     if (!/^[a-f0-9]{64}$/.test(token)) return undefined;
+    // Persisted sessions contain only a digest, so a database read cannot be replayed as a browser cookie.
     const hash = hashToken(token);
     const session = this.snapshot.sessions.find((item) => item.tokenHash === hash);
     if (!session || !session.userId || session.expiresAt <= Date.now()) {
@@ -221,7 +222,10 @@ export class UserStore {
 
 /** Signals that one-time public setup has already created an administrator. */
 export class InitialSetupCompletedError extends Error {
-  constructor() { super("Initial setup has already been completed."); }
+  constructor() {
+    // The setup route maps this typed condition to a conflict response.
+    super("Initial setup has already been completed.");
+  }
 }
 
 /** Normalizes login emails consistently before uniqueness checks and comparisons. */

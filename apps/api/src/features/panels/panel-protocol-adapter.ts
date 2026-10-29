@@ -22,6 +22,7 @@ export class PanelProtocolAdapter {
 
   /** Displays a plugin screen and pads button entries to avoid stale TFT labels. */
   showScreen(panel: Panel, binding: PanelBinding, screen: PluginScreen): boolean {
+    // Fill all eight TFT slots so labels from a previously longer page cannot remain visible.
     const buttons = Array.from({ length: 8 }, (_, index) => {
       const button = screen.buttons[index];
       return { label: button?.label ?? "", topic: button?.action ?? "" };

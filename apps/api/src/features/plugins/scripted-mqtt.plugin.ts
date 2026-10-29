@@ -189,6 +189,7 @@ export class ScriptedMqttPlugin implements PluginDefinition {
   async initialize(instance: ResolvedPluginInstance, state: PluginState, context: PluginRuntimeContext): Promise<readonly PluginMqttSubscription[]> {
     const source = configString(instance, "startupCode").trim();
     if (!source) return [];
+    // Startup scripts declare handlers here so subscriptions remain owned by the shared broker runtime.
     const execution = await runScriptFunction(source, undefined, state, context, { publish: false, writeStorage: true, subscribe: true, namedFunctions: getFunctions(instance) });
     applyScriptDebugLogs(execution.effects, context);
     await applyScriptStorageEffects(execution.effects, context);

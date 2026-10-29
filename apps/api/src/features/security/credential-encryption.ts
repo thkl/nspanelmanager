@@ -56,6 +56,7 @@ export class CredentialEncryption {
 
     const iv = randomBytes(initializationVectorLength);
     const cipher = createCipheriv(algorithm, this.key, iv, { authTagLength });
+    // Bind ciphertext to its setting name so a valid encrypted token cannot be moved into another credential field.
     cipher.setAAD(associatedDataFor(purpose));
     const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
 

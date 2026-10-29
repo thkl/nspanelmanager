@@ -49,6 +49,7 @@ export class ScriptedMqttButtonPlugin implements PluginDefinition {
     context: PluginRuntimeContext
   ): Promise<PluginFavoritePressResult | undefined> {
     const source = typeof instance.config.buttonPressCode === "string" ? instance.config.buttonPressCode : "";
+    // Button-only scripts return one explicit command; they do not get the page plugin's implicit send helpers.
     const execution = await runScriptFunction(source, undefined, state, context, { publish: false, writeStorage: false });
     applyScriptDebugLogs(execution.effects, context);
     if (execution.value === null) return undefined;

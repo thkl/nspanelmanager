@@ -2,6 +2,8 @@
 
 NSPanel Manager is a TypeScript application for configuring and operating NSPanel firmware through MQTT. It replaces hand-edited Node-RED flows for panel settings and simple device topic mappings. It can upload and deliver ESPHome firmware binaries and Nextion HMI files to configured panels. The Angular 22 UI uses standalone feature pages with separate TypeScript, HTML, and CSS files; the Express API is divided into feature routers, domain helpers, and services.
 
+For the current architecture, service lifecycles, persistence model, MQTT contracts, plugin extension points, security boundaries, and development workflows, see the [Developer Guide](docs/developer-guide.md). The [documentation index](docs/README.md) links the related guides.
+
 ## Features in this MVP
 
 - Manage multiple NSPanel profiles, including the title, brightness, screensaver, night mode, four home-screen buttons, twelve favorites, and physical button relay behavior.
@@ -140,4 +142,4 @@ On the panel's **Panels** page, assign the thermostat instance in **Thermostat p
 
 Create an **Open-Meteo weather** profile under **Plugins** and choose a refresh interval from 5 to 360 minutes. Create an instance with `latitude` and `longitude` variables; `timezone` is optional and defaults to automatic detection (for example, `Europe/Berlin`). Assign that instance to **Weather screen** under **Panels → Built-in panel pages**. The manager fetches current conditions and a five-day forecast, caches changed results, and sends `<nodeName>/cmnd/weather` only while that panel's weather page is open. The cached forecast is replayed when the page opens. Open-Meteo's public forecast endpoint needs no API key for this use. The payload uses numeric rain and wind values, a `min/max` temperature string per forecast day, and panel font glyphs for `condition` and `cond`. WMO condition codes are translated through OpenWeatherMap icon categories into the panel glyph map (for example, partly cloudy → `C`, rain → `I`).
 
-See the [MVP plan](docs/MVP-PLAN.md) for the proposed plugin system, entity model, custom flows, and delivery milestones.
+See the [MVP plan](docs/MVP-PLAN.md) for the original product goals and early implementation milestones.

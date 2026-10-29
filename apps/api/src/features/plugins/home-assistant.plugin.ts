@@ -160,6 +160,7 @@ export class HomeAssistantPlugin implements PluginDefinition {
           response.json(await fetchHomeAssistantEntityOptions(baseUrl, accessToken, logger));
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
+          // Preserve the failing integration phase in logs so an empty selector is diagnosable without a debugger.
           logger.error("Home Assistant entity API request failed.", {
             component: "api",
             plugin: "home-assistant",

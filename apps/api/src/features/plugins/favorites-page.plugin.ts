@@ -64,6 +64,7 @@ export class FavoritesPagePlugin implements PluginDefinition {
   /** Supplies the title and configured shortcut labels for the firmware-native menu. */
   renderMenuPage(instance: ResolvedPluginInstance, _context: PluginRuntimeContext): PluginMenuPage {
     const entries = parseEntries(instance.config.entries) ?? [];
+    // The TFT always receives twelve slots; empty labels clear stale buttons from a previously loaded menu.
     const page = {
       title: stringValue(instance.config.title, "Favorites"),
       buttons: Array.from({ length: 12 }, (_, index) => ({ label: entries[index]?.label ?? "" , topic:entries[index]?.topic ?? "" }))

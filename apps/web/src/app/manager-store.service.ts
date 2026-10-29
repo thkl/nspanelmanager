@@ -277,6 +277,7 @@ export class ManagerStore {
   /** Opens the authenticated same-origin realtime channel and retries transient disconnects. */
   connectRealtime(): void {
     if (typeof window === "undefined" || !this.authUser() || this.realtimeSocket || this.reconnectTimer) return;
+    // Each socket captures a generation so callbacks from a closed session cannot update a later one.
     const generation = this.realtimeGeneration;
     const url = new URL("/api/events", window.location.href);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -306,6 +307,7 @@ export class ManagerStore {
 
   /** Closes the live channel and cancels pending reconnects when the browser signs out. */
   disconnectRealtime(): void {
+    // Invalidate callbacks before closing; WebSocket close events are delivered asynchronously.
     this.realtimeGeneration += 1;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
