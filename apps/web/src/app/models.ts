@@ -151,6 +151,8 @@ export interface PluginConfigColumn {
   key: string;
   label: string;
   multiline?: boolean;
+  /** Moves this column's editor into a row-settings dialog in the web editor. */
+  editInDialog?: boolean;
   options?: string[];
   optionSource?: "plugin-instances";
 }

@@ -47,6 +47,8 @@ export interface PluginConfigColumn {
   key: string;
   label: string;
   multiline?: boolean;
+  /** Moves this column's editor into a row-settings dialog in the web editor. */
+  editInDialog?: boolean;
   options?: readonly string[];
   /** Supplies dropdown values from configured plugin instances in the web editor. */
   optionSource?: "plugin-instances";

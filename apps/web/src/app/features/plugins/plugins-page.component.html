@@ -226,14 +226,24 @@
                   <span class="field-label">{{ field.label }}</span>
                   @if (field.help) { <small>{{ field.help }}</small> }
                   <div class="table-scroll">
-                    <table class="config-table">
-                      <thead><tr><th>{{ field.rowHeader ?? ('PLUGINS.ROW' | translate) }}</th>@for (column of field.columns ?? []; track column.key) { @if (!column.multiline) { <th>{{ column.label }}</th> } }<th></th></tr></thead>
+                    <table class="config-table" [class.has-row-settings]="hasRowSettingsColumns(field)">
+                      <thead>
+                        <tr>
+                          <th>{{ field.rowHeader ?? ('PLUGINS.ROW' | translate) }}</th>
+                          @for (column of field.columns ?? []; track column.key) {
+                            @if (!column.multiline && !column.editInDialog) {
+                              <th>{{ column.label }}</th>
+                            }
+                          }
+                          <th></th>
+                        </tr>
+                      </thead>
                       <tbody>
                         @for (row of tableRows(field); track $index; let rowIndex = $index) {
                           <tr>
                             <th>{{ rowIndex + 1 }}</th>
                             @for (column of field.columns ?? []; track column.key) {
-                              @if (!column.multiline) {
+                              @if (!column.multiline && !column.editInDialog) {
                                 <td>
                                   @if (tableColumnOptions(field, column.key, row); as options) {
                                     <select [attr.aria-label]="column.label + ' for ' + (field.rowHeader ?? ('PLUGINS.ROW' | translate)).toLowerCase() + ' ' + (rowIndex + 1)" [ngModel]="row[column.key]" (ngModelChange)="setTableCell(field, rowIndex, column.key, $event)">
@@ -246,7 +256,14 @@
                                 </td>
                               }
                             }
-                            <td><button type="button" class="text-danger" [disabled]="field.removeRowBehavior !== 'clear' && tableRows(field).length <= (field.minRows ?? 0)" (click)="removeTableRow(field, rowIndex)">{{ (field.removeRowBehavior === 'clear' ? 'COMMON.CLEAR' : 'COMMON.REMOVE') | translate }}</button></td>
+                            <td>
+                              <div class="table-row-actions">
+                                @if (hasRowSettingsColumns(field)) {
+                                  <button type="button" class="text-action" (click)="openRowSettings(field, rowIndex)">{{ 'COMMON.SETTINGS' | translate }}</button>
+                                }
+                                <button type="button" class="text-danger" [disabled]="field.removeRowBehavior !== 'clear' && tableRows(field).length <= (field.minRows ?? 0)" (click)="removeTableRow(field, rowIndex)">{{ (field.removeRowBehavior === 'clear' ? 'COMMON.CLEAR' : 'COMMON.REMOVE') | translate }}</button>
+                              </div>
+                            </td>
                           </tr>
                           @if (hasMultilineColumns(field)) {
                             <tr class="table-detail-row">
@@ -280,6 +297,60 @@
                       </tbody>
                     </table>
                   </div>
+                  @if (rowSettingsForField(field); as selection) {
+                    @if (tableRows(field)[selection.rowIndex]; as row) {
+                      <dialog
+                        #rowSettingsDialog
+                        class="row-settings-dialog"
+                        aria-modal="true"
+                        [attr.aria-labelledby]="'row-settings-title-' + selection.fieldKey + '-' + selection.rowIndex"
+                        (cancel)="closeRowSettings()"
+                        (click)="closeRowSettingsOnBackdrop($event)"
+                      >
+                        <div class="row-settings-content">
+                          <h2 [id]="'row-settings-title-' + selection.fieldKey + '-' + selection.rowIndex">
+                            {{ 'PLUGINS.ROW_SETTINGS' | translate }}
+                            <span>{{ field.rowHeader ?? ('PLUGINS.ROW' | translate) }} {{ selection.rowIndex + 1 }}</span>
+                          </h2>
+                          <div class="row-settings-fields">
+                            @for (column of rowSettingsColumns(field); track column.key) {
+                              <label class="row-settings-field">
+                                <span>{{ column.label }}</span>
+                                @if (column.multiline) {
+                                  <textarea
+                                    [attr.aria-label]="column.label"
+                                    [ngModel]="row[column.key]"
+                                    (ngModelChange)="setTableCell(field, selection.rowIndex, column.key, $event)"
+                                    rows="5"
+                                  ></textarea>
+                                } @else if (tableColumnOptions(field, column.key, row); as options) {
+                                  <select
+                                    [attr.aria-label]="column.label"
+                                    [ngModel]="row[column.key]"
+                                    (ngModelChange)="setTableCell(field, selection.rowIndex, column.key, $event)"
+                                  >
+                                    <option value="">{{ 'PLUGINS.CHOOSE_VALUE' | translate }}</option>
+                                    @for (option of options; track option) {
+                                      <option [value]="option">{{ tableColumnOptionLabel(field, column.key, option) }}</option>
+                                    }
+                                  </select>
+                                } @else {
+                                  <input
+                                    [attr.aria-label]="column.label"
+                                    [ngModel]="row[column.key]"
+                                    (ngModelChange)="setTableCell(field, selection.rowIndex, column.key, $event)"
+                                  >
+                                }
+                              </label>
+                            }
+                          </div>
+                          <div class="row-settings-actions">
+                            <button type="button" class="text-action" (click)="closeRowSettings()">{{ 'COMMON.DONE' | translate }}</button>
+                          </div>
+                        </div>
+                      </dialog>
+                    }
+                  }
                   <button type="button" class="text-action add-row" [disabled]="tableRows(field).length >= (field.maxRows ?? 8)" (click)="addTableRow(field)">＋ {{ field.addRowLabel ?? ('PLUGINS.ADD_ROW' | translate) }}</button>
                 </div>
               } @else {

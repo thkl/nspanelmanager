@@ -39,9 +39,9 @@ export class FavoritesPagePlugin implements PluginDefinition {
       help: "Choose a plugin instance to navigate, or enter an MQTT topic and payload template to publish directly. Both actions can be combined. Example payload: {\"state\":\"{{state}}\"}. Templates support instance variables and {{panelName}}, {{nodeName}}, {{buttonIndex}}, {{buttonLabel}}, and {{pageNumber}}. Values are inserted as text, so quote string values inside JSON. Each page shows twelve shortcuts; swipe to move between pages.",
       columns: [
         { key: "label", label: "Favorite name" },
-        { key: "topic", label: "MQTT topic (optional)" },
-        { key: "payload", label: "MQTT payload template", multiline: true },
-        { key: "instanceId", label: "Plugin instance", optionSource: "plugin-instances" }
+        { key: "topic", label: "MQTT topic (optional)", editInDialog: true },
+        { key: "payload", label: "MQTT payload template", multiline: true, editInDialog: true },
+        { key: "instanceId", label: "Plugin instance", optionSource: "plugin-instances", editInDialog: true }
       ]
     }
   ];

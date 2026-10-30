@@ -866,6 +866,18 @@ label small {
   width: 58px;
 }
 
+.config-table.has-row-settings th:last-child {
+  width: 150px;
+}
+
+.table-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  white-space: nowrap;
+}
+
 .config-table input,
 .config-table textarea {
   min-width: 130px;
@@ -915,6 +927,85 @@ label small {
 
 .multiline-editor nspanel-script-editor {
   min-width: 0;
+}
+
+.row-settings-dialog {
+  width: min(38rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 18px 60px var(--shadow-soft);
+}
+
+.row-settings-dialog::backdrop {
+  background: rgb(16 24 32 / 56%);
+  backdrop-filter: blur(2px);
+}
+
+.row-settings-content {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.row-settings-content h2 {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.25rem;
+}
+
+.row-settings-content h2 span {
+  color: var(--ink-faint);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.row-settings-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.row-settings-field {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.row-settings-field input,
+.row-settings-field select,
+.row-settings-field textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--field-bg);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+}
+
+.row-settings-field textarea {
+  min-height: 140px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.5;
+}
+
+.row-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
 .script-check-row {

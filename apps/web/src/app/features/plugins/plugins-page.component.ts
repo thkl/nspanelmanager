@@ -1,4 +1,4 @@
-import { Component, OnInit, input, signal } from "@angular/core";
+import { Component, ElementRef, OnInit, effect, input, signal, viewChild } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { TranslatePipe } from "@ngx-translate/core";
@@ -18,6 +18,11 @@ interface ScriptCheckState {
 interface PageActionEntry {
   index: number;
   action: Record<string, string>;
+}
+
+interface TableRowSettingsSelection {
+  fieldKey: string;
+  rowIndex: number;
 }
 
 interface PluginInstanceGroup {
@@ -79,6 +84,8 @@ export class PluginsPageComponent implements OnInit {
   readonly pagePreviewNotice = signal("");
   readonly previewHistory = signal<string[]>([]);
   readonly scriptChecks = signal<Record<string, ScriptCheckState>>({});
+  readonly rowSettingsSelection = signal<TableRowSettingsSelection | null>(null);
+  readonly rowSettingsDialog = viewChild<ElementRef<HTMLDialogElement>>("rowSettingsDialog");
   readonly savingInstance = signal(false);
   readonly savingProfile = signal(false);
   readonly blueprintExportInstanceId = signal("");
@@ -96,7 +103,15 @@ export class PluginsPageComponent implements OnInit {
   readonly buttonSlots = Array.from({ length: 8 }, (_, index) => String(index + 1));
 
   /** Provides shared configuration and typed API operations for this page. */
-  constructor(readonly manager: ManagerStore) {}
+  constructor(readonly manager: ManagerStore) {
+    effect(() => {
+      const dialog = this.rowSettingsDialog()?.nativeElement;
+      const selection = this.rowSettingsSelection();
+      if (!dialog) return;
+      if (selection && !dialog.open) dialog.showModal();
+      if (!selection && dialog.open) dialog.close();
+    });
+  }
 
   /** Loads plugin schemas and the saved instance and binding lists. */
   ngOnInit(): void { this.refresh(); }
@@ -301,6 +316,40 @@ export class PluginsPageComponent implements OnInit {
   /** Reads a table field's string-backed rows for display in the generic editor. */
   tableRows(field: PluginConfigField): Record<string, string>[] {
     return this.parseTableRows(this.instanceConfig()[field.key], field);
+  }
+
+  /** Opens the settings dialog for one row in a schema-defined table. */
+  openRowSettings(field: PluginConfigField, rowIndex: number): void {
+    if (!this.tableRows(field)[rowIndex] || !this.hasRowSettingsColumns(field)) return;
+    this.rowSettingsSelection.set({ fieldKey: field.key, rowIndex });
+  }
+
+  /** Clears the selected row so the dialog closes and releases its modal focus trap. */
+  closeRowSettings(): void {
+    this.rowSettingsSelection.set(null);
+  }
+
+  /** Closes the dialog only when the user clicks its backdrop. */
+  closeRowSettingsOnBackdrop(event: MouseEvent): void {
+    if (event.target === event.currentTarget) this.closeRowSettings();
+  }
+
+  /** Returns the active dialog row only for the table currently being rendered. */
+  rowSettingsForField(field: PluginConfigField): TableRowSettingsSelection | null {
+    const selection = this.rowSettingsSelection();
+    return selection?.fieldKey === field.key && this.tableRows(field)[selection.rowIndex]
+      ? selection
+      : null;
+  }
+
+  /** Reports whether a table defines columns that belong in its row-settings dialog. */
+  hasRowSettingsColumns(field: PluginConfigField): boolean {
+    return (field.columns ?? []).some((column) => column.editInDialog);
+  }
+
+  /** Returns the row-settings columns in the schema's display order. */
+  rowSettingsColumns(field: PluginConfigField): NonNullable<PluginConfigField["columns"]> {
+    return (field.columns ?? []).filter((column) => column.editInDialog);
   }
 
   /** Identifies the scripted plugin's pages table, which uses page tabs instead of a flat table. */
@@ -590,12 +639,12 @@ export class PluginsPageComponent implements OnInit {
 
   /** Counts compact columns so a multiline editor row can span the table. */
   tableVisibleColumnCount(field: PluginConfigField): number {
-    return (field.columns ?? []).filter((column) => !column.multiline).length;
+    return (field.columns ?? []).filter((column) => !column.multiline && !column.editInDialog).length;
   }
 
   /** Reports whether a schema table needs an expanded editor row. */
   hasMultilineColumns(field: PluginConfigField): boolean {
-    return (field.columns ?? []).some((column) => column.multiline);
+    return (field.columns ?? []).some((column) => column.multiline && !column.editInDialog);
   }
 
   /** Returns the syntax result only while it matches the row's current source. */
