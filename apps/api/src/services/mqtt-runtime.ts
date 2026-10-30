@@ -2274,7 +2274,7 @@ export class MqttRuntime {
 
   /** Opens the configured plugin instance selected from a plugin-owned menu. */
   private async openMenuTarget(panel: Panel, session: PanelFlowSession, binding: PanelBinding, source: ResolvedPluginInstance, sourceDefinition: PluginDefinition, index: number, instances: ResolvedPluginInstance[]): Promise<void> {
-    if (!Number.isInteger(index) || index < 0 || index > 11 || !sourceDefinition.handleMenuPageAction || (session.ancestors?.length ?? 0) >= 8) return;
+    if (!Number.isInteger(index) || index < 0 || index > 11 || !sourceDefinition.handleMenuPageAction) return;
     const pageIndex = session.menuPageIndex ?? 0;
     const result = await sourceDefinition.handleMenuPageAction(
       source,
@@ -2282,7 +2282,14 @@ export class MqttRuntime {
       this.createPluginContext(panel, binding, source),
       pageIndex
     );
-    const target = result?.targetPluginInstanceId && instances.find((candidate) => candidate.id === result.targetPluginInstanceId && candidate.enabled);
+    if (!result) return;
+    for (const command of result.commands ?? []) {
+      if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
+    }
+    if (result.commands?.length) this.recordPluginActivity(source.id);
+    if (!result.targetPluginInstanceId) return;
+    if ((session.ancestors?.length ?? 0) >= 8) return;
+    const target = instances.find((candidate) => candidate.id === result.targetPluginInstanceId && candidate.enabled);
     const targetDefinition = target && this.plugins.get(target.pluginId);
     if (!target || !targetDefinition || !targetDefinition.favoriteFlow || targetDefinition.nativePanelPage) return;
 

@@ -12,6 +12,18 @@ A **plugin profile** selects a plugin type and stores its reusable configuration
 
 Panels refer to instances in different ways: native page assignments in `panel.nativePluginInstances`, page-event observers in `panel.panelEventPluginInstances`, home tile assignments on panel buttons, or favorite bindings for plugin flows. The plugin API routes validate and save these settings, then ask the runtime to refresh instances.
 
+## Favorites Menu MQTT Actions
+
+The built-in Favorites page plugin can publish a one-off MQTT command from any shortcut row, without creating a separate action plugin instance for that button. Set the row's MQTT topic and payload template. You can also choose a plugin instance in the same row; pressing it publishes the message and then opens that instance. A row with only a plugin instance keeps the normal navigation behavior.
+
+Payload and topic templates use the Favorites page instance's configured variables with `{{variableName}}`. They also provide `{{panelName}}`, `{{nodeName}}`, `{{buttonIndex}}` (one-based across all menu pages), `{{buttonLabel}}`, and `{{pageNumber}}` (one-based). Values are inserted as text. Quote string values when embedding them in JSON, for example:
+
+```json
+{"state":"{{state}}","source":"{{panelName}}"}
+```
+
+The runtime validates the resolved MQTT topic before publishing through its shared broker connection. It rejects empty topics and MQTT `+` or `#` wildcards.
+
 ## Initialization and Subscriptions
 
 At server startup, `createDefaultPluginRegistry()` registers the built-in scripted MQTT, scripted group MQTT, thermostat, weather, light, cover, favorites, Sonos, and screen dimmer plugins. The runtime resolves enabled instances and initializes each whose plugin type, version, configuration, or variables changed. An optional `initialize()` hook can set up startup behavior and return callback subscriptions. For example, scripted plugins use this to register `mqtt.subscribe(topic, callback)` handlers.

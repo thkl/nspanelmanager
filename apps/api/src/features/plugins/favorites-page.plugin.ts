@@ -1,9 +1,11 @@
-import type { PluginConfigValue, ResolvedPluginInstance } from "../../types.js";
+import type { PluginConfigValue, PluginVariables, ResolvedPluginInstance } from "../../types.js";
 import type { MqttMessageEnvelope, PluginActionResult, PluginConfigField, PluginDefinition, PluginMenuPage, PluginMenuPageAction, PluginRuntimeContext, PluginScreen, PluginState } from "./plugin-contract.js";
+import { interpolatePluginTemplate } from "./plugin-variables.js";
 
 interface FavoritePageEntry {
   label: string;
   topic: string;
+  payload: string;
   instanceId: string;
 }
 
@@ -12,14 +14,14 @@ const MAX_SHORTCUT_PAGES = 4;
 
 /**
  * Provides a swipe-paged shortcut menu that can be opened from a panel favorite.
- * Each menu entry launches another configured plugin instance, and the runtime
- * restores this menu and its selected page when the user presses Back.
+ * Each menu entry can publish a templated MQTT command, launch a plugin instance,
+ * or do both. The runtime restores this menu and its selected page on Back.
  */
 export class FavoritesPagePlugin implements PluginDefinition {
   readonly id = "favorites-page";
   readonly name = "Favorites page";
-  readonly version = 1;
-  readonly description = "Opens a configurable menu of plugin shortcuts from a panel favorite, with twelve shortcuts per page.";
+  readonly version = 2;
+  readonly description = "Opens a multi-page shortcut menu with plugin navigation and direct MQTT actions.";
   readonly capabilities = ["panel-menu", "plugin-navigation"];
   readonly favoriteFlow = true;
   readonly configSchema: readonly PluginConfigField[] = [
@@ -34,25 +36,41 @@ export class FavoritesPagePlugin implements PluginDefinition {
       rowHeader: "Button",
       addRowLabel: "Add favorite",
       removeRowBehavior: "clear",
-      help: "Choose a label and plugin instance. Each panel page shows twelve shortcuts; swipe to move between pages.",
+      help: "Choose a plugin instance to navigate, or enter an MQTT topic and payload template to publish directly. Both actions can be combined. Example payload: {\"state\":\"{{state}}\"}. Templates support instance variables and {{panelName}}, {{nodeName}}, {{buttonIndex}}, {{buttonLabel}}, and {{pageNumber}}. Values are inserted as text, so quote string values inside JSON. Each page shows twelve shortcuts; swipe to move between pages.",
       columns: [
         { key: "label", label: "Favorite name" },
-        { key: "topic", label: "Topic (optional)"},
+        { key: "topic", label: "MQTT topic (optional)" },
+        { key: "payload", label: "MQTT payload template", multiline: true },
         { key: "instanceId", label: "Plugin instance", optionSource: "plugin-instances" }
       ]
     }
   ];
 
-  /** Validates the page title and paired shortcut labels and plugin targets. */
+  /** Validates page labels and ensures each configured row has a complete action. */
   validateConfig(config: Record<string, PluginConfigValue>): string | undefined {
     const title = typeof config.title === "string" ? config.title.trim() : "";
     if (!title || title.length > 32) return "Enter a page title of 1 to 32 characters.";
     const entries = parseEntries(config.entries);
     if (!entries) return "The favorite shortcuts are invalid. Reopen the editor and configure the rows again.";
-    if (entries.some((entry) => Boolean(entry.label.trim()) !== Boolean(entry.instanceId.trim()))) {
-      return "Each favorite shortcut needs both a name and a plugin instance, or both fields must be empty.";
-    }
     if (entries.some((entry) => entry.label.length > 24)) return "Favorite names must be 24 characters or fewer.";
+    for (const entry of entries) {
+      const label = entry.label.trim();
+      const topic = entry.topic.trim();
+      const payload = entry.payload.trim();
+      const instanceId = entry.instanceId.trim();
+      const hasActionData = Boolean(topic || payload || instanceId);
+      if (!label && !hasActionData) continue;
+      if (!label) return "Give every configured shortcut a name.";
+      if (payload && !topic) return `Favorite '${label}' needs an MQTT topic for its payload.`;
+      if (topic && payload && !isPublishableTopicTemplate(topic)) {
+        return `Favorite '${label}' needs a valid MQTT publish topic.`;
+      }
+      if (!instanceId && (!topic || !payload)) {
+        return `Favorite '${label}' needs a plugin instance or both an MQTT topic and payload.`;
+      }
+      if (topic.length > 512) return `The MQTT topic for favorite '${label}' is too long.`;
+      if (entry.payload.length > 16_384) return `The MQTT payload template for favorite '${label}' is too long.`;
+    }
     return undefined;
   }
 
@@ -89,18 +107,43 @@ export class FavoritesPagePlugin implements PluginDefinition {
       pageCount,
       buttons: Array.from({ length: SHORTCUTS_PER_PAGE }, (_, index) => {
         const entry = entries[firstEntryIndex + index];
-        return { label: entry?.label ?? "", topic: entry?.topic ?? "" };
+        return { label: entry?.label ?? "" };
       })
     };
   }
 
-  /** Opens the plugin instance configured at the selected slot on the active page. */
-  handleMenuPageAction(instance: ResolvedPluginInstance, index: number, _context: PluginRuntimeContext, pageIndex = 0): PluginMenuPageAction | undefined {
+  /** Publishes a configured message and/or opens the plugin instance selected at this menu slot. */
+  handleMenuPageAction(instance: ResolvedPluginInstance, index: number, context: PluginRuntimeContext, pageIndex = 0): PluginMenuPageAction | undefined {
     if (!Number.isInteger(index) || index < 0 || index >= SHORTCUTS_PER_PAGE) return undefined;
     const entries = parseEntries(instance.config.entries) ?? [];
     const selectedIndex = Math.max(0, Math.trunc(pageIndex)) * SHORTCUTS_PER_PAGE + index;
     const entry = entries[selectedIndex];
-    return entry?.instanceId ? { targetPluginInstanceId: entry.instanceId } : undefined;
+    if (!entry) return undefined;
+
+    const variables: PluginVariables = {
+      ...context.variables,
+      panelName: context.panel.name,
+      nodeName: context.panel.nodeName,
+      buttonIndex: String(selectedIndex + 1),
+      buttonLabel: entry.label,
+      pageNumber: String(Math.max(0, Math.trunc(pageIndex)) + 1)
+    };
+    const commands = entry.topic.trim() && entry.payload.trim()
+      ? [{
+        topic: interpolatePluginTemplate(entry.topic, variables),
+        payload: interpolatePluginTemplate(entry.payload, variables)
+      }]
+      : [];
+    if (commands.some((command) => !isPublishableTopic(command.topic))) {
+      throw new Error(`Favorite '${entry.label}' produced an invalid MQTT topic after variable substitution.`);
+    }
+
+    const targetPluginInstanceId = entry.instanceId.trim();
+    if (!targetPluginInstanceId && commands.length === 0) return undefined;
+    return {
+      ...(targetPluginInstanceId ? { targetPluginInstanceId } : {}),
+      ...(commands.length > 0 ? { commands } : {})
+    };
   }
 
   /** This plugin has no generic information screen. */
@@ -114,7 +157,7 @@ export class FavoritesPagePlugin implements PluginDefinition {
 
 /** Serializes the first twelve blank menu slots for a new Favorites page profile. */
 function defaultEntries(): string {
-  return JSON.stringify(Array.from({ length: 12 }, () => ({ label: "", instanceId: "" })));
+  return JSON.stringify(Array.from({ length: 12 }, () => ({ label: "", topic: "", payload: "", instanceId: "" })));
 }
 
 /** Reads persisted table rows while filling missing cells with safe empty values. */
@@ -124,11 +167,12 @@ function parseEntries(value: PluginConfigValue | undefined): FavoritePageEntry[]
     const parsed: unknown = JSON.parse(value);
     if (!Array.isArray(parsed) || parsed.length > SHORTCUTS_PER_PAGE * MAX_SHORTCUT_PAGES) return undefined;
     const entries = parsed.map((row): FavoritePageEntry => {
-      if (!row || typeof row !== "object" || Array.isArray(row)) return { label: "", instanceId: "", topic: "" };
+      if (!row || typeof row !== "object" || Array.isArray(row)) return { label: "", instanceId: "", topic: "", payload: "" };
       const source = row as Record<string, unknown>;
       return {
         label: typeof source.label === "string" ? source.label : "",
         topic: typeof source.topic === "string" ? source.topic : "",
+        payload: typeof source.payload === "string" ? source.payload : "",
         instanceId: typeof source.instanceId === "string" ? source.instanceId : ""
       };
     });
@@ -141,4 +185,15 @@ function parseEntries(value: PluginConfigValue | undefined): FavoritePageEntry[]
 /** Returns a configured string setting or a stable display fallback. */
 function stringValue(value: PluginConfigValue | undefined, fallback: string): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+/** Accepts literal publish topics and variable tokens while rejecting MQTT wildcards. */
+function isPublishableTopicTemplate(topic: string): boolean {
+  const expandedTopic = topic.replace(/\{\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}\}/g, "value");
+  return isPublishableTopic(expandedTopic);
+}
+
+/** Checks a resolved topic before allowing the manager's MQTT publisher to use it. */
+function isPublishableTopic(topic: string): boolean {
+  return Boolean(topic.trim()) && !/[+#\u0000]/.test(topic);
 }

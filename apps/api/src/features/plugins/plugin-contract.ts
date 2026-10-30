@@ -73,6 +73,8 @@ export interface PluginMenuPage {
 export interface PluginMenuPageAction {
   /** Opens an enabled flow plugin instance, preserving the menu as the Back destination. */
   targetPluginInstanceId?: string;
+  /** MQTT messages produced by this menu item, published through the manager's shared client. */
+  commands?: PluginCommand[];
 }
 
 /** Commands that open and refresh a firmware-native page launched as a favorite flow. */
