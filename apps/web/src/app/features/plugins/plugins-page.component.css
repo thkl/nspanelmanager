@@ -872,10 +872,25 @@ label small {
 
 .table-row-actions {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
   white-space: nowrap;
+}
+
+.table-row-actions > button {
+  flex: 0 0 auto;
+}
+
+.config-table.has-row-settings {
+  min-width: 360px;
+}
+
+.config-table.has-row-settings td input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
 }
 
 .config-table input,
