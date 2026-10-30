@@ -2,7 +2,7 @@ import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { TranslateService } from "@ngx-translate/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiCompatibilityProfile, HmiRollout, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PluginBlueprintImportDraft, PluginBlueprintPreview, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
+import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, ConfigRevisionScopeType, ConfigRevisionScopes, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiCompatibilityProfile, HmiRollout, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PluginBlueprintImportDraft, PluginBlueprintPreview, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -224,9 +224,29 @@ export class ManagerStore {
     return this.http.get<{ revisions: ConfigRevision[] }>("/api/config-revisions");
   }
 
+  /** Loads the non-secret panel and plugin objects available for a scoped revision restore. */
+  loadConfigRevisionScopes(id: number): Observable<{ scopes: ConfigRevisionScopes }> {
+    return this.http.get<{ scopes: ConfigRevisionScopes }>(`/api/config-revisions/${id}/scopes`);
+  }
+
   /** Restores a saved configuration snapshot and asks the API to reapply it to runtime services. */
   restoreConfigRevision(id: number): Observable<{ restored: boolean; revisionId: number; revisions: ConfigRevision[] }> {
     return this.http.post<{ restored: boolean; revisionId: number; revisions: ConfigRevision[] }>(`/api/config-revisions/${id}/restore`, {});
+  }
+
+  /** Restores one panel, plugin profile, or plugin instance and reapplies the saved configuration. */
+  restoreConfigRevisionScope(
+    revisionId: number,
+    scope: ConfigRevisionScopeType,
+    targetId: string
+  ): Observable<{ restored: boolean; revisionId: number; scope: ConfigRevisionScopeType; targetId: string; revisions: ConfigRevision[] }> {
+    return this.http.post<{
+      restored: boolean;
+      revisionId: number;
+      scope: ConfigRevisionScopeType;
+      targetId: string;
+      revisions: ConfigRevision[];
+    }>(`/api/config-revisions/${revisionId}/restore-scope`, { scope, targetId });
   }
 
   /** Adds or removes one unified panel from future automatic firmware rollouts. */

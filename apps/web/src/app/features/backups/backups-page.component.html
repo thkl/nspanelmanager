@@ -55,9 +55,49 @@
               <strong>{{ revision.summary }}</strong>
               <span>{{ revision.createdAt | date:'medium' }} · {{ revision.actor }}</span>
             </div>
-            <button class="button secondary" type="button" [disabled]="restoringRevisionId() !== null" (click)="restoreRevision(revision)">
-              {{ (restoringRevisionId() === revision.id ? 'BACKUPS.RESTORING' : 'BACKUPS.RESTORE') | translate }}
-            </button>
+            <div class="revision-actions">
+              <button class="button secondary" type="button" [disabled]="restoringRevisionId() !== null" (click)="restoreRevision(revision)">
+                {{ (restoringRevisionId() === revision.id ? 'BACKUPS.RESTORING' : 'BACKUPS.RESTORE') | translate }}
+              </button>
+              <button class="button secondary" type="button" [disabled]="restoringRevisionId() !== null" (click)="toggleScopedRestore(revision)">
+                {{ 'BACKUPS.RESTORE_PART' | translate }}
+              </button>
+            </div>
+            @if (scopeRevisionId() === revision.id) {
+              <div class="scope-restore">
+                @if (loadingScopesRevisionId() === revision.id) {
+                  <p>{{ 'BACKUPS.LOADING_SCOPES' | translate }}</p>
+                } @else if (availableScopeTargets().length > 0) {
+                  <label>
+                    {{ 'BACKUPS.SCOPE_TYPE' | translate }}
+                    <select [ngModel]="selectedScopeType()" (ngModelChange)="setSelectedScopeType($event)">
+                      @for (option of scopeTypeOptions; track option.value) {
+                        @if (scopeOptionAvailable(option.value)) {
+                          <option [value]="option.value">{{ option.labelKey | translate }}</option>
+                        }
+                      }
+                    </select>
+                  </label>
+                  <label>
+                    {{ 'BACKUPS.SCOPE_TARGET' | translate }}
+                    <select [ngModel]="selectedScopeTargetId()" (ngModelChange)="selectedScopeTargetId.set($event)">
+                      @for (target of availableScopeTargets(); track target.id) {
+                        <option [value]="target.id">{{ target.name }}{{ target.details ? ' · ' + target.details : '' }}</option>
+                      }
+                    </select>
+                  </label>
+                  <p>{{ ('BACKUPS.SCOPE_HELP_' + (selectedScopeType() | uppercase)) | translate }}</p>
+                  <div class="scope-restore-actions">
+                    <button class="button primary" type="button" [disabled]="restoringRevisionId() !== null || !selectedScopeTargetId()" (click)="restoreSelectedScope(revision)">
+                      {{ (restoringRevisionId() === revision.id ? 'BACKUPS.RESTORING' : 'BACKUPS.RESTORE_SELECTED') | translate }}
+                    </button>
+                    <button class="button secondary" type="button" (click)="scopeRevisionId.set(null)">{{ 'COMMON.CANCEL' | translate }}</button>
+                  </div>
+                } @else {
+                  <p>{{ 'BACKUPS.EMPTY_SCOPES' | translate }}</p>
+                }
+              </div>
+            }
           </article>
         }
       </div>

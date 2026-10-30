@@ -6,6 +6,22 @@ import type { ConfigRevisionMetadata, ConfigRevisionSummary, SqliteStore } from 
 
 const HOME_ASSISTANT_SECRET_PURPOSE = "plugin:home-assistant:access-token";
 
+export type ConfigRevisionScopeType = "panel" | "plugin-profile" | "plugin-instance";
+
+/** Safe selector details for one object that can be restored from a revision. */
+export interface ConfigRevisionScopeTarget {
+  id: string;
+  name: string;
+  details?: string;
+}
+
+/** Available scoped restore targets in a revision, limited to objects still present now. */
+export interface ConfigRevisionScopes {
+  panels: ConfigRevisionScopeTarget[];
+  pluginProfiles: ConfigRevisionScopeTarget[];
+  pluginInstances: ConfigRevisionScopeTarget[];
+}
+
 type PersistedPluginProfile = Omit<PluginProfile, "config"> & {
   config: Record<string, PluginConfigValue | EncryptedCredential>;
 };
@@ -42,47 +58,9 @@ export class ConfigStore {
   async load(): Promise<void> {
     const raw = this.database.readDocument("manager");
     if (raw !== undefined) {
-      const saved = JSON.parse(raw) as LoadedManagerConfig;
-      if (saved.credentialEncryptionVersion !== undefined && saved.credentialEncryptionVersion !== 1) {
-        throw new Error("The manager configuration uses an unsupported credential encryption version.");
-      }
-      const pluginConfiguration = migratePluginConfiguration(saved.pluginProfiles, saved.pluginInstances);
-      const pluginProfiles = decryptHomeAssistantTokens(pluginConfiguration.profiles, this.credentialEncryption);
-      const savedBroker = isRecord(saved.broker as unknown) ? saved.broker as unknown as Record<string, unknown> : {};
-      const savedPassword = Object.hasOwn(savedBroker, "password") ? savedBroker.password : "";
-      if (saved.credentialEncryptionVersion === 1 && typeof savedPassword === "string" && savedPassword.length > 0) {
-        throw new Error("The manager configuration marks broker credentials as encrypted, but contains a plaintext password.");
-      }
-      const brokerPassword = this.credentialEncryption.decryptStored(savedPassword);
-      const credentialFormatNeedsMigration = saved.credentialEncryptionVersion !== 1;
-      delete saved.credentialEncryptionVersion;
-      this.config = {
-        ...emptyConfig,
-        ...saved,
-        backupSettings: normalizeBackupSettings(saved.backupSettings),
-        broker: {
-          url: typeof savedBroker.url === "string" ? savedBroker.url : emptyConfig.broker.url,
-          username: typeof savedBroker.username === "string" ? savedBroker.username : emptyConfig.broker.username,
-          password: brokerPassword.value
-        },
-        firmwareRollout: normalizeFirmwareRolloutSettings(saved.firmwareRollout),
-        panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
-          ...panel,
-          ...(typeof panel.groupName === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(panel.groupName) ? { groupName: panel.groupName } : { groupName: undefined }),
-          autoUpdateFirmware: panel.autoUpdateFirmware === true,
-          healthNotificationsEnabled: panel.healthNotificationsEnabled !== false,
-          ...(normalizeMacAddress(panel.macAddress) ? { macAddress: normalizeMacAddress(panel.macAddress) } : { macAddress: undefined }),
-          unifiedFirmware: panel.unifiedFirmware === true && Boolean(normalizeMacAddress(panel.macAddress)),
-          nativePluginInstances: normalizeNativePluginInstances(panel.nativePluginInstances),
-          panelEventPluginInstances: normalizeNativePluginInstances(panel.panelEventPluginInstances),
-          settings: normalizePanelSettings(panel.settings, panel.name)
-        })) : [],
-        routes: Array.isArray(saved.routes) ? saved.routes : [],
-        pluginProfiles: pluginProfiles.profiles,
-        pluginInstances: pluginConfiguration.instances,
-        panelBindings: Array.isArray(saved.panelBindings) ? saved.panelBindings : []
-      };
-      if (pluginConfiguration.migrated || pluginProfiles.needsMigration || brokerPassword.needsMigration || credentialFormatNeedsMigration) await this.save();
+      const loaded = this.deserializeStoredConfig(raw);
+      this.config = loaded.config;
+      if (loaded.needsMigration) await this.save();
     } else {
       this.config = structuredClone(emptyConfig);
       await this.save();
@@ -145,6 +123,92 @@ export class ConfigStore {
     return this.database.readConfigRevision(id);
   }
 
+  /** Lists restorable panels, plugin profiles, and instances without returning their configuration values. */
+  getRevisionScopes(id: number): ConfigRevisionScopes | undefined {
+    const raw = this.readRevision(id);
+    if (raw === undefined) return undefined;
+    const historical = this.deserializeStoredConfig(raw).config;
+    const current = this.config;
+    const currentPanelIds = new Set(current.panels.map((panel) => panel.id));
+    const currentProfileIds = new Set(current.pluginProfiles.map((profile) => profile.id));
+    const currentInstanceIds = new Set(current.pluginInstances.map((instance) => instance.id));
+
+    return {
+      panels: historical.panels
+        .filter((panel) => currentPanelIds.has(panel.id))
+        .map((panel) => {
+          const currentPanel = current.panels.find((item) => item.id === panel.id);
+          const savedLabel = panel.name === currentPanel?.name ? panel.nodeName : `saved as ${panel.name} · ${panel.nodeName}`;
+          return { id: panel.id, name: currentPanel?.name ?? panel.name, details: savedLabel };
+        }),
+      pluginProfiles: historical.pluginProfiles
+        .filter((profile) => currentProfileIds.has(profile.id))
+        .map((profile) => ({ id: profile.id, name: profile.name, details: profile.pluginId })),
+      pluginInstances: historical.pluginInstances
+        .filter((instance) => currentInstanceIds.has(instance.id) && currentProfileIds.has(instance.pluginProfileId))
+        .map((instance) => {
+          const profile = historical.pluginProfiles.find((item) => item.id === instance.pluginProfileId);
+          return { id: instance.id, name: instance.name, details: profile?.name ?? "Plugin profile" };
+        })
+    };
+  }
+
+  /** Restores one panel, plugin profile, or plugin instance from a saved revision. */
+  async restoreRevisionScope(
+    revisionId: number,
+    scope: ConfigRevisionScopeType,
+    targetId: string,
+    actor: string
+  ): Promise<ManagerConfig | undefined> {
+    const raw = this.readRevision(revisionId);
+    if (raw === undefined) return undefined;
+    const historical = this.deserializeStoredConfig(raw).config;
+    const current = this.get();
+    let summary: string;
+
+    if (scope === "panel") {
+      const savedPanel = historical.panels.find((panel) => panel.id === targetId);
+      const currentPanel = current.panels.find((panel) => panel.id === targetId);
+      if (!savedPanel || !currentPanel) return undefined;
+      const restoredPanel: Panel = {
+        ...savedPanel,
+        id: currentPanel.id,
+        name: currentPanel.name,
+        nodeName: currentPanel.nodeName,
+        macAddress: currentPanel.macAddress,
+        unifiedFirmware: currentPanel.unifiedFirmware,
+        settings: {
+          ...savedPanel.settings,
+          panelname: currentPanel.settings.panelname
+        }
+      };
+      current.panels = current.panels.map((panel) => panel.id === targetId ? restoredPanel : panel);
+      const availableInstanceIds = new Set(current.pluginInstances.map((instance) => instance.id));
+      current.panelBindings = [
+        ...current.panelBindings.filter((binding) => binding.panelId !== targetId),
+        ...historical.panelBindings.filter((binding) => binding.panelId === targetId && availableInstanceIds.has(binding.pluginInstanceId))
+      ];
+      summary = `Restored settings for panel '${currentPanel.name}' from revision ${revisionId}`;
+    } else if (scope === "plugin-profile") {
+      const savedProfile = historical.pluginProfiles.find((profile) => profile.id === targetId);
+      const currentProfile = current.pluginProfiles.find((profile) => profile.id === targetId);
+      if (!savedProfile || !currentProfile) return undefined;
+      current.pluginProfiles = current.pluginProfiles.map((profile) => profile.id === targetId ? savedProfile : profile);
+      summary = `Restored plugin profile '${currentProfile.name}' from revision ${revisionId}`;
+    } else {
+      const savedInstance = historical.pluginInstances.find((instance) => instance.id === targetId);
+      const currentInstance = current.pluginInstances.find((instance) => instance.id === targetId);
+      const profileExists = current.pluginProfiles.some((profile) => profile.id === savedInstance?.pluginProfileId);
+      if (!savedInstance || !currentInstance || !profileExists) return undefined;
+      current.pluginInstances = current.pluginInstances.map((instance) => instance.id === targetId ? savedInstance : instance);
+      summary = `Restored plugin instance '${currentInstance.name}' from revision ${revisionId}`;
+    }
+
+    return this.update((config) => {
+      Object.assign(config, current);
+    }, { actor, summary });
+  }
+
   /** Restores one saved configuration snapshot and records that restore as a new revision. */
   async restoreRevision(id: number, actor: string): Promise<ManagerConfig | undefined> {
     const revision = this.readRevision(id);
@@ -161,6 +225,54 @@ export class ConfigStore {
       this.database.writeDocument("manager", 1, previousDocument);
       throw error;
     }
+  }
+
+  /** Converts an encrypted persisted document into the normalized runtime configuration without changing SQLite. */
+  private deserializeStoredConfig(raw: string): { config: ManagerConfig; needsMigration: boolean } {
+    const saved = JSON.parse(raw) as LoadedManagerConfig;
+    if (saved.credentialEncryptionVersion !== undefined && saved.credentialEncryptionVersion !== 1) {
+      throw new Error("The manager configuration uses an unsupported credential encryption version.");
+    }
+    const pluginConfiguration = migratePluginConfiguration(saved.pluginProfiles, saved.pluginInstances);
+    const pluginProfiles = decryptHomeAssistantTokens(pluginConfiguration.profiles, this.credentialEncryption);
+    const savedBroker = isRecord(saved.broker as unknown) ? saved.broker as unknown as Record<string, unknown> : {};
+    const savedPassword = Object.hasOwn(savedBroker, "password") ? savedBroker.password : "";
+    if (saved.credentialEncryptionVersion === 1 && typeof savedPassword === "string" && savedPassword.length > 0) {
+      throw new Error("The manager configuration marks broker credentials as encrypted, but contains a plaintext password.");
+    }
+    const brokerPassword = this.credentialEncryption.decryptStored(savedPassword);
+    const credentialFormatNeedsMigration = saved.credentialEncryptionVersion !== 1;
+    delete saved.credentialEncryptionVersion;
+    const config: ManagerConfig = {
+      ...emptyConfig,
+      ...saved,
+      backupSettings: normalizeBackupSettings(saved.backupSettings),
+      broker: {
+        url: typeof savedBroker.url === "string" ? savedBroker.url : emptyConfig.broker.url,
+        username: typeof savedBroker.username === "string" ? savedBroker.username : emptyConfig.broker.username,
+        password: brokerPassword.value
+      },
+      firmwareRollout: normalizeFirmwareRolloutSettings(saved.firmwareRollout),
+      panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
+        ...panel,
+        ...(typeof panel.groupName === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(panel.groupName) ? { groupName: panel.groupName } : { groupName: undefined }),
+        autoUpdateFirmware: panel.autoUpdateFirmware === true,
+        healthNotificationsEnabled: panel.healthNotificationsEnabled !== false,
+        ...(normalizeMacAddress(panel.macAddress) ? { macAddress: normalizeMacAddress(panel.macAddress) } : { macAddress: undefined }),
+        unifiedFirmware: panel.unifiedFirmware === true && Boolean(normalizeMacAddress(panel.macAddress)),
+        nativePluginInstances: normalizeNativePluginInstances(panel.nativePluginInstances),
+        panelEventPluginInstances: normalizeNativePluginInstances(panel.panelEventPluginInstances),
+        settings: normalizePanelSettings(panel.settings, panel.name)
+      })) : [],
+      routes: Array.isArray(saved.routes) ? saved.routes : [],
+      pluginProfiles: pluginProfiles.profiles,
+      pluginInstances: pluginConfiguration.instances,
+      panelBindings: Array.isArray(saved.panelBindings) ? saved.panelBindings : []
+    };
+    return {
+      config,
+      needsMigration: pluginConfiguration.migrated || pluginProfiles.needsMigration || brokerPassword.needsMigration || credentialFormatNeedsMigration
+    };
   }
 
   /** Produces the versioned, encrypted database representation for the current snapshot. */

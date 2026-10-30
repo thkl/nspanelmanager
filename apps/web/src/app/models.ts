@@ -60,6 +60,22 @@ export interface ConfigRevision {
   summary: string;
 }
 
+export type ConfigRevisionScopeType = "panel" | "plugin-profile" | "plugin-instance";
+
+/** A selectable, non-secret configuration object found in a saved revision. */
+export interface ConfigRevisionScopeTarget {
+  id: string;
+  name: string;
+  details?: string;
+}
+
+/** Objects that can be restored individually from a full configuration snapshot. */
+export interface ConfigRevisionScopes {
+  panels: ConfigRevisionScopeTarget[];
+  pluginProfiles: ConfigRevisionScopeTarget[];
+  pluginInstances: ConfigRevisionScopeTarget[];
+}
+
 export type FirmwareRolloutStatus = "monitoring" | "updating" | "completed" | "failed" | "cancelled";
 
 export interface FirmwareRollout {
