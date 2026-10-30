@@ -37,11 +37,18 @@ export class PanelProtocolAdapter {
     }));
   }
 
-  /** Shows a plugin-owned 12-button page using the firmware's universal menu screen. */
-  showMenuPage(panel: Panel, page: { title: string; pageIndex?: number; pageCount?: number; buttons: Array<{ label: string, topic?:string }> }): boolean {
-    const buttons = Array.from({ length: 12 }, (_, index) => ({ label: page.buttons[index]?.label ?? "",topic: page.buttons[index]?.topic ?? "" }));
+  /** Shows a plugin-owned menu and routes each press back with its active flow binding ID. */
+  showMenuPage(
+    panel: Panel,
+    page: { title: string; pageIndex?: number; pageCount?: number; buttons: Array<{ label: string; topic?: string }> },
+    flowBindingId: string
+  ): boolean {
+    const buttons = Array.from({ length: 12 }, (_, index) => ({
+      label: page.buttons[index]?.label ?? "",
+      topic: page.buttons[index]?.topic ?? ""
+    }));
     return this.publish(`${panelTopicRoot(panel)}/cmnd/menupage`, JSON.stringify({
-      page: { name: page.title, topic: "", buttons },
+      page: { name: page.title, topic: flowBindingId, buttons },
       page_index: page.pageIndex ?? 0,
       page_count: page.pageCount ?? 1
     }));

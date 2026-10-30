@@ -305,7 +305,6 @@
                         aria-modal="true"
                         [attr.aria-labelledby]="'row-settings-title-' + selection.fieldKey + '-' + selection.rowIndex"
                         (cancel)="closeRowSettings()"
-                        (click)="closeRowSettingsOnBackdrop($event)"
                       >
                         <div class="row-settings-content">
                           <h2 [id]="'row-settings-title-' + selection.fieldKey + '-' + selection.rowIndex">

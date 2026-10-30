@@ -2472,7 +2472,7 @@ export class MqttRuntime {
           activeSession.menuPageIndex !== nextPage) {
         return;
       }
-      this.panelProtocol.showMenuPage(panel, page);
+      this.panelProtocol.showMenuPage(panel, page, binding.id);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       this.lastError = detail;
@@ -2758,7 +2758,7 @@ export class MqttRuntime {
       try {
         const menuPageIndex = this.runtimeState.getPanelSession(panel.id)?.menuPageIndex ?? 0;
         const menu = await definition.renderMenuPage(instance, context, menuPageIndex);
-        if (menu && isCurrentSession()) this.panelProtocol.showMenuPage(panel, menu);
+        if (menu && isCurrentSession()) this.panelProtocol.showMenuPage(panel, menu, binding.id);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         this.lastError = detail;

@@ -329,11 +329,6 @@ export class PluginsPageComponent implements OnInit {
     this.rowSettingsSelection.set(null);
   }
 
-  /** Closes the dialog only when the user clicks its backdrop. */
-  closeRowSettingsOnBackdrop(event: MouseEvent): void {
-    if (event.target === event.currentTarget) this.closeRowSettings();
-  }
-
   /** Returns the active dialog row only for the table currently being rendered. */
   rowSettingsForField(field: PluginConfigField): TableRowSettingsSelection | null {
     const selection = this.rowSettingsSelection();
