@@ -83,6 +83,24 @@ export class FirmwareArtifactService {
     return this.state.artifact ? { ...this.state.artifact } : null;
   }
 
+  /** Removes the selected binary and revokes its outstanding panel download links. */
+  async deleteCurrentArtifact(expectedArtifactId: string): Promise<FirmwareArtifactRecord> {
+    return this.serialize(async () => {
+      this.ensureInitialized();
+      const artifact = this.state.artifact;
+      if (!artifact || artifact.id !== expectedArtifactId) {
+        throw new FirmwareArtifactError("The selected firmware package changed. Refresh the page and try again.", 409);
+      }
+
+      this.state = {
+        artifact: null,
+        grants: this.state.grants.filter((grant) => grant.artifactId !== artifact.id)
+      };
+      await this.pruneAndPersist();
+      return { ...artifact };
+    });
+  }
+
   /** Extracts a versioned package or validates a raw ESP image, then atomically stores the binary. */
   async upload(bytes: Buffer, originalFilename: string, version: string): Promise<FirmwareArtifactRecord> {
     return this.serialize(async () => {

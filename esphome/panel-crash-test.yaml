@@ -1,0 +1,170 @@
+# Enables ESP-IDF flash core dumps and transports them to the manager over MQTT.
+esphome:
+  includes:
+    - core_dump_transfer.h
+    - <cstdio>
+    - <esp_random.h>
+
+esp32:
+  # Preserve current OTA slot offsets and the start of NVS. The test partition
+  # reclaims the last 256 KiB of the existing NVS range for the core dump.
+  partitions: crash-test-partitions.csv
+  framework:
+    sdkconfig_options:
+      CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH: "y"
+      CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF: "y"
+      CONFIG_ESP_COREDUMP_CHECKSUM_CRC32: "y"
+      CONFIG_ESP_COREDUMP_CHECK_BOOT: "y"
+
+globals:
+  - id: crash_dump_id
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: crash_dump_size_bytes
+    type: size_t
+    restore_value: no
+    initial_value: "0"
+  - id: crash_dump_chunk_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: crash_dump_chunk_index
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: crash_dump_chunk_data
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: crash_dump_transfer_attempts
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: crash_dump_last_attempt_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: crash_dump_transfer_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: crash_dump_transfer_failed
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: crash_dump_acknowledged
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+script:
+  - id: publish_panel_crash_dump
+    mode: single
+    then:
+      - lambda: |-
+          if (id(crash_dump_transfer_attempts) >= 3) return;
+          id(crash_dump_transfer_attempts) += 1;
+          id(crash_dump_last_attempt_ms) = millis();
+          nspanel_crash_dump::Image image;
+          if (esp_core_dump_image_check() != ESP_OK || !nspanel_crash_dump::inspect(image) ||
+              image.size > 0x40000 || image.size == 0) {
+            id(crash_dump_transfer_attempts) = 3;
+            return;
+          }
+          id(crash_dump_size_bytes) = image.size;
+          id(crash_dump_chunk_count) = (image.size + nspanel_crash_dump::CHUNK_SIZE - 1) / nspanel_crash_dump::CHUNK_SIZE;
+          id(crash_dump_chunk_index) = 0;
+          id(crash_dump_transfer_failed) = false;
+          id(crash_dump_transfer_in_progress) = true;
+          if (id(crash_dump_id).empty()) {
+            char dump_id[9]{};
+            std::snprintf(dump_id, sizeof(dump_id), "%08x", static_cast<unsigned int>(esp_random()));
+            id(crash_dump_id) = dump_id;
+          }
+      - if:
+          condition:
+            lambda: return id(crash_dump_transfer_in_progress);
+          then:
+            - mqtt.publish_json:
+                topic: !lambda return id(panel_mqtt_client).get_active_topic_prefix() + "/event/crashdump/manifest";
+                qos: 1
+                retain: false
+                payload: |-
+                  root["dump_id"] = id(crash_dump_id);
+                  root["firmware_version"] = "$firmware_version";
+                  root["size_bytes"] = id(crash_dump_size_bytes);
+                  root["chunk_size"] = nspanel_crash_dump::CHUNK_SIZE;
+                  root["chunk_count"] = id(crash_dump_chunk_count);
+                  const std::string panic_reason = nspanel_crash_dump::panic_reason();
+                  if (!panic_reason.empty()) root["panic_reason"] = panic_reason;
+            - repeat:
+                count: !lambda return id(crash_dump_chunk_count);
+                then:
+                  - if:
+                      condition:
+                        lambda: return !id(crash_dump_transfer_failed);
+                      then:
+                        - lambda: |-
+                            nspanel_crash_dump::Image image;
+                            const size_t offset = static_cast<size_t>(id(crash_dump_chunk_index)) * nspanel_crash_dump::CHUNK_SIZE;
+                            size_t raw_size = 0;
+                            std::string encoded;
+                            if (!nspanel_crash_dump::locate(image, id(crash_dump_size_bytes)) ||
+                                !nspanel_crash_dump::read_base64_chunk(image, offset, encoded, raw_size)) {
+                              id(crash_dump_transfer_failed) = true;
+                              return;
+                            }
+                            id(crash_dump_chunk_data) = std::move(encoded);
+                            id(crash_dump_chunk_index) += 1;
+                        - mqtt.publish_json:
+                            topic: !lambda return id(panel_mqtt_client).get_active_topic_prefix() + "/event/crashdump/chunk";
+                            qos: 1
+                            retain: false
+                            payload: |-
+                              root["dump_id"] = id(crash_dump_id);
+                              root["index"] = id(crash_dump_chunk_index) - 1;
+                              root["data"] = id(crash_dump_chunk_data);
+                        - delay: 20ms
+            - if:
+                condition:
+                  lambda: return !id(crash_dump_transfer_failed);
+                then:
+                  - mqtt.publish_json:
+                      topic: !lambda return id(panel_mqtt_client).get_active_topic_prefix() + "/event/crashdump/complete";
+                      qos: 1
+                      retain: false
+                      payload: |-
+                        root["dump_id"] = id(crash_dump_id);
+                  - lambda: id(crash_dump_transfer_in_progress) = false;
+                else:
+                  - lambda: id(crash_dump_transfer_in_progress) = false;
+
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(panel_mqtt_connected) || id(crash_dump_transfer_in_progress) || id(crash_dump_acknowledged) ||
+                  id(crash_dump_transfer_attempts) >= 3 || esp_core_dump_image_check() != ESP_OK) return false;
+              return id(crash_dump_transfer_attempts) == 0 || millis() - id(crash_dump_last_attempt_ms) >= 60000;
+          then:
+            - script.execute: publish_panel_crash_dump
+
+panel_mqtt:
+  on_json_message:
+    - topic: cmnd/crashdump/ack
+      qos: 1
+      then:
+        - lambda: |-
+            if (!x["dump_id"].is<const char*>()) return;
+            if (id(crash_dump_id) != x["dump_id"].as<std::string>()) return;
+            const esp_err_t erase_result = esp_core_dump_image_erase();
+            if (erase_result != ESP_OK) {
+              ESP_LOGE("crash_dump", "Manager acknowledged dump %s, but flash erase failed: %s",
+                       id(crash_dump_id).c_str(), esp_err_to_name(erase_result));
+              return;
+            }
+            id(crash_dump_acknowledged) = true;
+            id(crash_dump_transfer_in_progress) = false;

@@ -24,6 +24,7 @@ export class HmiPageComponent implements OnInit {
   readonly firmwareLoading = signal(true);
   readonly uploading = signal(false);
   readonly uploadingFirmware = signal(false);
+  readonly deletingFirmware = signal(false);
   readonly updatingPanelId = signal("");
   readonly updatingFirmwarePanelId = signal("");
   readonly rolloutEnabled = signal(false);
@@ -287,6 +288,26 @@ export class HmiPageComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.uploadingFirmware.set(false);
+        this.manager.inform(this.errorMessage(error), "error");
+      }
+    });
+  }
+
+  /** Removes the stored firmware package after confirming it is no longer needed. */
+  deleteFirmware(): void {
+    const artifact = this.firmwareArtifact();
+    if (!artifact || this.deletingFirmware()) return;
+    if (!this.manager.confirm("HMI.CONFIRM_DELETE_FIRMWARE", { version: artifact.version })) return;
+
+    this.deletingFirmware.set(true);
+    this.manager.deleteFirmwareArtifact().subscribe({
+      next: () => {
+        this.firmwareArtifact.set(null);
+        this.deletingFirmware.set(false);
+        this.manager.inform("HMI.NOTICE_FIRMWARE_DELETED", "success", { version: artifact.version });
+      },
+      error: (error: unknown) => {
+        this.deletingFirmware.set(false);
         this.manager.inform(this.errorMessage(error), "error");
       }
     });

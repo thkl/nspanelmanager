@@ -1443,8 +1443,10 @@ script:
     then:
       - delay: 5min
       - lambda: |-
-              id(selectedMusicPlayer) = 0;
-              id(mqtt_client).publish((id(panel_mqtt_client).get_active_topic_prefix() + "/event/music/switch").c_str(), 0);
+          id(selectedMusicPlayer) = 0;
+          const std::string topic = id(panel_mqtt_client).get_active_topic_prefix() + "/event/music/switch";
+          const std::string payload = esphome::to_string(id(selectedMusicPlayer));
+          id(mqtt_client).publish(topic, payload, 0, false);
 
   - id: reset_sonosPlayer
     then:

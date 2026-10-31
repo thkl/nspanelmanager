@@ -23,6 +23,31 @@ export function createFirmwareRouter(
 
   router.get("/", (_request, response) => response.json({ artifact: firmwareService.currentArtifact(), maxUploadBytes: MAX_FIRMWARE_UPLOAD_BYTES }));
 
+  router.delete("/", async (request, response, next) => {
+    const artifact = firmwareService.currentArtifact();
+    if (!artifact) return response.json({ artifact: null });
+    if (!firmwareUpdateService.reserveFirmwareArtifactDeletion(artifact.id)) {
+      return response.status(409).json({ error: "Wait for firmware updates and staged rollouts to finish before deleting this package." });
+    }
+
+    try {
+      const deletedArtifact = await firmwareService.deleteCurrentArtifact(artifact.id);
+      logger.info("Firmware artifact deleted.", {
+        component: "firmware",
+        artifactId: deletedArtifact.id,
+        filename: deletedArtifact.filename,
+        version: deletedArtifact.version,
+        requestedBy: request.authUser?.email ?? "unknown"
+      });
+      response.json({ artifact: null });
+    } catch (error) {
+      if (error instanceof FirmwareArtifactError) response.status(error.statusCode).json({ error: error.message });
+      else next(error);
+    } finally {
+      firmwareUpdateService.releaseFirmwareArtifactDeletion();
+    }
+  });
+
   router.put("/rollout-settings", async (request, response) => {
     const enabled = request.body?.enabled;
     const stableHours = request.body?.stableHours;
@@ -181,7 +206,12 @@ export function createFirmwareRouter(
       return response.status(409).json({ error: "Another firmware rollout is being started. Try again in a moment." });
     }
 
+    let artifactUseReserved = false;
     try {
+      artifactUseReserved = firmwareUpdateService.reserveFirmwareArtifactUse();
+      if (!artifactUseReserved) {
+        return response.status(409).json({ error: "Firmware is being deleted. Try the update again after the package is removed." });
+      }
       const download = await firmwareService.createDownloadUrl();
       const topic = `${panelBootstrapTopicRoot(panel)}/cmnd/updatefirmware`;
       const job = await firmwareUpdateService.begin(panel, download.artifact, force, download.expiresAt, request.authUser?.email);
@@ -214,6 +244,7 @@ export function createFirmwareRouter(
       else if (error instanceof FirmwareUpdateError) response.status(error.statusCode).json({ error: error.message });
       else next(error);
     } finally {
+      if (artifactUseReserved) firmwareUpdateService.releaseFirmwareArtifactUse();
       if (rolloutReserved) firmwareUpdateService.releaseRolloutStart();
     }
   });

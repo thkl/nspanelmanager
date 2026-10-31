@@ -555,6 +555,34 @@
   overflow-wrap: anywhere;
 }
 
+.delete-artifact-button {
+  min-height: 38px;
+  align-self: flex-start;
+  padding: 0 12px;
+  border: 1px solid var(--red-line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--red);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delete-artifact-button:hover:not(:disabled) {
+  background: var(--red-soft);
+}
+
+.delete-artifact-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.delete-artifact-button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
 .artifact-details {
   display: grid;
   gap: 8px;

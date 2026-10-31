@@ -28,6 +28,8 @@ export class FirmwareUpdateService {
   private expiryTimer?: ReturnType<typeof setInterval>;
   private readonly startingPanels = new Set<string>();
   private startingRollout = false;
+  private firmwareArtifactUseReservations = 0;
+  private firmwareArtifactDeletionReserved = false;
   private expiryRun?: Promise<void>;
   private rolloutRun?: Promise<void>;
 
@@ -72,6 +74,38 @@ export class FirmwareUpdateService {
   /** Returns whether the panel currently has a non-terminal firmware update. */
   hasActiveJob(panelId: string): boolean {
     return this.runtimeState.getFirmwareUpdateJobs().some((job) => job.panelId === panelId && isActive(job.status));
+  }
+
+  /** Returns whether an update using this uploaded artifact is still in progress. */
+  hasActiveArtifactJob(artifactId: string): boolean {
+    return this.runtimeState.getFirmwareUpdateJobs().some((job) => job.artifactId === artifactId && isActive(job.status));
+  }
+
+  /** Prevents deletion while an update request is preparing a temporary download link. */
+  reserveFirmwareArtifactUse(): boolean {
+    if (this.firmwareArtifactDeletionReserved) return false;
+    this.firmwareArtifactUseReservations += 1;
+    return true;
+  }
+
+  /** Releases one update request's short-lived artifact reservation. */
+  releaseFirmwareArtifactUse(): void {
+    this.firmwareArtifactUseReservations = Math.max(0, this.firmwareArtifactUseReservations - 1);
+  }
+
+  /** Prevents updates, active jobs, or rollouts from racing with artifact deletion. */
+  reserveFirmwareArtifactDeletion(artifactId: string): boolean {
+    if (this.firmwareArtifactDeletionReserved || this.firmwareArtifactUseReservations > 0
+      || this.hasActiveArtifactJob(artifactId) || this.hasActiveRollout()) {
+      return false;
+    }
+    this.firmwareArtifactDeletionReserved = true;
+    return true;
+  }
+
+  /** Releases the deletion lock after the artifact store has completed its operation. */
+  releaseFirmwareArtifactDeletion(): void {
+    this.firmwareArtifactDeletionReserved = false;
   }
 
   /** Returns the persisted rollout for realtime snapshots. */

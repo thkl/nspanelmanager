@@ -186,6 +186,11 @@ export class ManagerStore {
     });
   }
 
+  /** Deletes the selected firmware package and its manager-hosted download links. */
+  deleteFirmwareArtifact(): Observable<{ artifact: null }> {
+    return this.http.delete<{ artifact: null }>("/api/firmware");
+  }
+
   /** Sends the current firmware binary to one panel, optionally bypassing confirmation. */
   requestFirmwareUpdate(panelId: string, force = false): Observable<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; firmwareVersion: string; job: FirmwareUpdateJob }> {
     return this.http.post<{ published: boolean; panel: { id: string; name: string }; topic: string; expiresAt: string; firmwareVersion: string; job: FirmwareUpdateJob }>(`/api/firmware/panels/${panelId}/update`, { force }).pipe(tap(({ job }) => this.upsertFirmwareUpdateJob(job)));

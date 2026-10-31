@@ -17,6 +17,10 @@ esphome/*
 !esphome/nspanel-recovery.yaml
 !esphome/nspanel-nextion-test.yaml
 !esphome/core_dump_transfer.h
+!esphome/nspanel-unified-crash-test.yaml
+!esphome/panel-crash-test.yaml
+!esphome/crash-test-partitions.csv
+esphome/crash-test-output/
 docs/security*.md
 **/data/
 graphify-out/

@@ -28,7 +28,7 @@
         @if (selectedFirmwareFile(); as file) {
           <div class="selected-file"><span>{{ file.name }}</span><span>{{ formatSize(file.size) }}</span></div>
         }
-        <button class="primary-button" type="button" [disabled]="!selectedFirmwareFile() || uploadingFirmware()" (click)="uploadFirmware()">
+        <button class="primary-button" type="button" [disabled]="!selectedFirmwareFile() || uploadingFirmware() || deletingFirmware()" (click)="uploadFirmware()">
           {{ (uploadingFirmware() ? 'HMI.UPLOADING' : 'HMI.UPLOAD_FIRMWARE') | translate }}
         </button>
       </div>
@@ -73,7 +73,12 @@
   } @else if (firmwareArtifact(); as currentFirmware) {
     <article class="artifact-card">
       <div class="artifact-topline"><span class="status-dot" aria-hidden="true"></span><span>{{ 'HMI.FIRMWARE_READY' | translate:{ version: currentFirmware.version } }}</span></div>
-      <div class="artifact-main"><div><h3>{{ currentFirmware.filename }}</h3><p>{{ formatSize(currentFirmware.size) }} · {{ 'HMI.UPLOADED_AT' | translate }} {{ formatTimestamp(currentFirmware.uploadedAt) }}</p></div></div>
+      <div class="artifact-main">
+        <div><h3>{{ currentFirmware.filename }}</h3><p>{{ formatSize(currentFirmware.size) }} · {{ 'HMI.UPLOADED_AT' | translate }} {{ formatTimestamp(currentFirmware.uploadedAt) }}</p></div>
+        <button class="delete-artifact-button" type="button" [disabled]="deletingFirmware() || uploadingFirmware()" (click)="deleteFirmware()">
+          {{ (deletingFirmware() ? 'HMI.DELETING_FIRMWARE' : 'HMI.DELETE_FIRMWARE') | translate }}
+        </button>
+      </div>
       <dl class="artifact-details">
         <div><dt>{{ 'HMI.VERSION' | translate }}</dt><dd>{{ currentFirmware.version }}</dd></div>
         <div><dt>MD5</dt><dd>{{ currentFirmware.md5 }}</dd></div>
