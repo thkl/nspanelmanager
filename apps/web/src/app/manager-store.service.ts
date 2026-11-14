@@ -2,7 +2,7 @@ import { HttpClient } from "@angular/common/http";
 import { Injectable, signal } from "@angular/core";
 import { TranslateService } from "@ngx-translate/core";
 import { Observable, finalize, tap } from "rxjs";
-import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, ConfigRevisionScopeType, ConfigRevisionScopes, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiCompatibilityProfile, HmiRollout, HmiUpdateJob, HomeAssistantEntityOptions, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PluginBlueprintImportDraft, PluginBlueprintPreview, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
+import type { AuthStatus, AuthUser, BackupSettings, BrokerInput, ConfigRevision, ConfigRevisionScopeType, ConfigRevisionScopes, CoreDumpRecord, DiscoveredPanel, FirmwareArtifact, FirmwareRollout, FirmwareRolloutSettings, FirmwareUpdateJob, HmiArtifact, HmiCompatibilityProfile, HmiRollout, HmiUpdateJob, HomeAssistantEntityOptions, HttpLogTransportInput, ManagerConfig, ManagerRealtimeEvent, ManagerState, MqttRoute, MqttStatus, Panel, PanelConnectionStatus, PluginInstanceActivity, RouteDraft, PluginDefinition, PluginInstance, PluginInstanceDraft, PluginProfile, PluginProfileDraft, PluginBlueprintImportDraft, PluginBlueprintPreview, PanelBinding, PanelBindingDraft, PluginPagePreviewInput, PluginPagePreviewResult, PluginScriptCheckResult, AdminLogResult, LogLevel } from "./models";
 
 type NoticeKind = "success" | "error";
 export interface ManagerNotice { text: string; kind: NoticeKind }
@@ -20,6 +20,15 @@ export interface ManagerNotice { text: string; kind: NoticeKind }
 export class ManagerStore {
   readonly config = signal<ManagerConfig>({
     broker: { url: "", username: "", passwordConfigured: false },
+    httpLogTransport: {
+      enabled: false,
+      url: "",
+      level: "info",
+      authType: "none",
+      username: "",
+      bearerTokenConfigured: false,
+      passwordConfigured: false
+    },
     firmwareRollout: { enabled: false, stableHours: 3 },
     backupSettings: { enabled: true, schedule: "0 3 * * *", retentionCount: 14, directory: "backups" },
     panels: [],
@@ -439,6 +448,13 @@ export class ManagerStore {
   /** Saves broker settings and refreshes the public configuration returned by the API. */
   saveBroker(input: BrokerInput): Observable<ManagerState> {
     return this.http.put<ManagerState>("/api/broker", input).pipe(tap((state) => this.acceptState(state)));
+  }
+
+  /** Saves the optional HTTP log sink settings without fetching stored secrets. */
+  saveHttpLogTransport(input: HttpLogTransportInput): Observable<{ httpLogTransport: ManagerConfig["httpLogTransport"] }> {
+    return this.http.put<{ httpLogTransport: ManagerConfig["httpLogTransport"] }>("/api/logging/http", input).pipe(tap(({ httpLogTransport }) => {
+      this.config.update((config) => ({ ...config, httpLogTransport }));
+    }));
   }
 
   /** Adds a panel profile using its human label and firmware MQTT node name. */

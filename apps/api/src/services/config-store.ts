@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { defaultPanelSettings, type BackupSettings, type ManagerConfig, type Panel, type PluginConfigValue, type PluginProfile } from "../types.js";
+import { defaultPanelSettings, type BackupSettings, type HttpLogTransportSettings, type ManagerConfig, type Panel, type PluginConfigValue, type PluginProfile } from "../types.js";
 import { normalizePanelSettings } from "../domain/panel-settings.js";
 import { CredentialEncryption, type EncryptedCredential } from "../features/security/credential-encryption.js";
 import type { ConfigRevisionMetadata, ConfigRevisionSummary, SqliteStore } from "./sqlite-store.js";
 
 const HOME_ASSISTANT_SECRET_PURPOSE = "plugin:home-assistant:access-token";
+const HTTP_LOG_BEARER_PURPOSE = "http-log:bearer-token";
+const HTTP_LOG_PASSWORD_PURPOSE = "http-log:basic-password";
 
 export type ConfigRevisionScopeType = "panel" | "plugin-profile" | "plugin-instance";
 
@@ -26,9 +28,13 @@ type PersistedPluginProfile = Omit<PluginProfile, "config"> & {
   config: Record<string, PluginConfigValue | EncryptedCredential>;
 };
 
-type PersistedManagerConfig = Omit<ManagerConfig, "broker" | "pluginProfiles"> & {
+type PersistedManagerConfig = Omit<ManagerConfig, "broker" | "httpLogTransport" | "pluginProfiles"> & {
   credentialEncryptionVersion: 1;
   broker: Omit<ManagerConfig["broker"], "password"> & { password: string | EncryptedCredential };
+  httpLogTransport: Omit<HttpLogTransportSettings, "bearerToken" | "password"> & {
+    bearerToken: string | EncryptedCredential;
+    password: string | EncryptedCredential;
+  };
   pluginProfiles: PersistedPluginProfile[];
 };
 
@@ -241,6 +247,17 @@ export class ConfigStore {
       throw new Error("The manager configuration marks broker credentials as encrypted, but contains a plaintext password.");
     }
     const brokerPassword = this.credentialEncryption.decryptStored(savedPassword);
+    const savedHttpLogTransport = isRecord(saved.httpLogTransport as unknown)
+      ? saved.httpLogTransport as unknown as Record<string, unknown>
+      : {};
+    const bearerToken = this.credentialEncryption.decryptStored(
+      Object.hasOwn(savedHttpLogTransport, "bearerToken") ? savedHttpLogTransport.bearerToken : "",
+      HTTP_LOG_BEARER_PURPOSE
+    );
+    const httpPassword = this.credentialEncryption.decryptStored(
+      Object.hasOwn(savedHttpLogTransport, "password") ? savedHttpLogTransport.password : "",
+      HTTP_LOG_PASSWORD_PURPOSE
+    );
     const credentialFormatNeedsMigration = saved.credentialEncryptionVersion !== 1;
     delete saved.credentialEncryptionVersion;
     const config: ManagerConfig = {
@@ -252,6 +269,11 @@ export class ConfigStore {
         username: typeof savedBroker.username === "string" ? savedBroker.username : emptyConfig.broker.username,
         password: brokerPassword.value
       },
+      httpLogTransport: normalizeHttpLogTransportSettings({
+        ...savedHttpLogTransport,
+        bearerToken: bearerToken.value,
+        password: httpPassword.value
+      }),
       firmwareRollout: normalizeFirmwareRolloutSettings(saved.firmwareRollout),
       panels: Array.isArray(saved.panels) ? saved.panels.map((panel) => ({
         ...panel,
@@ -271,7 +293,8 @@ export class ConfigStore {
     };
     return {
       config,
-      needsMigration: pluginConfiguration.migrated || pluginProfiles.needsMigration || brokerPassword.needsMigration || credentialFormatNeedsMigration
+      needsMigration: pluginConfiguration.migrated || pluginProfiles.needsMigration || brokerPassword.needsMigration ||
+        bearerToken.needsMigration || httpPassword.needsMigration || credentialFormatNeedsMigration
     };
   }
 
@@ -295,6 +318,11 @@ export class ConfigStore {
       broker: {
         ...this.config.broker,
         password: this.credentialEncryption.encrypt(this.config.broker.password)
+      },
+      httpLogTransport: {
+        ...this.config.httpLogTransport,
+        bearerToken: this.credentialEncryption.encrypt(this.config.httpLogTransport.bearerToken, HTTP_LOG_BEARER_PURPOSE),
+        password: this.credentialEncryption.encrypt(this.config.httpLogTransport.password, HTTP_LOG_PASSWORD_PURPOSE)
       }
     };
     return JSON.stringify(persistedConfig);
@@ -303,6 +331,15 @@ export class ConfigStore {
 
 const emptyConfig: ManagerConfig = {
   broker: { url: "", username: "", password: "" },
+  httpLogTransport: {
+    enabled: false,
+    url: "",
+    level: "info",
+    authType: "none",
+    bearerToken: "",
+    username: "",
+    password: ""
+  },
   firmwareRollout: { enabled: false, stableHours: 3 },
   backupSettings: { enabled: true, schedule: "0 3 * * *", retentionCount: 14, directory: "backups" },
   panels: [], routes: [], pluginProfiles: [], pluginInstances: [], panelBindings: []
@@ -328,6 +365,26 @@ function normalizeBackupSettings(value: unknown): BackupSettings {
       ? Math.min(365, value.retentionCount)
       : emptyConfig.backupSettings.retentionCount,
     directory: typeof value.directory === "string" && value.directory.trim() ? value.directory.trim() : emptyConfig.backupSettings.directory
+  };
+}
+
+/** Restores safe defaults for new or older configuration documents. */
+function normalizeHttpLogTransportSettings(value: unknown): HttpLogTransportSettings {
+  if (!isRecord(value)) return structuredClone(emptyConfig.httpLogTransport);
+  const levels = ["debug", "info", "warn", "error"] as const;
+  const authTypes = ["none", "bearer", "basic"] as const;
+  return {
+    enabled: value.enabled === true,
+    url: typeof value.url === "string" ? value.url : "",
+    level: levels.includes(value.level as HttpLogTransportSettings["level"])
+      ? value.level as HttpLogTransportSettings["level"]
+      : "info",
+    authType: authTypes.includes(value.authType as HttpLogTransportSettings["authType"])
+      ? value.authType as HttpLogTransportSettings["authType"]
+      : "none",
+    bearerToken: typeof value.bearerToken === "string" ? value.bearerToken : "",
+    username: typeof value.username === "string" ? value.username : "",
+    password: typeof value.password === "string" ? value.password : ""
   };
 }
 

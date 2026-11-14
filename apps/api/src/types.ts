@@ -309,8 +309,26 @@ export interface BrokerSettings {
   password: string;
 }
 
+/** Configuration for forwarding manager log records to an HTTP endpoint. */
+export interface HttpLogTransportSettings {
+  enabled: boolean;
+  url: string;
+  level: "debug" | "info" | "warn" | "error";
+  authType: "none" | "bearer" | "basic";
+  bearerToken: string;
+  username: string;
+  password: string;
+}
+
+/** Browser-safe view of the HTTP logging configuration without secret values. */
+export interface PublicHttpLogTransportSettings extends Omit<HttpLogTransportSettings, "bearerToken" | "password"> {
+  bearerTokenConfigured: boolean;
+  passwordConfigured: boolean;
+}
+
 export interface ManagerConfig {
   broker: BrokerSettings;
+  httpLogTransport: HttpLogTransportSettings;
   firmwareRollout: FirmwareRolloutSettings;
   backupSettings: BackupSettings;
   panels: Panel[];
@@ -320,8 +338,9 @@ export interface ManagerConfig {
   panelBindings: PanelBinding[];
 }
 
-export interface PublicConfig extends Omit<ManagerConfig, "broker"> {
+export interface PublicConfig extends Omit<ManagerConfig, "broker" | "httpLogTransport"> {
   broker: Omit<BrokerSettings, "password"> & { passwordConfigured: boolean };
+  httpLogTransport: PublicHttpLogTransportSettings;
 }
 
 export function defaultPanelSettings(name = "New NSPanel"): PanelSettings {

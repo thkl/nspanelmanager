@@ -2,6 +2,7 @@ import { chmod, mkdir } from "node:fs/promises";
 import path from "node:path";
 import winston from "winston";
 import "winston-daily-rotate-file";
+import type { HttpLogTransportSettings } from "../types.js";
 
 /** Severity supported by manager log records and their configured sinks. */
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -103,6 +104,72 @@ export class WinstonFileLogSink implements LogSink {
   }
 }
 
+/** Forwards structured records through Winston's built-in HTTP transport. */
+export class WinstonHttpLogSink implements LogSink {
+  private httpLogger?: winston.Logger;
+  private lastFailureAt = 0;
+  private suppressedFailures = 0;
+
+  /** Replaces or disables the outgoing HTTP transport using the saved settings. */
+  configure(settings: HttpLogTransportSettings): void {
+    this.httpLogger?.close();
+    this.httpLogger = undefined;
+    if (!settings.enabled) return;
+
+    const endpoint = parseHttpLogEndpoint(settings.url);
+    const auth = settings.authType === "bearer"
+      ? { bearer: settings.bearerToken }
+      : settings.authType === "basic"
+        ? { username: settings.username, password: settings.password }
+        : undefined;
+    const transport = new winston.transports.Http({
+      host: endpoint.hostname,
+      port: endpoint.port ? Number(endpoint.port) : undefined,
+      path: `${endpoint.pathname}${endpoint.search}`,
+      ssl: endpoint.protocol === "https:",
+      auth,
+      level: settings.level,
+      batch: false
+    });
+    transport.on("warn", (error: unknown) => this.reportTransportFailure(error));
+    this.httpLogger = winston.createLogger({
+      level: "debug",
+      format: winston.format.json(),
+      transports: [transport],
+      exitOnError: false
+    });
+  }
+
+  /** Sends one record while preserving its timestamp and structured context. */
+  write(record: LogRecord): void {
+    this.httpLogger?.log({
+      level: record.level,
+      message: record.message,
+      timestamp: record.timestamp,
+      context: record.context
+    });
+  }
+
+  /** Closes the outbound logger before the manager process exits. */
+  close(): void {
+    this.httpLogger?.close();
+    this.httpLogger = undefined;
+  }
+
+  private reportTransportFailure(error: unknown): void {
+    const now = Date.now();
+    if (now - this.lastFailureAt < 60_000) {
+      this.suppressedFailures += 1;
+      return;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    const suppressed = this.suppressedFailures;
+    this.suppressedFailures = 0;
+    this.lastFailureAt = now;
+    console.error(`[logger] HTTP transport failed: ${detail}${suppressed ? ` (${suppressed} similar errors suppressed)` : ""}`);
+  }
+}
+
 /**
  * Sends structured records to the configured sinks.
  * The API writes to the process console and adds a rotating Winston file sink
@@ -116,7 +183,7 @@ export class Logger {
     this.sinks = [...sinks];
   }
 
-  /** Adds a sink, such as a future rotating file writer, to receive new records. */
+  /** Adds a sink, such as a rotating file writer or optional HTTP transport, to receive new records. */
   addSink(sink: LogSink): void {
     this.sinks.push(sink);
   }
@@ -166,4 +233,13 @@ export class Logger {
     const detail = error instanceof Error ? error.message : String(error);
     console.error(`[logger] A log sink failed: ${detail}`);
   }
+}
+
+/** Validates the outbound destination before handing it to Winston's transport. */
+function parseHttpLogEndpoint(value: string): URL {
+  const endpoint = new URL(value);
+  if (!(["http:", "https:"].includes(endpoint.protocol)) || !endpoint.hostname || endpoint.username || endpoint.password || endpoint.hash) {
+    throw new Error("The HTTP log destination must be an HTTP or HTTPS URL without embedded credentials or a fragment.");
+  }
+  return endpoint;
 }

@@ -1,6 +1,6 @@
 # Unified, MAC-addressed panel firmware, included by nspanel-unified.yaml.
 substitutions:
-  firmware_version: "6.0.46"
+  firmware_version: "6.0.48"
   diagnostic_ignore_music_commands: "false"
   diagnostic_skip_music_display: "false"
 

@@ -1,10 +1,120 @@
 <section class="single-card card">
-  <div class="card-heading"><div><h2>{{ 'BROKER.TITLE' | translate }}</h2><p>{{ 'BROKER.DESCRIPTION' | translate }}</p></div><span class="status-tag" [class.good]="manager.mqtt().connected">{{ (manager.mqtt().connected ? 'BROKER.CONNECTED' : 'BROKER.DISCONNECTED') | translate }}</span></div>
-  <div class="form-grid two-col broker-form">
-    <label>{{ 'BROKER.URL' | translate }}<input [ngModel]="draft().url" (ngModelChange)="setUrl($event)" placeholder="mqtt://192.168.1.10:1883"><small>{{ 'BROKER.URL_HELP' | translate }}</small></label>
-    <label>{{ 'BROKER.USERNAME' | translate }}<input [ngModel]="draft().username" (ngModelChange)="setUsername($event)" [placeholder]="'BROKER.OPTIONAL' | translate"></label>
-    <label>{{ 'BROKER.PASSWORD' | translate }}<input type="password" [ngModel]="draft().password" (ngModelChange)="setPassword($event)" [placeholder]="(manager.config().broker.passwordConfigured ? 'BROKER.PASSWORD_KEEP' : 'BROKER.OPTIONAL') | translate"></label>
+  <div class="card-heading">
+    <div>
+      <h2>{{ 'BROKER.TITLE' | translate }}</h2>
+      <p>{{ 'BROKER.DESCRIPTION' | translate }}</p>
+    </div>
+    <span class="status-tag" [class.good]="manager.mqtt().connected">
+      {{ (manager.mqtt().connected ? 'BROKER.CONNECTED' : 'BROKER.DISCONNECTED') | translate }}
+    </span>
   </div>
-  <div class="card-footer"><div class="help-copy"><b>{{ 'BROKER.TOPIC_PATTERN' | translate }}</b><span>{{ 'BROKER.TOPIC_HELP' | translate }} <code>&lt;node-name&gt;/cmnd/#</code> {{ 'BROKER.AND_PUBLISHES' | translate }} <code>&lt;node-name&gt;/event/#</code>.</span></div><button class="button primary" [disabled]="saving()" (click)="save()">{{ (saving() ? 'BROKER.SAVING' : 'BROKER.SAVE') | translate }}</button></div>
-  @if (manager.mqtt().error) { <div class="error-line">{{ manager.mqtt().error }}</div> }
+
+  <div class="form-grid two-col broker-form">
+    <label>
+      {{ 'BROKER.URL' | translate }}
+      <input [ngModel]="draft().url" (ngModelChange)="setUrl($event)" placeholder="mqtt://192.168.1.10:1883">
+      <small>{{ 'BROKER.URL_HELP' | translate }}</small>
+    </label>
+    <label>
+      {{ 'BROKER.USERNAME' | translate }}
+      <input [ngModel]="draft().username" (ngModelChange)="setUsername($event)" [placeholder]="'BROKER.OPTIONAL' | translate">
+    </label>
+    <label>
+      {{ 'BROKER.PASSWORD' | translate }}
+      <input type="password" [ngModel]="draft().password" (ngModelChange)="setPassword($event)" [placeholder]="(manager.config().broker.passwordConfigured ? 'BROKER.PASSWORD_KEEP' : 'BROKER.OPTIONAL') | translate">
+    </label>
+  </div>
+
+  <div class="card-footer">
+    <div class="help-copy">
+      <b>{{ 'BROKER.TOPIC_PATTERN' | translate }}</b>
+      <span>{{ 'BROKER.TOPIC_HELP' | translate }} <code>&lt;node-name&gt;/cmnd/#</code> {{ 'BROKER.AND_PUBLISHES' | translate }} <code>&lt;node-name&gt;/event/#</code>.</span>
+    </div>
+    <button class="button primary" [disabled]="saving()" (click)="save()">
+      {{ (saving() ? 'BROKER.SAVING' : 'BROKER.SAVE') | translate }}
+    </button>
+  </div>
+  @if (manager.mqtt().error) {
+    <div class="error-line">{{ manager.mqtt().error }}</div>
+  }
+</section>
+
+<section class="single-card card remote-logging-card">
+  <div class="card-heading">
+    <div>
+      <h2>{{ 'BROKER.HTTP_LOG_TITLE' | translate }}</h2>
+      <p>{{ 'BROKER.HTTP_LOG_DESCRIPTION' | translate }}</p>
+    </div>
+    <span class="status-tag" [class.good]="manager.config().httpLogTransport.enabled">
+      {{ (manager.config().httpLogTransport.enabled ? 'BROKER.HTTP_LOG_ENABLED' : 'BROKER.HTTP_LOG_DISABLED') | translate }}
+    </span>
+  </div>
+
+  <label class="enable-remote-logging">
+    <input type="checkbox" [checked]="httpDraft().enabled" (change)="setHttpEnabled($any($event.target).checked)">
+    {{ 'BROKER.HTTP_LOG_ENABLE' | translate }}
+  </label>
+
+  <div class="form-grid two-col broker-form">
+    <label class="full-width">
+      {{ 'BROKER.HTTP_LOG_URL' | translate }}
+      <input type="url" [ngModel]="httpDraft().url" (ngModelChange)="setHttpField('url', $event)" placeholder="https://logs.example.com/ingest">
+      <small>{{ 'BROKER.HTTP_LOG_URL_HELP' | translate }}</small>
+    </label>
+    <label>
+      {{ 'BROKER.HTTP_LOG_LEVEL' | translate }}
+      <select [ngModel]="httpDraft().level" (ngModelChange)="setHttpLevel($event)">
+        <option value="debug">{{ 'BROKER.HTTP_LOG_LEVEL_DEBUG' | translate }}</option>
+        <option value="info">{{ 'BROKER.HTTP_LOG_LEVEL_INFO' | translate }}</option>
+        <option value="warn">{{ 'BROKER.HTTP_LOG_LEVEL_WARN' | translate }}</option>
+        <option value="error">{{ 'BROKER.HTTP_LOG_LEVEL_ERROR' | translate }}</option>
+      </select>
+    </label>
+    <label>
+      {{ 'BROKER.HTTP_LOG_AUTH' | translate }}
+      <select [ngModel]="httpDraft().authType" (ngModelChange)="setHttpAuthType($event)">
+        <option value="none">{{ 'BROKER.HTTP_LOG_AUTH_NONE' | translate }}</option>
+        <option value="bearer">{{ 'BROKER.HTTP_LOG_AUTH_BEARER' | translate }}</option>
+        <option value="basic">{{ 'BROKER.HTTP_LOG_AUTH_BASIC' | translate }}</option>
+      </select>
+    </label>
+    @if (httpDraft().authType === 'bearer') {
+      <label class="full-width">
+        {{ 'BROKER.HTTP_LOG_TOKEN' | translate }}
+        <input type="password" autocomplete="new-password" [ngModel]="httpDraft().bearerToken" (ngModelChange)="setHttpBearerToken($event)" [placeholder]="(manager.config().httpLogTransport.bearerTokenConfigured && !httpDraft().clearBearerToken ? 'BROKER.HTTP_LOG_SECRET_KEEP' : 'BROKER.HTTP_LOG_SECRET_EMPTY') | translate">
+        @if (manager.config().httpLogTransport.bearerTokenConfigured) {
+          <small>{{ 'BROKER.HTTP_LOG_TOKEN_SAVED' | translate }}</small>
+          <button class="text-button" type="button" [disabled]="httpDraft().clearBearerToken" (click)="clearHttpBearerToken()">
+            {{ (httpDraft().clearBearerToken ? 'BROKER.HTTP_LOG_SECRET_REMOVED' : 'BROKER.HTTP_LOG_TOKEN_CLEAR') | translate }}
+          </button>
+        }
+      </label>
+    }
+    @if (httpDraft().authType === 'basic') {
+      <label>
+        {{ 'BROKER.HTTP_LOG_USERNAME' | translate }}
+        <input autocomplete="username" [ngModel]="httpDraft().username" (ngModelChange)="setHttpField('username', $event)">
+      </label>
+      <label>
+        {{ 'BROKER.HTTP_LOG_PASSWORD' | translate }}
+        <input type="password" autocomplete="new-password" [ngModel]="httpDraft().password" (ngModelChange)="setHttpPassword($event)" [placeholder]="(manager.config().httpLogTransport.passwordConfigured && !httpDraft().clearPassword ? 'BROKER.HTTP_LOG_SECRET_KEEP' : 'BROKER.HTTP_LOG_SECRET_EMPTY') | translate">
+        @if (manager.config().httpLogTransport.passwordConfigured) {
+          <small>{{ 'BROKER.HTTP_LOG_PASSWORD_SAVED' | translate }}</small>
+          <button class="text-button" type="button" [disabled]="httpDraft().clearPassword" (click)="clearHttpPassword()">
+            {{ (httpDraft().clearPassword ? 'BROKER.HTTP_LOG_SECRET_REMOVED' : 'BROKER.HTTP_LOG_PASSWORD_CLEAR') | translate }}
+          </button>
+        }
+      </label>
+    }
+  </div>
+
+  <div class="card-footer">
+    <div class="help-copy">
+      <b>{{ 'BROKER.HTTP_LOG_FORMAT_TITLE' | translate }}</b>
+      <span>{{ 'BROKER.HTTP_LOG_FORMAT_HELP' | translate }}</span>
+    </div>
+    <button class="button primary" [disabled]="savingHttp()" (click)="saveHttpLogging()">
+      {{ (savingHttp() ? 'BROKER.HTTP_LOG_SAVING' : 'BROKER.HTTP_LOG_SAVE') | translate }}
+    </button>
+  </div>
 </section>

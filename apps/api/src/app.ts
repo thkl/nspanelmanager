@@ -3,6 +3,7 @@ import path from "node:path";
 import type { ConfigStore } from "./services/config-store.js";
 import type { MqttRuntime } from "./services/mqtt-runtime.js";
 import { createBrokerRouter } from "./routes/broker.js";
+import { createLoggingRouter } from "./routes/logging.js";
 import { createMqttRouteRouter } from "./routes/mqtt-routes.js";
 import { createPanelRouter } from "./routes/panels.js";
 import { createPluginsRouter } from "./features/plugins/plugins.routes.js";
@@ -24,6 +25,7 @@ import type { FirmwareArtifactService } from "./features/firmware/firmware-artif
 import type { FirmwareUpdateService } from "./features/firmware/firmware-update-service.js";
 import type { CoreDumpStore } from "./features/firmware/core-dump-store.js";
 import { presentPluginProfile } from "./features/plugins/plugin-profile-utils.js";
+import type { WinstonHttpLogSink } from "./services/logger.js";
 
 const logger = new Logger();
 
@@ -35,7 +37,7 @@ const logger = new Logger();
  * production it serves the Angular build from `WEB_ROOT`; local development
  * uses Angular CLI's dev server and proxies `/api` to this application.
  */
-export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry, authService: AuthService, logger: Logger, logFileReader: LogFileReader, backupService: BackupArchiveService, backupScheduler: BackupScheduler, hmiService: HmiArtifactService, hmiUpdateService: HmiUpdateService, firmwareService: FirmwareArtifactService, firmwareUpdateService: FirmwareUpdateService, coreDumpStore: CoreDumpStore): Express {
+export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRegistry: PluginRegistry, authService: AuthService, logger: Logger, logFileReader: LogFileReader, backupService: BackupArchiveService, backupScheduler: BackupScheduler, hmiService: HmiArtifactService, hmiUpdateService: HmiUpdateService, firmwareService: FirmwareArtifactService, firmwareUpdateService: FirmwareUpdateService, coreDumpStore: CoreDumpStore, httpLogSink: WinstonHttpLogSink): Express {
   const app = express();
   app.set("trust proxy", parseTrustProxySetting(process.env.TRUST_PROXY));
   app.disable("x-powered-by");
@@ -57,6 +59,7 @@ export function createApp(store: ConfigStore, mqttRuntime: MqttRuntime, pluginRe
 
   app.use("/api/logs", createLogsRouter(logFileReader));
   app.use("/api/backups", createBackupsRouter(backupService, backupScheduler, store, logger));
+  app.use("/api/logging", createLoggingRouter(store, logger, httpLogSink));
   app.use("/api/config-revisions", createConfigHistoryRouter(store, mqttRuntime, backupScheduler, logger));
   app.use("/api/hmi", createHmiRouter(hmiService, hmiUpdateService, firmwareUpdateService, store, mqttRuntime, logger));
   app.use("/api/firmware", createFirmwareRouter(firmwareService, firmwareUpdateService, hmiUpdateService, store, mqttRuntime, logger, coreDumpStore));
@@ -108,9 +111,15 @@ function parseTrustProxySetting(rawValue: string | undefined): boolean | number 
 
 function publicConfig(config: ReturnType<ConfigStore["get"]>, pluginRegistry: PluginRegistry) {
   const { password, ...broker } = config.broker;
+  const { bearerToken, password: httpPassword, ...httpLogTransport } = config.httpLogTransport;
   return {
     ...config,
     broker: { ...broker, passwordConfigured: Boolean(password) },
+    httpLogTransport: {
+      ...httpLogTransport,
+      bearerTokenConfigured: Boolean(bearerToken),
+      passwordConfigured: Boolean(httpPassword)
+    },
     pluginProfiles: config.pluginProfiles.map((profile) => presentPluginProfile(profile, pluginRegistry))
   };
 }

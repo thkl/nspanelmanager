@@ -6,7 +6,7 @@ import { SqliteStore } from "./services/sqlite-store.js";
 import { MqttRuntime } from "./services/mqtt-runtime.js";
 import { RuntimeStateStore } from "./features/runtime/runtime-state-store.js";
 import { createDefaultPluginRegistry } from "./features/plugins/default-plugin-registry.js";
-import { Logger, WinstonFileLogSink } from "./services/logger.js";
+import { Logger, WinstonFileLogSink, WinstonHttpLogSink } from "./services/logger.js";
 import { AuthService } from "./features/auth/auth-service.js";
 import { UserStore } from "./features/auth/user-store.js";
 import { CredentialEncryption } from "./features/security/credential-encryption.js";
@@ -38,6 +38,8 @@ async function startServer(): Promise<void> {
   const logDirectory = process.env.LOG_DIR?.trim() || path.join(dataDir, "logs");
   const logFileReader = new LogFileReader(logDirectory);
   logger.addSink(await WinstonFileLogSink.create(logDirectory));
+  const httpLogSink = new WinstonHttpLogSink();
+  logger.addSink(httpLogSink);
   const encryptionKeyFile = process.env.MANAGER_ENCRYPTION_KEY_FILE?.trim() ||
     process.env.APP_ENCRYPTION_KEY_FILE?.trim() ||
     "../../secrets/manager_encryption_key";
@@ -46,6 +48,7 @@ async function startServer(): Promise<void> {
   await sqliteStore.initialize();
   const store = new ConfigStore(sqliteStore, credentialEncryption);
   await store.load();
+  httpLogSink.configure(store.get().httpLogTransport);
   const runtimeState = new RuntimeStateStore(sqliteStore, logger);
   await runtimeState.load();
   const backupSettings = store.get().backupSettings;
@@ -109,7 +112,7 @@ async function startServer(): Promise<void> {
     mqttRuntime,
     (rollout) => realtimeServer?.broadcast({ type: "firmware-rollout", rollout })
   );
-  const app = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, backupScheduler, hmiService, hmiUpdateService, firmwareService, firmwareUpdateService, coreDumpStore);
+  const app = createApp(store, mqttRuntime, pluginRegistry, authService, logger, logFileReader, backupService, backupScheduler, hmiService, hmiUpdateService, firmwareService, firmwareUpdateService, coreDumpStore, httpLogSink);
   const httpServer = createServer(app);
   realtimeServer = new RealtimeWebSocketServer(httpServer, authService, async () => ({
     panels: mqttRuntime.panelConnectionStatuses(),

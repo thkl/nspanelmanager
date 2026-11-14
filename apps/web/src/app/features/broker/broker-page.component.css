@@ -64,6 +64,25 @@
   margin: 21px 0 26px;
 }
 
+.remote-logging-card {
+  margin-top: 20px;
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.enable-remote-logging {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.enable-remote-logging input {
+  accent-color: var(--green);
+}
+
 label {
   display: block;
   min-width: 0;
@@ -88,9 +107,28 @@ label input {
   transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
 }
 
+label select {
+  width: 100%;
+  height: 36px;
+  margin-top: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
 label input:focus {
   border-color: var(--green-line);
   box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+label select:focus {
+  border-color: var(--green-line);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  outline: none;
 }
 
 label input::placeholder {
@@ -170,6 +208,23 @@ label small {
 
 .button:active {
   transform: scale(.97);
+}
+
+.text-button {
+  display: block;
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--red);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.text-button:disabled {
+  color: var(--ink-faint);
+  cursor: default;
 }
 
 .error-line {

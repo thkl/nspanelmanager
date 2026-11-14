@@ -49,9 +49,15 @@ function stringValue(value: unknown): string { return typeof value === "string" 
 
 function publicConfig(config: ReturnType<ConfigStore["get"]>, pluginRegistry: PluginRegistry) {
   const { password, ...broker } = config.broker;
+  const { bearerToken, password: httpPassword, ...httpLogTransport } = config.httpLogTransport;
   return {
     ...config,
     broker: { ...broker, passwordConfigured: Boolean(password) },
+    httpLogTransport: {
+      ...httpLogTransport,
+      bearerTokenConfigured: Boolean(bearerToken),
+      passwordConfigured: Boolean(httpPassword)
+    },
     pluginProfiles: config.pluginProfiles.map((profile) => presentPluginProfile(profile, pluginRegistry))
   };
 }

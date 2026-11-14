@@ -52,6 +52,17 @@ export interface BackupSettings {
   directory: string;
 }
 
+/** Safe HTTP logging settings returned by the manager API. */
+export interface HttpLogTransportSettings {
+  enabled: boolean;
+  url: string;
+  level: "debug" | "info" | "warn" | "error";
+  authType: "none" | "bearer" | "basic";
+  username: string;
+  bearerTokenConfigured: boolean;
+  passwordConfigured: boolean;
+}
+
 /** Metadata for an administrator-created or system-created configuration snapshot. */
 export interface ConfigRevision {
   id: number;
@@ -255,6 +266,7 @@ export interface PanelBinding {
 
 export interface ManagerConfig {
   broker: { url: string; username: string; passwordConfigured: boolean };
+  httpLogTransport: HttpLogTransportSettings;
   firmwareRollout: FirmwareRolloutSettings;
   backupSettings: BackupSettings;
   panels: Panel[];
@@ -442,6 +454,19 @@ export interface BrokerInput {
   url: string;
   username: string;
   password: string;
+}
+
+/** Editable HTTP logging settings; new secrets are sent only when changed. */
+export interface HttpLogTransportInput {
+  enabled: boolean;
+  url: string;
+  level: "debug" | "info" | "warn" | "error";
+  authType: "none" | "bearer" | "basic";
+  username: string;
+  bearerToken: string;
+  password: string;
+  clearBearerToken: boolean;
+  clearPassword: boolean;
 }
 
 export interface RouteDraft {
