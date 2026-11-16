@@ -301,7 +301,6 @@ export class MqttRuntime {
       callback();
       return;
     }
-
     const envelope: MqttMessageEnvelope = {
       topic: packet.topic,
       payload: packet.payload.toString(),
@@ -309,6 +308,13 @@ export class MqttRuntime {
       retain: packet.retain ?? false,
       receivedAt: Date.now()
     };
+
+    this.logger.debug("Incomming MQTT Message", {
+      component: "mqtt",
+      topic: envelope.topic,
+      detail: envelope.payload
+    });
+
     const processing = (async () => {
       try {
         await this.handleMessage(envelope);
@@ -472,8 +478,9 @@ export class MqttRuntime {
 
   /** Publishes settings on the operational topic root unless a bootstrap root is explicitly supplied. */
   publishPanelSettings(panel: Panel, force = false, topicRoot = panelTopicRoot(panel)): boolean {
+    this.logger.info("Publishing Panel settings.", { component: "mqtt", panel: panel.name });
     const defaultPlayer = panel.nativePluginInstances ? panel.nativePluginInstances['music'] : undefined;
-    const configuredPlayers = this.configuredNativePagePlayers("music",defaultPlayer);
+    const configuredPlayers = this.configuredNativePagePlayers("music", defaultPlayer);
 
     const settings: Record<string, unknown> = {
       ...panel.settings,
@@ -564,18 +571,18 @@ export class MqttRuntime {
         const commands = supportsAcknowledgement
           ? [{ topic: `${root}/cmnd/group/settings`, payload: JSON.stringify({ request_id: requestId, ...settings }) }]
           : [
-              ...(settings.night === undefined ? [] : [{ topic: `${root}/cmnd/night`, payload: JSON.stringify({ night: settings.night }) }]),
-              ...(settings.brightness === undefined ? [] : [
-                { topic: `${root}/cmnd/settings/brightness`, payload: JSON.stringify({ brightness: settings.brightness }) },
-                { topic: `${root}/cmnd/nextion`, payload: `dims=${settings.brightness}` }
-              ])
-            ];
+            ...(settings.night === undefined ? [] : [{ topic: `${root}/cmnd/night`, payload: JSON.stringify({ night: settings.night }) }]),
+            ...(settings.brightness === undefined ? [] : [
+              { topic: `${root}/cmnd/settings/brightness`, payload: JSON.stringify({ brightness: settings.brightness }) },
+              { topic: `${root}/cmnd/nextion`, payload: `dims=${settings.brightness}` }
+            ])
+          ];
 
         let published = commands.length > 0;
         for (const command of commands) {
           if (commandCount > 0) await wait(MqttRuntime.PANEL_GROUP_COMMAND_INTERVAL_MS);
           commandCount++;
-          this.logger.info("Publish",{topic:command.topic,payload:command.payload});
+          this.logger.info("Publish", { topic: command.topic, payload: command.payload });
           if (!this.publish(command.topic, command.payload)) published = false;
         }
         if (!published) {
@@ -679,7 +686,7 @@ export class MqttRuntime {
   }
 
   /** Builds the firmware's player-slot configuration from active shared music-page instances. */
-  private configuredNativePagePlayers(pageId: string, defaultPlayer?:string): Array<{ id: number; name: string; sonos: string; player: string; currentSong?: string }> {
+  private configuredNativePagePlayers(pageId: string, defaultPlayer?: string): Array<{ id: number; name: string; sonos: string; player: string; currentSong?: string }> {
     return this.resolvePluginInstances()
       .filter((instance) => instance.enabled && this.plugins.get(instance.pluginId)?.nativePanelPage === pageId && this.plugins.get(instance.pluginId)?.nativePanelSharedInstances)
       .flatMap((instance) => {
@@ -877,9 +884,9 @@ export class MqttRuntime {
           const state = this.runtimeState.getPluginState(instance.id);
           const relatedInstances = definition.nativePanelSharedInstances
             ? instances.filter((candidate) => candidate.enabled && candidate.pluginId === instance.pluginId).map((candidate) => ({
-                instance: candidate,
-                state: candidate.id === instance.id ? state : this.runtimeState.getPluginState(candidate.id)
-              }))
+              instance: candidate,
+              state: candidate.id === instance.id ? state : this.runtimeState.getPluginState(candidate.id)
+            }))
             : undefined;
           const commands = definition.renderPanelRestartState(instance, this.panelForPlugins(panel), state, relatedInstances);
           let publishedCommands = 0;
@@ -1000,7 +1007,7 @@ export class MqttRuntime {
       const assignedMac = normalizeMacAddress(eventPanelRecord.macAddress);
       const bootstrapRoot = panelBootstrapTopicRoot(eventPanelRecord);
       if (eventRoot !== bootstrapRoot || !eventPanelRecord.unifiedFirmware || !assignedMac || reportedMac !== assignedMac ||
-          (reportedIdentity && reportedIdentity.mac !== assignedMac)) {
+        (reportedIdentity && reportedIdentity.mac !== assignedMac)) {
         this.logger.warn("Ignored a unified panel init message whose MAC does not match its configured identity.", {
           component: "mqtt",
           panel: eventPanelRecord.name,
@@ -2099,9 +2106,9 @@ export class MqttRuntime {
     try {
       const relatedInstances: readonly PluginNativePanelInstanceState[] | undefined = definition.nativePanelSharedInstances
         ? this.resolvePluginInstances().filter((candidate) => candidate.enabled && candidate.pluginId === instance.pluginId).map((candidate) => ({
-            instance: candidate,
-            state: candidate.id === instance.id ? state : this.runtimeState.getPluginState(candidate.id)
-          }))
+          instance: candidate,
+          state: candidate.id === instance.id ? state : this.runtimeState.getPluginState(candidate.id)
+        }))
         : undefined;
       for (const command of definition.renderNativePanelState(instance, this.panelForPlugins(panel), state, relatedInstances)) {
         if (isPublishableTopic(command.topic)) this.publish(command.topic, command.payload);
@@ -2318,7 +2325,7 @@ export class MqttRuntime {
       screen,
       ...(targetDefinition.renderMenuPage ? { menuPageActive: true } : {}),
       ...(targetDefinition.renderMenuPage ? { menuPageIndex: 0 } : {}),
-        ...(this.favoritePanelPageFor(targetDefinition, target) ? { favoritePanelPage: this.favoritePanelPageFor(targetDefinition, target) } : {}),
+      ...(this.favoritePanelPageFor(targetDefinition, target) ? { favoritePanelPage: this.favoritePanelPageFor(targetDefinition, target) } : {}),
       history: [],
       flowBinding: targetBinding,
       ancestors
@@ -2468,8 +2475,8 @@ export class MqttRuntime {
       );
       const activeSession = this.runtimeState.getPanelSession(panel.id);
       if (!page || activeSession?.bindingId !== updatedSession.bindingId ||
-          activeSession.pluginInstanceId !== updatedSession.pluginInstanceId ||
-          activeSession.menuPageIndex !== nextPage) {
+        activeSession.pluginInstanceId !== updatedSession.pluginInstanceId ||
+        activeSession.menuPageIndex !== nextPage) {
         return;
       }
       this.panelProtocol.showMenuPage(panel, page, binding.id);
