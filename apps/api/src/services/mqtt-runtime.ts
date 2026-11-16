@@ -309,12 +309,6 @@ export class MqttRuntime {
       receivedAt: Date.now()
     };
 
-    this.logger.debug("Incomming MQTT Message", {
-      component: "mqtt",
-      topic: envelope.topic,
-      detail: envelope.payload
-    });
-
     const processing = (async () => {
       try {
         await this.handleMessage(envelope);
@@ -1136,6 +1130,11 @@ export class MqttRuntime {
     }
     if (eventPanel && topic === `${eventPanel.nodeName}/event/ping`) {
       const telemetry = readPanelTelemetry(payload, message.receivedAt);
+      this.logger.debug("readPanelTelemetry", {
+      component: "mqtt",
+      topic: eventPanel.name,
+      uptime: String(telemetry?.uptimeSeconds)
+    });
       if (telemetry?.firmwareVersion) this.panelFirmwareVersions.set(eventPanel.id, telemetry.firmwareVersion);
       if (telemetry?.supportsGroupSettingsAck !== undefined) {
         const previousCapability = this.panelGroupAckCapabilities.get(eventPanel.id);
