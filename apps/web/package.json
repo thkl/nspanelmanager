@@ -4,7 +4,9 @@
   "scripts": {
     "dev": "ng serve",
     "start:debug": "ng serve",
-    "build": "ng build"
+    "build": "ng build",
+    "checkupdates": "npx npm-check-updates --target minor --removeRange",
+    "doupdates": "npx npm-check-updates --target minor --removeRange -u"
   },
   "dependencies": {
     "@angular/common": "^22.2.3",

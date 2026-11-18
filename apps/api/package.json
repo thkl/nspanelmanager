@@ -7,7 +7,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "start:debug": "dotenv -e ../../.env -v DATA_DIR=./data -- tsx watch --inspect src/server.ts",
-    "security:keygen": "node --experimental-strip-types src/features/security/create-encryption-key.ts"
+    "security:keygen": "node --experimental-strip-types src/features/security/create-encryption-key.ts",
+    "checkupdates": "npx npm-check-updates --target minor --removeRange",
+    "doupdates": "npx npm-check-updates --target minor --removeRange -u"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",
